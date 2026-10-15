@@ -113,3 +113,27 @@ When recording a new decision, copy this template and fill it in:
 - **Context:** Need consistent code style, static analysis, and fast unit test execution across TypeScript ES modules without complex transpilation setups.
 - **Alternatives considered:** Jest (slower, requires extra Babel or ts-jest transform configuration for native ESM and TypeScript).
 - **Consequence:** Fast, modern test execution with native TypeScript and ESM support in Vitest, and clean separation between code formatting and linting rules.
+
+---
+
+### ADR-11: Shelter drop-off model
+
+- **Date:** 2026-10-16
+- **Decision:** Route rescue vehicles to drop off rescued citizens at the nearest safe shelter or designated relief depot once a trip completes or capacity is reached, resetting vehicle onboard load to zero for subsequent pickup batches.
+- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities. Unlike package delivery where vehicle load only decreases, passenger rescue requires multi-trip cycles where vehicles pick up evacuees, transport them to safe shelter destinations, and then deploy on subsequent rescue runs within maximum operational shift limits.
+- **Alternatives considered:**
+  - _Single-trip return to depot:_ Vehicle only executes one run and stops. Rejected because emergency resources are scarce and must execute multiple pickup-and-shelter cycles during flood operations.
+  - _Dynamic multi-shelter load-balancing:_ Dynamically distributing evacuees across multiple distant shelters based on live shelter occupancy. Postponed to later phases to keep solver core deterministic and testable before live database integration.
+- **Consequence:** Solvers automatically generate `DROPOFF` stops at the nearest shelter when vehicle load is non-zero, properly reflecting round-trip rescue times in plan metrics.
+
+---
+
+### ADR-12: Flood impedance multipliers
+
+- **Date:** 2026-10-16
+- **Decision:** Model waterlogged and hazardous route segments using a dimensionless flood impedance multiplier (`ASSUMED_FLOOD_IMPEDANCE_MULTIPLIER` = 1.0 baseline, > 1.0 for slowed segments) integrated into the `TravelTimeProvider` interface.
+- **Context:** In flood conditions, water depth, debris, and current significantly slow vehicle transit even on passable roads. The standard straight-line or road network distance does not account for this localized velocity reduction. A multiplier allows representing reduced transit speeds across waterlogged zones without requiring a full hydrodynamic simulation model.
+- **Alternatives considered:**
+  - _Binary open/closed road modeling:_ Marking roads as either 100% open or 100% blocked. Rejected as too coarse, because emergency high-water vehicles and rescue boats often navigate submerged streets at reduced speeds rather than treating every flooded street as a complete cutoff.
+  - _Physics-based hydrodynamic flow models:_ Simulating water velocities and vehicle propulsion equations. Rejected because input data is rarely available during emergency operations and would violate ADR-4 (simplicity and deterministic reliability).
+- **Consequence:** Travel time calculations scale duration by `impedance`, providing a flexible parameter that operators or flood forecast layers can adjust per zone in subsequent phases.

@@ -8,13 +8,14 @@ A flood-rescue resource allocation platform. Citizens submit rescue requests, th
 
 - A decision-support tool for human operators coordinating flood rescue resources.
 - Operators review proposed assignments and commit them. The system does not act autonomously.
-- Demo rescue requests are simulated, seeded, reproducible, and always labelled `SIMULATED`.
+- Demo rescue requests and benchmark scenarios are simulated, seeded, reproducible, and always labelled `SIMULATED`.
+- The reference Yamuna floodplain scenario (`scenarios/sample-scenario.json`) is entirely synthetic: all coordinates, victim numbers, and requests are simulated test data and do not represent real incidents or actual victims.
 
 **What this is not:**
 
 - Not an autonomous dispatch system. A human operator always makes the final call.
 - Not a replacement for emergency services communication infrastructure.
-- Simulated requests are not real incidents and are clearly marked as such.
+- Simulated requests are not real incidents and are clearly marked as such. Nothing in the repository coordinates or numbers represents real data.
 
 ## Folder structure
 
