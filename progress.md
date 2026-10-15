@@ -128,16 +128,16 @@ Incoming rescue requests
 
 ### Phase 1 — Solver core and evaluation harness
 
-| Task                                                                              | Owner | Status |
-| --------------------------------------------------------------------------------- | ----- | ------ |
-| Scenario format                                                                   | —     | ✅     |
-| Seeded generator                                                                  | —     | ✅     |
-| Metrics                                                                           | —     | ✅     |
-| Nearest-first baseline                                                            | —     | ✅     |
-| Own DBSCAN                                                                        | —     | ✅     |
-| First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     |
-| Clarke-Wright + 2-opt baseline                                                    | —     | ✅     |
-| Results-table script                                                              | —     | ✅     |
+| Task                                                                              | Owner | Status | Proving Test                                                                                                                                                        |
+| --------------------------------------------------------------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scenario format                                                                   | —     | ✅     | `packages/shared/src/scenario.test.ts: Scenario Validation > validates a valid complete scenario`                                                                   |
+| Seeded generator                                                                  | —     | ✅     | `packages/solver/src/generator.test.ts: generateScenario > same seed gives an identical scenario, different seeds differ`                                           |
+| Metrics                                                                           | —     | ✅     | `packages/solver/src/metrics.test.ts: Solver Evaluation Metrics > calculates metrics correctly for served and unserved requests`                                    |
+| Nearest-first baseline                                                            | —     | ✅     | `packages/solver/src/baselines/nearestFirst.test.ts: solveNearestFirst > serves requests and respects capacity constraints`                                         |
+| Own DBSCAN                                                                        | —     | ✅     | `packages/solver/src/clustering/dbscan.test.ts: clusterRequests (DBSCAN) > DBSCAN keeps noise points as singleton demands`                                          |
+| First allocation heuristic with straight-line distances behind TravelTimeProvider | —     | ✅     | `packages/solver/src/heuristics/clusterAllocation.test.ts: solveClusterAllocation > allocates resources to clusters and prioritizes critical urgency requests`      |
+| Clarke-Wright + 2-opt baseline                                                    | —     | ✅     | `packages/solver/src/baselines/clarkeWrightBaseline.test.ts: Clarke-Wright + 2-opt baseline > serves requests while strictly obeying resource capacity constraints` |
+| Results-table script                                                              | —     | ✅     | `packages/solver/src/evaluation/benchmark.test.ts: Solver Evaluation Benchmark Harness > evaluates all solvers across random seeds and generates a results table`   |
 
 ### Phase 2 — API and database
 
@@ -225,8 +225,8 @@ Incoming rescue requests
 | Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
 | Operator commits assignments                      | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
 | Backend framework: Express with TypeScript        | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
-| Shelter drop-off model                            | Rescue vehicles drop off evacuees at nearest safe shelter to reset capacity and support realistic multi-trip rescue cycles                                                                                                                   |
-| Flood impedance multipliers                       | Dimensionless multiplier in TravelTimeProvider scales transit time across waterlogged segments without requiring complex hydrodynamic simulation                                                                                              |
+| Shelter drop-off model                            | Rescue vehicles drop off evacuees at nearest safe shelter to reset capacity and support realistic multi-trip rescue cycles                                                                                                                 |
+| Flood impedance multipliers                       | Dimensionless multiplier in TravelTimeProvider scales transit time across waterlogged segments without requiring complex hydrodynamic simulation                                                                                           |
 
 ---
 

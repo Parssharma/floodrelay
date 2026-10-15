@@ -86,7 +86,7 @@ describe('solveClusterAllocation', () => {
     }
   });
 
-  it('preserves existing frozen stops in updated routes', () => {
+  it('frozen stops are not moved by replanning', () => {
     const initialPlan = solveClusterAllocation(sampleScenario);
     const existingFrozenRoutes = initialPlan.routes.map((r) => ({
       ...r,
@@ -103,6 +103,64 @@ describe('solveClusterAllocation', () => {
     const firstStop = updatedPlan.routes[0]?.stops[0];
     expect(firstStop?.isFrozen).toBe(true);
     expect(firstStop?.targetId).toBe(frozenTargetId);
+  });
+
+  it('capacity is never exceeded', () => {
+    const largeScenario = generateScenario({
+      seed: 88,
+      requestCount: 40,
+      resourceCount: 5,
+      shelterCount: 2,
+    });
+
+    const plan = solveClusterAllocation(largeScenario);
+    for (const route of plan.routes) {
+      const res = largeScenario.resources.find((r) => r.id === route.resourceId);
+      expect(res).toBeDefined();
+      let load = 0;
+      for (const stop of route.stops) {
+        if (stop.type === 'PICKUP') {
+          load += stop.passengersPickedUp;
+          expect(load).toBeLessThanOrEqual(res!.capacity);
+        } else if (stop.type === 'DROPOFF') {
+          load -= stop.passengersDroppedOff;
+        }
+      }
+    }
+  });
+
+  it('no request is assigned twice', () => {
+    const scenario = generateScenario({
+      seed: 99,
+      requestCount: 30,
+      resourceCount: 4,
+      shelterCount: 2,
+    });
+
+    const plan = solveClusterAllocation(scenario);
+    const assignedIds = new Set<string>();
+    for (const route of plan.routes) {
+      for (const reqId of route.servedRequestIds) {
+        expect(assignedIds.has(reqId)).toBe(false);
+        assignedIds.add(reqId);
+      }
+    }
+  });
+
+  it('unavailable resources get nothing', () => {
+    const offlineScenario: Scenario = {
+      ...sampleScenario,
+      resources: [
+        {
+          ...sampleScenario.resources[0]!,
+          status: 'MAINTENANCE',
+        },
+      ],
+    };
+
+    const plan = solveClusterAllocation(offlineScenario);
+    expect(plan.routes).toHaveLength(0);
+    expect(plan.unserved).toHaveLength(sampleScenario.requests.length);
   });
 
   it('scales efficiently to 500-requests / 30-resources benchmark scenario', () => {

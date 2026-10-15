@@ -20,20 +20,18 @@ describe('SeededRNG', () => {
 });
 
 describe('generateScenario', () => {
-  it('is completely reproducible with the same seed', () => {
+  it('same seed gives an identical scenario, different seeds differ', () => {
     const s1 = generateScenario({ seed: 12345, requestCount: 20, resourceCount: 4 });
     const s2 = generateScenario({ seed: 12345, requestCount: 20, resourceCount: 4 });
+    const s3 = generateScenario({ seed: 99999, requestCount: 20, resourceCount: 4 });
 
+    // Same seed gives identical scenario
     expect(s1.requests).toEqual(s2.requests);
     expect(s1.resources).toEqual(s2.resources);
     expect(s1.shelters).toEqual(s2.shelters);
-  });
 
-  it('produces different results with different seeds', () => {
-    const s1 = generateScenario({ seed: 100, requestCount: 10 });
-    const s2 = generateScenario({ seed: 200, requestCount: 10 });
-
-    expect(s1.requests[0]?.lat).not.toBe(s2.requests[0]?.lat);
+    // Different seeds differ
+    expect(s1.requests[0]?.lat).not.toBe(s3.requests[0]?.lat);
   });
 
   it('labels every single generated request as SIMULATED', () => {

@@ -59,7 +59,7 @@ export class StraightLineTravelTimeProvider implements TravelTimeProvider {
     const speed = speedKmH && speedKmH > 0 ? speedKmH : this.defaultSpeedKmH;
     const impedance =
       floodMultiplier && floodMultiplier > 0 ? floodMultiplier : this.floodImpedanceMultiplier;
-    const durationMinutes = Number((((distanceKm / speed) * 60) * impedance).toFixed(2));
+    const durationMinutes = Number(((distanceKm / speed) * 60 * impedance).toFixed(2));
 
     return {
       distanceKm,

@@ -123,4 +123,62 @@ describe('solveNearestFirst', () => {
     expect(plan.metrics.coveragePercent).toBeGreaterThan(50);
     expect(plan.metrics.solveDurationMs).toBeLessThan(1000); // Super fast greedy execution
   });
+
+  it('capacity is never exceeded', () => {
+    const scenario = generateScenario({
+      seed: 123,
+      requestCount: 30,
+      resourceCount: 4,
+      shelterCount: 2,
+    });
+
+    const plan = solveNearestFirst(scenario);
+    for (const route of plan.routes) {
+      const res = scenario.resources.find((r) => r.id === route.resourceId);
+      expect(res).toBeDefined();
+      let load = 0;
+      for (const stop of route.stops) {
+        if (stop.type === 'PICKUP') {
+          load += stop.passengersPickedUp;
+          expect(load).toBeLessThanOrEqual(res!.capacity);
+        } else if (stop.type === 'DROPOFF') {
+          load -= stop.passengersDroppedOff;
+        }
+      }
+    }
+  });
+
+  it('no request is assigned twice', () => {
+    const scenario = generateScenario({
+      seed: 456,
+      requestCount: 25,
+      resourceCount: 3,
+      shelterCount: 2,
+    });
+
+    const plan = solveNearestFirst(scenario);
+    const assignedIds = new Set<string>();
+    for (const route of plan.routes) {
+      for (const reqId of route.servedRequestIds) {
+        expect(assignedIds.has(reqId)).toBe(false);
+        assignedIds.add(reqId);
+      }
+    }
+  });
+
+  it('unavailable resources get nothing', () => {
+    const offlineScenario: Scenario = {
+      ...testScenario,
+      resources: [
+        {
+          ...testScenario.resources[0]!,
+          status: 'OFFLINE',
+        },
+      ],
+    };
+
+    const plan = solveNearestFirst(offlineScenario);
+    expect(plan.routes).toHaveLength(0);
+    expect(plan.unserved).toHaveLength(testScenario.requests.length);
+  });
 });
