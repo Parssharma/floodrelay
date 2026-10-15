@@ -1,14 +1,14 @@
 import type { Scenario } from '@floodrelay/shared';
 import { describe, expect, it } from 'vitest';
 import { generateScenario } from '../generator.js';
-import { solveOrToolsBaseline } from './orToolsBaseline.js';
+import { solveClarkeWrightBaseline } from './clarkeWrightBaseline.js';
 
-describe('solveOrToolsBaseline', () => {
+describe('Clarke-Wright + 2-opt baseline', () => {
   const scenario: Scenario = {
-    id: 'ortools-test-scenario',
+    id: 'cw-test-scenario',
     metadata: {
-      id: 'ortools-test-scenario',
-      name: 'OR-Tools Test Scenario',
+      id: 'cw-test-scenario',
+      name: 'Clarke-Wright Test Scenario',
       region: 'Delhi',
       createdAt: '2026-10-15T12:00:00Z',
       bounds: { minLat: 28.5, maxLat: 28.7, minLng: 77.1, maxLng: 77.3 },
@@ -66,7 +66,7 @@ describe('solveOrToolsBaseline', () => {
   };
 
   it('serves requests while strictly obeying resource capacity constraints', () => {
-    const plan = solveOrToolsBaseline(scenario);
+    const plan = solveClarkeWrightBaseline(scenario);
 
     expect(plan.routes).toHaveLength(1);
     const route = plan.routes[0]!;
@@ -87,6 +87,70 @@ describe('solveOrToolsBaseline', () => {
     expect(plan.metrics.totalTravelTimeMinutes).toBeGreaterThan(0);
   });
 
+  it('capacity is never exceeded', () => {
+    const genScenario = generateScenario({
+      seed: 555,
+      requestCount: 40,
+      resourceCount: 4,
+      shelterCount: 2,
+    });
+
+    const plan = solveClarkeWrightBaseline(genScenario);
+    for (const route of plan.routes) {
+      const res = genScenario.resources.find((r) => r.id === route.resourceId);
+      expect(res).toBeDefined();
+      let load = 0;
+      for (const stop of route.stops) {
+        if (stop.type === 'PICKUP') {
+          load += stop.passengersPickedUp;
+          expect(load).toBeLessThanOrEqual(res!.capacity);
+        } else if (stop.type === 'DROPOFF') {
+          load -= stop.passengersDroppedOff;
+        }
+      }
+    }
+  });
+
+  it('no request is assigned twice', () => {
+    const genScenario = generateScenario({
+      seed: 777,
+      requestCount: 30,
+      resourceCount: 5,
+      shelterCount: 2,
+    });
+
+    const plan = solveClarkeWrightBaseline(genScenario);
+    const assignedIds: string[] = [];
+    for (const route of plan.routes) {
+      for (const reqId of route.servedRequestIds) {
+        expect(assignedIds).not.toContain(reqId);
+        assignedIds.push(reqId);
+      }
+    }
+  });
+
+  it('unavailable resources get nothing', () => {
+    const scenarioWithOffline: Scenario = {
+      ...scenario,
+      resources: [
+        {
+          id: 'res-offline',
+          name: 'Offline Boat',
+          type: 'BOAT',
+          capacity: 10,
+          speedKmH: 20,
+          lat: 28.5,
+          lng: 77.1,
+          status: 'OFFLINE',
+        },
+      ],
+    };
+
+    const plan = solveClarkeWrightBaseline(scenarioWithOffline);
+    expect(plan.routes).toHaveLength(0);
+    expect(plan.unserved).toHaveLength(scenario.requests.length);
+  });
+
   it('scales to 50 requests reliably', () => {
     const genScenario = generateScenario({
       seed: 888,
@@ -95,7 +159,7 @@ describe('solveOrToolsBaseline', () => {
       shelterCount: 2,
     });
 
-    const plan = solveOrToolsBaseline(genScenario);
+    const plan = solveClarkeWrightBaseline(genScenario);
 
     expect(plan.routes.length).toBeGreaterThan(0);
     expect(plan.metrics.coveragePercent).toBeGreaterThan(40);
