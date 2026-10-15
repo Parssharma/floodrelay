@@ -74,6 +74,8 @@ export interface ScenarioMetadata {
   seed?: number;
   createdAt: string;
   bounds: BoundingBox;
+  simulated?: boolean;
+  notes?: string;
 }
 
 export interface Scenario {

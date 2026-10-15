@@ -2,10 +2,12 @@
   "id": "scenario-delhi-yamuna-demo",
   "metadata": {
     "id": "scenario-delhi-yamuna-demo",
-    "name": "Yamuna Flood Relief - North Delhi Basin",
-    "description": "Simulated flood rescue operations covering 10 rescue requests, 3 resources, and 2 relief camps along the Yamuna floodplains.",
-    "region": "Delhi NCR",
+    "name": "SIMULATED: Yamuna Floodplain Synthetic Test Scenario",
+    "description": "SIMULATED DATA: Synthetic benchmark scenario covering 10 rescue requests, 3 resources, and 2 relief camps along the Yamuna floodplains. All coordinates, people counts, and timings are purely synthetic approximations for testing and benchmark evaluation. Nothing in this scenario represents real incidents or actual real-world victims.",
+    "region": "Delhi NCR (Simulated Synthetic)",
     "seed": 2026,
+    "simulated": true,
+    "notes": "SIMULATED: All locations, requests, resources, and numbers are synthetic test fixtures and do not reflect real emergency events or ground-truth coordinates.",
     "createdAt": "2026-10-15T12:00:00.000Z",
     "bounds": {
       "minLat": 28.6,
