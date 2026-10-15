@@ -30,5 +30,8 @@ describe('Solver Evaluation Benchmark Harness', () => {
     expect(markdownTable).toContain('Nearest-First (Greedy)');
     expect(markdownTable).toContain('Cluster-Allocation');
     expect(markdownTable).toContain('Clarke-Wright + 2-opt baseline');
+    expect(markdownTable).toContain('SIMULATED');
+    expect(markdownTable).toContain('assumptions');
+    expect(markdownTable).toContain('not a field benchmark');
   });
 });

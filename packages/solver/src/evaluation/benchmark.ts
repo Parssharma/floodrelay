@@ -54,6 +54,7 @@ export function evaluateSolversOnCase(
     'Cluster-Allocation': solveClusterAllocation,
     'Clarke-Wright + 2-opt baseline': solveClarkeWrightBaseline,
   },
+  baseSeed = 42,
 ): SolverBenchmarkSummary[] {
   const summaries: SolverBenchmarkSummary[] = [];
 
@@ -63,9 +64,9 @@ export function evaluateSolversOnCase(
     const highPriorityWaits: number[] = [];
     const solveTimes: number[] = [];
 
-    for (let seed = 1; seed <= seedCount; seed++) {
+    for (let i = 0; i < seedCount; i++) {
       const scenario = generateScenario({
-        seed: seed * 1000 + 42,
+        seed: baseSeed + i * 1000,
         requestCount: benchCase.requestCount,
         resourceCount: benchCase.resourceCount,
         shelterCount: benchCase.shelterCount,
@@ -103,6 +104,14 @@ export function evaluateSolversOnCase(
 }
 
 export function formatMarkdownResultsTable(summaries: SolverBenchmarkSummary[]): string {
+  const disclaimers = [
+    '> **DISCLAIMER & BENCHMARK LIMITATIONS:**',
+    '> - The dataset is **SIMULATED** (synthetic rescue requests, resources, and shelters generated via deterministic seeded PRNG).',
+    '> - Travel times are **assumptions** (haversine distances scaled by `ASSUMED_ROAD_DETOUR_FACTOR` and placeholder vehicle speeds).',
+    '> - This result is **not a field benchmark** and must not be interpreted as guaranteed real-world disaster response performance.',
+    '',
+  ];
+
   const header = [
     '| Scenario Size | Solver | Seeds | Coverage (%) | Travel Time (min) | High-Priority Wait (min) | Solve Time (ms) |',
     '|---|---|---|---|---|---|---|',
@@ -116,5 +125,5 @@ export function formatMarkdownResultsTable(summaries: SolverBenchmarkSummary[]):
     return `| ${s.caseName} | ${s.solverName} | ${s.seedsRun} | ${cov} | ${tt} | ${hp} | ${st} |`;
   });
 
-  return [...header, ...rows].join('\n');
+  return [...disclaimers, ...header, ...rows].join('\n');
 }
