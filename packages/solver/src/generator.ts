@@ -22,6 +22,26 @@ export interface GeneratorOptions {
   clusterCount?: number;
 }
 
+/**
+ * Placeholder assumption: minimum transit speed for rescue boats in flood waters (km/h).
+ */
+export const ASSUMED_BOAT_SPEED_MIN_KMH = 20;
+
+/**
+ * Placeholder assumption: maximum transit speed for rescue boats in flood waters (km/h).
+ */
+export const ASSUMED_BOAT_SPEED_MAX_KMH = 30;
+
+/**
+ * Placeholder assumption: minimum transit speed for high-water rescue trucks (km/h).
+ */
+export const ASSUMED_TRUCK_SPEED_MIN_KMH = 35;
+
+/**
+ * Placeholder assumption: maximum transit speed for high-water rescue trucks (km/h).
+ */
+export const ASSUMED_TRUCK_SPEED_MAX_KMH = 50;
+
 // Deterministic Mulberry32 PRNG
 export class SeededRNG {
   private s: number;
@@ -182,7 +202,9 @@ export function generateScenario(options: GeneratorOptions): Scenario {
     const isBoat = rng.next() < 0.6;
     const type: ResourceType = isBoat ? 'BOAT' : 'HIGH_WATER_VEHICLE';
     const capacity = isBoat ? rng.nextInt(6, 10) : rng.nextInt(12, 18);
-    const speedKmH = isBoat ? rng.nextInt(20, 30) : rng.nextInt(35, 50);
+    const speedKmH = isBoat
+      ? rng.nextInt(ASSUMED_BOAT_SPEED_MIN_KMH, ASSUMED_BOAT_SPEED_MAX_KMH)
+      : rng.nextInt(ASSUMED_TRUCK_SPEED_MIN_KMH, ASSUMED_TRUCK_SPEED_MAX_KMH);
 
     // Initial deployment from nearest shelter / depot
     const depot = shelters[i % shelters.length];
