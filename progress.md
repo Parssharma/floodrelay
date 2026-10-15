@@ -225,6 +225,8 @@ Incoming rescue requests
 | Build solver and evaluation before infrastructure | Validate the core logic before adding queues, real-time layers, etc.                                                                                                                                                                       |
 | Operator commits assignments                      | Decision support only; the system never dispatches autonomously                                                                                                                                                                            |
 | Backend framework: Express with TypeScript        | Team knows Express, setup is minimal, effort goes to the solver; TypeScript strict mode shared across all packages catches field mismatches at compile time; framework can be changed later because the solver has no framework dependency |
+| Shelter drop-off model                            | Rescue vehicles drop off evacuees at nearest safe shelter to reset capacity and support realistic multi-trip rescue cycles                                                                                                                   |
+| Flood impedance multipliers                       | Dimensionless multiplier in TravelTimeProvider scales transit time across waterlogged segments without requiring complex hydrodynamic simulation                                                                                              |
 
 ---
 
