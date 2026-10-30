@@ -827,6 +827,23 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(patchRes.body.error.code).toBe('CANNOT_MODIFY_COMMITTED');
     });
 
+    it('returns 404 when modifying a non-existent stop or assignment', async () => {
+      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      const nonExistentStopRes = await request(app)
+        .patch(`/assignments/${assignId}/stops/non_existent_stop`)
+        .send({ isFrozen: true });
+      expect(nonExistentStopRes.status).toBe(404);
+      expect(nonExistentStopRes.body.error.code).toBe('NOT_FOUND');
+
+      const nonExistentAssignRes = await request(app)
+        .patch('/assignments/non_existent_assign/stops/some_stop')
+        .send({ isFrozen: true });
+      expect(nonExistentAssignRes.status).toBe(404);
+      expect(nonExistentAssignRes.body.error.code).toBe('NOT_FOUND');
+    });
+
     it('preserves committed frozen stops when replanning with preserveFrozen: true', async () => {
       // 1. Propose first plan and commit it
       const proposeRes = await request(app).post('/assignments/propose').send({

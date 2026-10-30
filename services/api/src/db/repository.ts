@@ -1156,39 +1156,103 @@ export class PostgisRepository {
       resource_id?: string;
     },
   ): Promise<DbAssignmentStop | null> {
-    const sets: string[] = [];
-    const values: unknown[] = [assignmentId, stopId];
+    const isPool = this.client instanceof pg.Pool;
+    let poolClient: pg.PoolClient | undefined;
+    const client: Queryable = isPool
+      ? (poolClient = await (this.client as pg.Pool).connect())
+      : this.client;
 
-    if (updates.is_frozen !== undefined) {
-      values.push(updates.is_frozen);
-      sets.push(`is_frozen = $${values.length}`);
-    }
-    if (updates.stop_number !== undefined) {
-      values.push(updates.stop_number);
-      sets.push(`stop_number = $${values.length}`);
-    }
-    if (updates.resource_id !== undefined) {
-      values.push(updates.resource_id);
-      sets.push(`resource_id = $${values.length}`);
-    }
+    try {
+      await client.query('BEGIN');
 
-    if (sets.length === 0) {
-      return null;
+      // 1. Lock the assignment row with SELECT ... FOR UPDATE to serialize with commitAssignment
+      const assignResult = await client.query<{ id: string; status: string }>(
+        'SELECT id, status FROM assignments WHERE id = $1 FOR UPDATE;',
+        [assignmentId],
+      );
+      const assignRow = assignResult.rows[0];
+      if (!assignRow) {
+        const err = new Error(`Assignment with id "${assignmentId}" not found`);
+        (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+        throw err;
+      }
+
+      if (assignRow.status !== 'PROPOSED') {
+        const err = new Error(
+          `Cannot modify stops on assignment "${assignmentId}" because status is "${assignRow.status}". Only PROPOSED plans can be modified.`,
+        );
+        (err as unknown as { code: string; statusCode: number }).code = 'CANNOT_MODIFY_COMMITTED';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+        throw err;
+      }
+
+      const sets: string[] = [];
+      const values: unknown[] = [assignmentId, stopId];
+
+      if (updates.is_frozen !== undefined) {
+        values.push(updates.is_frozen);
+        sets.push(`is_frozen = $${values.length}`);
+      }
+      if (updates.stop_number !== undefined) {
+        values.push(updates.stop_number);
+        sets.push(`stop_number = $${values.length}`);
+      }
+      if (updates.resource_id !== undefined) {
+        values.push(updates.resource_id);
+        sets.push(`resource_id = $${values.length}`);
+      }
+
+      if (sets.length === 0) {
+        const fetchSql = `
+          SELECT
+            id, assignment_id, resource_id, stop_number, type, target_id,
+            ST_AsText(location) as location,
+            passengers_picked_up, passengers_dropped_off,
+            estimated_arrival_minutes, is_frozen, created_at
+          FROM assignment_stops
+          WHERE assignment_id = $1 AND id = $2;
+        `;
+        const fetchResult = await client.query<DbAssignmentStop>(fetchSql, [assignmentId, stopId]);
+        await client.query('COMMIT');
+        return fetchResult.rows[0] ?? null;
+      }
+
+      const sql = `
+        UPDATE assignment_stops
+        SET ${sets.join(', ')}
+        WHERE assignment_id = $1 AND id = $2
+        RETURNING
+          id, assignment_id, resource_id, stop_number, type, target_id,
+          ST_AsText(location) as location,
+          passengers_picked_up, passengers_dropped_off,
+          estimated_arrival_minutes, is_frozen, created_at;
+      `;
+
+      const result = await client.query<DbAssignmentStop>(sql, values);
+      const updated = result.rows[0] ?? null;
+
+      if (!updated) {
+        const err = new Error(`Stop "${stopId}" not found on assignment "${assignmentId}"`);
+        (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+        (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+        throw err;
+      }
+
+      await client.query('COMMIT');
+      return updated;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore rollback error
+      }
+      throw err;
+    } finally {
+      if (poolClient) {
+        poolClient.release();
+      }
     }
-
-    const sql = `
-      UPDATE assignment_stops
-      SET ${sets.join(', ')}
-      WHERE assignment_id = $1 AND id = $2
-      RETURNING
-        id, assignment_id, resource_id, stop_number, type, target_id,
-        ST_AsText(location) as location,
-        passengers_picked_up, passengers_dropped_off,
-        estimated_arrival_minutes, is_frozen, created_at;
-    `;
-
-    const result = await this.client.query<DbAssignmentStop>(sql, values);
-    return result.rows[0] ?? null;
   }
 
   // ==========================================

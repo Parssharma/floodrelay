@@ -2697,6 +2697,136 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
         client2.release();
       }
     });
+
+    it('prevents modifying assignment stops while a concurrent commit is executing on that assignment (Scenario 3)', async () => {
+      const resource: RescueResource = {
+        id: 'res_mod_commit',
+        name: 'Rescue Boat M',
+        type: 'BOAT',
+        capacity: 8,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_mod_commit',
+        name: 'Relief Shelter M',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_mod_commit',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(resource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const planId = 'plan_mod_commit_race';
+      const stop1Id = `stop_${planId}_1`;
+      const stop2Id = `stop_${planId}_2`;
+
+      await repo.insertAssignmentWithStops(
+        {
+          id: planId,
+          scenario_id: 'test-scenario-3',
+          status: 'PROPOSED',
+          metrics: null,
+          unserved: null,
+          committed_at: null,
+          committed_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        [
+          {
+            id: stop1Id,
+            assignment_id: planId,
+            resource_id: resource.id,
+            stop_number: 1,
+            type: 'PICKUP',
+            target_id: req.id,
+            location: `POINT(${req.lng} ${req.lat})`,
+            passengers_picked_up: req.peopleCount,
+            passengers_dropped_off: 0,
+            estimated_arrival_minutes: 10,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+          {
+            id: stop2Id,
+            assignment_id: planId,
+            resource_id: resource.id,
+            stop_number: 2,
+            type: 'DROPOFF',
+            target_id: shelter.id,
+            location: `POINT(${shelter.lng} ${shelter.lat})`,
+            passengers_picked_up: 0,
+            passengers_dropped_off: req.peopleCount,
+            estimated_arrival_minutes: 20,
+            is_frozen: false,
+            created_at: new Date(),
+          },
+        ],
+      );
+
+      // Launch concurrent commit and stop modification using separate DB connections
+      const client1 = await pool.connect();
+      const client2 = await pool.connect();
+      const repo1 = new PostgisRepository(client1);
+      const repo2 = new PostgisRepository(client2);
+
+      try {
+        const results = await Promise.allSettled([
+          repo1.commitAssignment(planId, 'operator_commit'),
+          repo2.updateAssignmentStop(planId, stop1Id, { is_frozen: false }),
+        ]);
+
+        const commitRes = results[0];
+        const modifyRes = results[1];
+
+        // commitAssignment MUST succeed
+        expect(commitRes.status).toBe('fulfilled');
+
+        // If modifyStop ran after commit started, it must be rejected with CANNOT_MODIFY_COMMITTED
+        if (modifyRes.status === 'rejected') {
+          const err = modifyRes.reason as { code?: string; statusCode?: number };
+          expect(err.code).toBe('CANNOT_MODIFY_COMMITTED');
+          expect(err.statusCode).toBe(409);
+        }
+
+        // Verify final state: assignment MUST be COMMITTED and all stops MUST be frozen
+        const dbClient = await pool.connect();
+        try {
+          const assignCheck = await dbClient.query<{ status: string }>(
+            'SELECT status FROM assignments WHERE id = $1;',
+            [planId],
+          );
+          expect(assignCheck.rows[0]?.status).toBe('COMMITTED');
+
+          const stopsCheck = await dbClient.query<{ is_frozen: boolean }>(
+            'SELECT is_frozen FROM assignment_stops WHERE assignment_id = $1;',
+            [planId],
+          );
+          expect(stopsCheck.rows.length).toBe(2);
+          expect(stopsCheck.rows.every((s) => s.is_frozen === true)).toBe(true);
+        } finally {
+          dbClient.release();
+        }
+      } finally {
+        client1.release();
+        client2.release();
+      }
+    });
   });
 
   describe('6. Scenario Provenance and Dynamic Region Regression Tests', () => {
