@@ -153,7 +153,7 @@ export default function OperatorOverviewPage() {
         <div className="flex items-center gap-3">
           <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            LIVE SECURE STREAM
+            DATABASE SNAPSHOT
           </span>
           {lastRefreshed && (
             <span className="text-[11px] text-on-surface-variant font-mono">

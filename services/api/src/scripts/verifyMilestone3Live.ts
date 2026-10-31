@@ -151,6 +151,26 @@ async function runMilestone3Verification(): Promise<void> {
     const healthRes = await fetch(`${apiBase}/health`);
     assert(healthRes.status === 200, 'Public GET /health responds with HTTP 200');
 
+    // Anti-caching security headers
+    assert(
+      healthRes.headers.get('cache-control')?.includes('no-store'),
+      'Cache-Control prevents public/proxy caching (contains no-store)',
+    );
+
+    // CSRF Protection: Untrusted Origin POST rejected with 403
+    const csrfRes = await fetch(`${apiBase}/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://malicious-cross-origin.com',
+      },
+      body: JSON.stringify({}),
+    });
+    assert(
+      csrfRes.status === 403,
+      'Cross-origin mutation from untrusted Origin blocked with HTTP 403',
+    );
+
     // -------------------------------------------------------------
     // TEST 3: Operator Authentication & Session Creation
     // -------------------------------------------------------------

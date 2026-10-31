@@ -26,17 +26,60 @@ export interface AppDependencies {
 export function createApp(deps?: AppDependencies): Express {
   const app = express();
 
-  // CORS headers middleware for browser clients
+  // 1. Defense-in-depth security headers (prevent caching of sensitive disaster/operator data)
   app.use((_req: Request, res: Response, next: NextFunction) => {
-    const origin = _req.header('Origin') || process.env.CORS_ORIGIN || '*';
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.header(
-      'Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, Idempotency-Key, X-Idempotency-Key, Authorization, Cookie',
-    );
-    if (_req.method === 'OPTIONS') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+  });
+
+  // 2. Strict Whitelisted CORS and CSRF Origin Protection
+  const defaultAllowedOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+  ];
+  const configuredOrigins = (process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredOrigins]);
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.header('Origin');
+
+    if (origin) {
+      if (allowedOrigins.has(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        res.header(
+          'Access-Control-Allow-Headers',
+          'Origin, X-Requested-With, Content-Type, Accept, Idempotency-Key, X-Idempotency-Key, Authorization, Cookie',
+        );
+      } else {
+        // Block cross-origin state-changing mutations from untrusted origins (CSRF defense)
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+          res.status(403).json({
+            error: {
+              code: 'CSRF_BLOCKED',
+              message: 'Cross-origin mutation blocked by CSRF origin verification policy',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+      }
+    }
+
+    if (req.method === 'OPTIONS') {
+      if (origin && !allowedOrigins.has(origin)) {
+        res.status(403).end();
+        return;
+      }
       res.sendStatus(204);
       return;
     }
