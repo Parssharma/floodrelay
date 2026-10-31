@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { SimulatedNotice } from '@/components/ui/SimulatedNotice';
+import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 
 interface OperatorHeaderProps {
   onToggleMobileNav?: () => void;
@@ -11,6 +11,7 @@ interface OperatorHeaderProps {
 
 export function OperatorHeader({ onToggleMobileNav }: OperatorHeaderProps) {
   const pathname = usePathname();
+  const { operator, logout } = useOperatorAuth();
 
   let pageTitle = 'Command Overview';
   let subRoute = '/operator';
@@ -58,35 +59,29 @@ export function OperatorHeader({ onToggleMobileNav }: OperatorHeaderProps) {
         </div>
       </div>
 
-      {/* Trailing Section: Simulated Notice, Alerts & Actions */}
+      {/* Trailing Section: Operator Identity & Actions */}
       <div className="flex items-center gap-3">
-        <div className="hidden sm:flex items-center gap-2">
-          <SimulatedNotice label="SIMULATED DATA" />
-        </div>
-
-        {/* Active Alerts Pill */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-300 rounded text-xs font-semibold">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
-          <span>3 Alerts</span>
-        </div>
+        {/* Operator Badge */}
+        {operator && (
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-surface-container text-on-surface border border-outline-variant/50 rounded-lg text-xs font-semibold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>{operator.name}</span>
+            <span className="text-[10px] font-mono text-on-surface-variant font-normal">
+              ({operator.role})
+            </span>
+          </div>
+        )}
 
         {/* Action Buttons */}
-        <div className="hidden md:flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
             className="h-8 px-2.5 rounded border border-outline-variant bg-surface-container-lowest text-on-surface text-xs font-semibold hover:bg-surface-container transition-colors flex items-center gap-1"
-            onClick={() => alert('Incident log export preview (Milestone 1 prototype)')}
+            onClick={() => logout()}
+            title="Sign out of operator session"
             type="button"
           >
-            <span className="material-symbols-outlined text-sm">file_download</span>
-            <span>Export Log</span>
-          </button>
-          <button
-            className="h-8 px-3 rounded bg-tertiary text-on-tertiary text-xs font-bold hover:bg-tertiary-container transition-colors flex items-center gap-1 shadow-xs"
-            onClick={() => alert('Emergency broadcast control preview (Milestone 1 prototype)')}
-            type="button"
-          >
-            <span className="material-symbols-outlined text-sm">cell_tower</span>
-            <span>Broadcast</span>
+            <span className="material-symbols-outlined text-sm">logout</span>
+            <span className="hidden sm:inline">Sign Out</span>
           </button>
         </div>
       </div>

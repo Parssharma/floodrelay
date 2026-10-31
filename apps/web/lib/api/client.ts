@@ -10,39 +10,59 @@ import type {
   CommitAssignmentInput,
   ModifyStopInput,
   RouteStop,
+  OperatorProfile,
+  LoginResult,
 } from './types';
 
 export interface ApiClientConfig {
   baseUrl?: string;
   defaultHeaders?: Record<string, string>;
+  authToken?: string | null;
 }
 
 export class FloodRelayApiClient {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
+  private authToken: string | null = null;
 
   constructor(config: ApiClientConfig = {}) {
     const isBrowser = typeof window !== 'undefined';
     const configuredUrl = config.baseUrl || process.env.NEXT_PUBLIC_API_URL;
     // In browser, default to relative '' to leverage Next.js proxy rewrites; in Node/SSR default to http://localhost:3000
     this.baseUrl = (configuredUrl ?? (isBrowser ? '' : 'http://localhost:3000')).replace(/\/$/, '');
+    this.authToken = config.authToken || null;
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...config.defaultHeaders,
     };
   }
 
+  public setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
+
+  public getAuthToken(): string | null {
+    return this.authToken;
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+
+    const headers: Record<string, string> = {
+      ...this.defaultHeaders,
+      ...((options.headers as Record<string, string>) || {}),
+    };
+
+    if (this.authToken && !headers['Authorization'] && !headers['authorization']) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
 
     let response: Response;
     try {
       response = await fetch(url, {
+        credentials: 'include',
         ...options,
-        headers: {
-          ...this.defaultHeaders,
-          ...options.headers,
-        },
+        headers,
       });
     } catch (err) {
       throw new ApiClientError({
@@ -93,6 +113,39 @@ export class FloodRelayApiClient {
       signal,
     });
     return res.data;
+  }
+
+  // ==========================================
+  // Operator Authentication Endpoints
+  // ==========================================
+
+  async login(username: string, password: string, signal?: AbortSignal): Promise<LoginResult> {
+    const res = await this.request<LoginResult>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+      signal,
+    });
+    if (res.data?.token) {
+      this.setAuthToken(res.data.token);
+    }
+    return res.data;
+  }
+
+  async logout(signal?: AbortSignal): Promise<{ message: string }> {
+    const res = await this.request<{ message: string }>('/auth/logout', {
+      method: 'POST',
+      signal,
+    });
+    this.setAuthToken(null);
+    return res.data || { message: 'Logged out' };
+  }
+
+  async getMe(signal?: AbortSignal): Promise<OperatorProfile> {
+    const res = await this.request<{ operator: OperatorProfile }>('/auth/me', {
+      method: 'GET',
+      signal,
+    });
+    return res.data.operator;
   }
 
   // Citizen & Operator Request Endpoints

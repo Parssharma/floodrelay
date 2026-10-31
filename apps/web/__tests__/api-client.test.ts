@@ -153,4 +153,71 @@ describe('FloodRelayApiClient', () => {
       code: 'CONCURRENCY_CONFLICT',
     });
   });
+
+  it('authenticates operator via login and sets auth token for subsequent requests', async () => {
+    const mockLoginResponse = {
+      message: 'Operator authenticated successfully',
+      token: 'fake-jwt-token-12345',
+      operator: {
+        id: 'op-001',
+        username: 'commander',
+        name: 'Sector Commander',
+        role: 'COMMANDER',
+      },
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: mockLoginResponse }),
+    });
+
+    const result = await client.login('commander', 'SecretPass123!');
+    expect(result.token).toBe('fake-jwt-token-12345');
+    expect(result.operator.username).toBe('commander');
+    expect(client.getAuthToken()).toBe('fake-jwt-token-12345');
+
+    // Subsequent requests must carry Authorization header
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          operator: {
+            id: 'op-001',
+            username: 'commander',
+            name: 'Sector Commander',
+            role: 'COMMANDER',
+          },
+        },
+      }),
+    });
+
+    const me = await client.getMe();
+    expect(me.username).toBe('commander');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:3000/api/v1/auth/me',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer fake-jwt-token-12345',
+        }),
+      }),
+    );
+  });
+
+  it('clears auth token upon operator logout', async () => {
+    client.setAuthToken('existing-session-token');
+    expect(client.getAuthToken()).toBe('existing-session-token');
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { message: 'Logged out successfully' } }),
+    });
+
+    const res = await client.logout();
+    expect(res.message).toBe('Logged out successfully');
+    expect(client.getAuthToken()).toBeNull();
+  });
 });

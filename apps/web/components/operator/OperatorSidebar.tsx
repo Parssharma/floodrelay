@@ -3,9 +3,11 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 
 export function OperatorSidebar() {
   const pathname = usePathname();
+  const { operator, logout } = useOperatorAuth();
 
   const isOverview = pathname === '/operator';
   const isRequests = pathname.startsWith('/operator/requests');
@@ -146,16 +148,21 @@ export function OperatorSidebar() {
               </span>
               <div className="flex flex-col truncate">
                 <span className="text-xs font-semibold text-inverse-on-surface truncate">
-                  Capt. R. Vance
+                  {operator?.name || 'Capt. R. Vance'}
                 </span>
                 <span className="text-[10px] text-surface-dim font-mono truncate">
-                  Harris County EOC Lead
+                  {operator?.role || 'OPERATOR'} • {operator?.username || 'eoc_operator'}
                 </span>
               </div>
             </div>
-            <span className="material-symbols-outlined text-surface-dim text-sm" data-icon="lock">
-              lock
-            </span>
+            <button
+              className="p-1 rounded text-surface-dim hover:text-white hover:bg-surface-variant/20 transition-colors"
+              onClick={() => logout()}
+              title="Log Out of Command Center"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[18px]">logout</span>
+            </button>
           </div>
         </div>
       </div>

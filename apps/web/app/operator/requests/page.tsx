@@ -1,22 +1,63 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import type { RescueRequest, UrgencyLevel, RequestStatus } from '@floodrelay/shared';
-import { SIMULATED_REQUESTS } from '@/lib/fixtures/requests';
+import { apiClient } from '@/lib/api/client';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { SimulatedNotice } from '@/components/ui/SimulatedNotice';
 
-export default function OperatorRequestsPage() {
+function OperatorRequestsContent() {
+  const searchParams = useSearchParams();
+  const inspectId = searchParams.get('inspect');
+
+  const [requests, setRequests] = useState<RescueRequest[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | RequestStatus>('ALL');
-  const [selectedRequest, setSelectedRequest] = useState<RescueRequest | null>(
-    SIMULATED_REQUESTS[0] || null,
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(inspectId);
+
+  const loadRequests = useCallback(
+    async (isManual = false) => {
+      try {
+        if (isManual) {
+          setIsRefreshing(true);
+        } else {
+          setIsLoading(true);
+        }
+        setError(null);
+        const data = await apiClient.listRequests();
+        setRequests(data || []);
+        setLastRefreshed(new Date());
+
+        // If an inspect query param is present, select that item if it exists
+        if (inspectId && data.some((r) => r.id === inspectId)) {
+          setSelectedRequestId(inspectId);
+        } else if (!selectedRequestId && data.length > 0) {
+          setSelectedRequestId(data[0]?.id || null);
+        }
+      } catch (err) {
+        setError((err as Error).message || 'Failed to fetch rescue requests from API');
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [inspectId, selectedRequestId],
   );
 
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
+
   const filteredRequests = useMemo(() => {
-    return SIMULATED_REQUESTS.filter((req) => {
+    return requests.filter((req) => {
       if (urgencyFilter !== 'ALL' && req.urgency !== urgencyFilter) {
         return false;
       }
@@ -27,13 +68,23 @@ export default function OperatorRequestsPage() {
         const q = searchQuery.toLowerCase();
         const matchesId = req.id.toLowerCase().includes(q);
         const matchesNotes = req.notes?.toLowerCase().includes(q);
-        if (!matchesId && !matchesNotes) {
+        const matchesCoords = req.lat.toString().includes(q) || req.lng.toString().includes(q);
+        const matchesPeople = req.peopleCount.toString() === q;
+        if (!matchesId && !matchesNotes && !matchesCoords && !matchesPeople) {
           return false;
         }
       }
       return true;
     });
-  }, [searchQuery, urgencyFilter, statusFilter]);
+  }, [requests, searchQuery, urgencyFilter, statusFilter]);
+
+  // Selected request object
+  const selectedRequest = useMemo(() => {
+    if (!selectedRequestId) {
+      return filteredRequests[0] || null;
+    }
+    return requests.find((r) => r.id === selectedRequestId) || filteredRequests[0] || null;
+  }, [requests, selectedRequestId, filteredRequests]);
 
   return (
     <main className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
@@ -43,17 +94,57 @@ export default function OperatorRequestsPage() {
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-on-surface">Rescue Request Management</h1>
             <span className="px-2 py-0.5 rounded text-xs font-mono font-bold bg-tertiary-container text-on-tertiary">
-              {filteredRequests.length} Active
+              {filteredRequests.length} Active / {requests.length} Total
             </span>
           </div>
           <p className="text-xs text-on-surface-variant">
-            Inbound citizen distress queue with automated urgency triage and duplicate detection.
+            Inbound citizen distress queue with automated urgency triage, proximity grouping, and
+            duplicate detection.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <SimulatedNotice label="SIMULATED REQUEST FIXTURES" />
+        <div className="flex items-center gap-3">
+          <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            LIVE POSTGIS STREAM
+          </span>
+          {lastRefreshed && (
+            <span className="text-[11px] text-on-surface-variant font-mono hidden md:inline">
+              Synced {lastRefreshed.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={() => loadRequests(true)}
+            disabled={isRefreshing || isLoading}
+            className="flex items-center gap-1 px-3 py-1.5 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-semibold transition-colors disabled:opacity-50"
+            title="Refresh requests"
+            type="button"
+          >
+            <span
+              className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin' : ''}`}
+            >
+              refresh
+            </span>
+            <span>Refresh</span>
+          </button>
         </div>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <div className="p-4 rounded-xl bg-red-950/40 border border-red-800 text-red-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-red-400">error</span>
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => loadRequests(false)}
+            className="px-3 py-1 rounded bg-red-900 hover:bg-red-800 text-white font-bold transition-colors"
+            type="button"
+          >
+            Retry Connection
+          </button>
+        </div>
+      )}
 
       {/* FILTER & SEARCH TOOLBAR */}
       <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
@@ -65,7 +156,7 @@ export default function OperatorRequestsPage() {
           <input
             className="w-full pl-9 pr-4 py-2 bg-surface-container-low border border-outline-variant rounded-lg text-xs text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary"
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by Request ID, address, or medical note..."
+            placeholder="Search by Request ID, GPS coords, or notes..."
             type="text"
             value={searchQuery}
           />
@@ -83,7 +174,7 @@ export default function OperatorRequestsPage() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Urgency Filter */}
-          <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-lg border border-outline-variant text-xs">
+          <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-lg border border-outline-variant text-xs overflow-x-auto max-w-full">
             <span className="px-2 text-on-surface-variant font-medium">Urgency:</span>
             {(['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((lvl) => (
               <button
@@ -102,22 +193,24 @@ export default function OperatorRequestsPage() {
           </div>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-lg border border-outline-variant text-xs">
+          <div className="flex items-center gap-1 bg-surface-container-low p-1 rounded-lg border border-outline-variant text-xs overflow-x-auto max-w-full">
             <span className="px-2 text-on-surface-variant font-medium">Status:</span>
-            {(['ALL', 'PENDING', 'ASSIGNED'] as const).map((st) => (
-              <button
-                key={st}
-                className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
-                  statusFilter === st
-                    ? 'bg-primary-container text-on-primary shadow-xs'
-                    : 'text-on-surface-variant hover:text-on-surface'
-                }`}
-                onClick={() => setStatusFilter(st)}
-                type="button"
-              >
-                {st}
-              </button>
-            ))}
+            {(['ALL', 'PENDING', 'ASSIGNED', 'IN_TRANSIT', 'RESCUED', 'CANCELLED'] as const).map(
+              (st) => (
+                <button
+                  key={st}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                    statusFilter === st
+                      ? 'bg-primary-container text-on-primary shadow-xs'
+                      : 'text-on-surface-variant hover:text-on-surface'
+                  }`}
+                  onClick={() => setStatusFilter(st)}
+                  type="button"
+                >
+                  {st}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -126,7 +219,33 @@ export default function OperatorRequestsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Requests Table (8 cols on lg) */}
         <section className="lg:col-span-8 bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden shadow-xs">
-          {filteredRequests.length === 0 ? (
+          {isLoading && requests.length === 0 ? (
+            <div className="p-8 space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-10 rounded bg-surface-container-low animate-pulse" />
+              ))}
+            </div>
+          ) : requests.length === 0 ? (
+            <div className="p-12 text-center text-on-surface-variant space-y-3">
+              <span className="material-symbols-outlined text-4xl text-emerald-500">task_alt</span>
+              <p className="text-sm font-semibold text-on-surface">
+                No rescue requests in database
+              </p>
+              <p className="text-xs max-w-md mx-auto">
+                The database is clean. Emergency rescue requests submitted by citizens via the
+                public portal will appear here instantly.
+              </p>
+              <div className="pt-2">
+                <Link
+                  href="/citizen"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors"
+                >
+                  <span>Submit Test Citizen Request</span>
+                  <span className="material-symbols-outlined text-xs">open_in_new</span>
+                </Link>
+              </div>
+            </div>
+          ) : filteredRequests.length === 0 ? (
             <div className="p-12 text-center text-on-surface-variant space-y-3">
               <span className="material-symbols-outlined text-4xl text-outline">search_off</span>
               <p className="text-sm font-semibold text-on-surface">
@@ -173,7 +292,7 @@ export default function OperatorRequestsPage() {
                             ? 'bg-primary-fixed/20 border-l-4 border-l-primary'
                             : 'hover:bg-surface-container-low'
                         }`}
-                        onClick={() => setSelectedRequest(req)}
+                        onClick={() => setSelectedRequestId(req.id)}
                       >
                         <td className="py-3 px-4 font-mono font-bold text-on-surface">
                           <div className="flex items-center gap-1.5">
@@ -181,7 +300,7 @@ export default function OperatorRequestsPage() {
                             {req.isFlaggedDuplicate && (
                               <span
                                 className="px-1.5 py-0.2 rounded text-[10px] bg-amber-100 text-amber-900 font-bold"
-                                title={`Duplicate report of ${req.duplicateOfId}`}
+                                title={`Duplicate report of ${req.duplicateOfId || 'existing ticket'}`}
                               >
                                 DUP
                               </span>
@@ -199,14 +318,14 @@ export default function OperatorRequestsPage() {
                           <StatusBadge status={req.status || 'PENDING'} />
                         </td>
                         <td className="py-3 px-4 max-w-xs truncate text-on-surface-variant">
-                          {req.notes}
+                          {req.notes || 'No caller notes'}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <button
                             className="px-2.5 py-1 rounded bg-surface-container hover:bg-primary hover:text-on-primary font-semibold text-[11px] transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedRequest(req);
+                              setSelectedRequestId(req.id);
                             }}
                             type="button"
                           >
@@ -306,22 +425,33 @@ export default function OperatorRequestsPage() {
                       <span>Potential Duplicate Detected</span>
                     </div>
                     <p className="text-[11px] mt-1 text-amber-900">
-                      Nearby report #{selectedRequest.duplicateOfId} shares coordinate proximity and
-                      similar head count.
+                      Nearby report #{selectedRequest.duplicateOfId || 'associated ticket'} shares
+                      coordinate proximity and similar head count.
                     </p>
                   </div>
                 )}
+
+                <div>
+                  <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
+                    Logged Timestamp
+                  </span>
+                  <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
+                    {selectedRequest.createdAt
+                      ? new Date(selectedRequest.createdAt).toLocaleString()
+                      : 'Unknown'}
+                  </div>
+                </div>
               </div>
 
-              {/* Milestone 1 Non-Operational Action Controls */}
+              {/* Milestone 5 Non-Operational Action Controls */}
               <div className="pt-3 border-t border-outline-variant space-y-2">
                 <div className="p-2.5 rounded bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
                   <span className="font-bold text-on-surface block">
                     Dispatch Mutation Disabled:
                   </span>
                   <span>
-                    Operator assignment mutations connect to the Phase 2 backend in Milestone 3
-                    &amp; 5.
+                    Human-supervised solver route generation and craft assignment will be enabled in
+                    Milestone 5.
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -330,25 +460,40 @@ export default function OperatorRequestsPage() {
                     disabled
                     type="button"
                   >
-                    Assign Vehicle (M3)
+                    Assign Vehicle (M5)
                   </button>
                   <button
                     className="py-2 px-3 rounded bg-primary text-on-primary text-xs font-semibold opacity-60 cursor-not-allowed"
                     disabled
                     type="button"
                   >
-                    Dispatch Craft (M3)
+                    Dispatch Craft (M5)
                   </button>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="p-8 text-center text-on-surface-variant text-xs">
-              Select a request from the table to inspect details.
+            <div className="p-8 text-center text-on-surface-variant text-xs space-y-2">
+              <span className="material-symbols-outlined text-3xl text-outline">touch_app</span>
+              <p>Select a request from the table to inspect details.</p>
             </div>
           )}
         </section>
       </div>
     </main>
+  );
+}
+
+export default function OperatorRequestsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-on-surface-variant font-mono text-xs">
+          Loading Operator Requests Workspace...
+        </div>
+      }
+    >
+      <OperatorRequestsContent />
+    </Suspense>
   );
 }

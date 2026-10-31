@@ -102,3 +102,16 @@ export interface ApiErrorPayload {
     timestamp?: string;
   };
 }
+
+export interface OperatorProfile {
+  id: string;
+  username: string;
+  name: string;
+  role: 'OPERATOR' | 'ADMIN' | 'DISPATCHER';
+}
+
+export interface LoginResult {
+  token: string;
+  operator: OperatorProfile;
+  expiresAt: string;
+}
