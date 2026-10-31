@@ -1,9 +1,17 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { CreateRequestSchema, ListRequestsFilterSchema } from '../validation/requestSchema.js';
 import type { RequestService } from '../services/requestService.js';
+import type { AuthService } from '../services/authService.js';
+import { requireOperatorAuth } from '../middleware/authMiddleware.js';
 
-export function createRequestsRouter(requestService: RequestService): Router {
+export function createRequestsRouter(
+  requestService: RequestService,
+  authService?: AuthService,
+): Router {
   const router = Router();
+  const authGuard = authService
+    ? requireOperatorAuth(authService)
+    : (_req: Request, _res: Response, next: NextFunction) => next();
 
   // POST /requests - Submit new rescue request with idempotency & duplicate detection
   router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -77,69 +85,77 @@ export function createRequestsRouter(requestService: RequestService): Router {
     }
   });
 
-  // GET /requests - List rescue requests
-  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const parsed = ListRequestsFilterSchema.safeParse(req.query);
-      if (!parsed.success) {
-        res.status(400).json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid query filters',
-            details: parsed.error.format(),
-            timestamp: new Date().toISOString(),
-          },
+  // GET /requests - List rescue requests (Operator Auth Required)
+  router.get(
+    '/',
+    authGuard,
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const parsed = ListRequestsFilterSchema.safeParse(req.query);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid query filters',
+              details: parsed.error.format(),
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const requests = await requestService.listRequests(parsed.data);
+        res.status(200).json({
+          success: true,
+          count: requests.length,
+          data: requests,
         });
-        return;
+      } catch (err) {
+        next(err);
       }
+    },
+  );
 
-      const requests = await requestService.listRequests(parsed.data);
-      res.status(200).json({
-        success: true,
-        count: requests.length,
-        data: requests,
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+  // GET /requests/:id - Retrieve specific rescue request by ID (Operator Auth Required)
+  router.get(
+    '/:id',
+    authGuard,
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Request ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
 
-  // GET /requests/:id - Retrieve specific rescue request by ID
-  router.get('/:id', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const rawId = req.params.id;
-      const id = Array.isArray(rawId) ? rawId[0] : rawId;
-      if (!id) {
-        res.status(400).json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Request ID parameter is required',
-            timestamp: new Date().toISOString(),
-          },
+        const request = await requestService.getRequest(id);
+        if (!request) {
+          res.status(404).json({
+            error: {
+              code: 'NOT_FOUND',
+              message: `Rescue request with id "${id}" not found`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        res.status(200).json({
+          success: true,
+          data: request,
         });
-        return;
+      } catch (err) {
+        next(err);
       }
-
-      const request = await requestService.getRequest(id);
-      if (!request) {
-        res.status(404).json({
-          error: {
-            code: 'NOT_FOUND',
-            message: `Rescue request with id "${id}" not found`,
-            timestamp: new Date().toISOString(),
-          },
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        data: request,
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+    },
+  );
 
   return router;
 }

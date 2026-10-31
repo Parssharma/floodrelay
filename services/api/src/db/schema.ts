@@ -261,3 +261,35 @@ export function dbToRouteStop(row: DbAssignmentStop): RouteStop {
     isFrozen: row.is_frozen,
   };
 }
+
+// ==========================================
+// Operator Identity & Authentication Types
+// ==========================================
+
+export type OperatorRole = 'OPERATOR' | 'ADMIN' | 'DISPATCHER';
+
+export interface DbOperator {
+  id: string;
+  username: string;
+  password_hash: string;
+  salt: string;
+  name: string;
+  role: OperatorRole;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface OperatorProfile {
+  id: string;
+  username: string;
+  name: string;
+  role: OperatorRole;
+}
+
+export interface DbOperatorSession {
+  token: string;
+  operator_id: string;
+  expires_at: Date;
+  created_at: Date;
+}

@@ -18,6 +18,10 @@ import {
   type DbAssignment,
   type DbAssignmentStop,
   type VerificationStatus,
+  type DbOperator,
+  type DbOperatorSession,
+  type OperatorProfile,
+  type OperatorRole,
 } from './schema.js';
 
 // Queryable interface allowing either pg.Pool or pg.PoolClient (for transactions)
@@ -1351,5 +1355,124 @@ export class PostgisRepository {
       sheltersCount,
       isSimulated,
     };
+  }
+
+  // ==========================================
+  // Operator Authentication & Sessions
+  // ==========================================
+
+  async getOperatorByUsername(username: string): Promise<DbOperator | null> {
+    const res = await this.client.query<DbOperator>(
+      'SELECT id, username, password_hash, salt, name, role, is_active, created_at, updated_at FROM operators WHERE username = $1',
+      [username.trim().toLowerCase()],
+    );
+    return res.rows[0] ?? null;
+  }
+
+  async getOperatorById(id: string): Promise<DbOperator | null> {
+    const res = await this.client.query<DbOperator>(
+      'SELECT id, username, password_hash, salt, name, role, is_active, created_at, updated_at FROM operators WHERE id = $1',
+      [id],
+    );
+    return res.rows[0] ?? null;
+  }
+
+  async insertOperator(
+    operator: Omit<DbOperator, 'created_at' | 'updated_at'>,
+  ): Promise<DbOperator> {
+    const res = await this.client.query<DbOperator>(
+      `INSERT INTO operators (
+        id, username, password_hash, salt, name, role, is_active, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, NOW(), NOW()
+      ) RETURNING id, username, password_hash, salt, name, role, is_active, created_at, updated_at`,
+      [
+        operator.id,
+        operator.username.trim().toLowerCase(),
+        operator.password_hash,
+        operator.salt,
+        operator.name,
+        operator.role || 'OPERATOR',
+        operator.is_active ?? true,
+      ],
+    );
+    return res.rows[0]!;
+  }
+
+  async insertSession(
+    token: string,
+    operatorId: string,
+    expiresAt: Date,
+  ): Promise<DbOperatorSession> {
+    const res = await this.client.query<DbOperatorSession>(
+      `INSERT INTO operator_sessions (
+        token, operator_id, expires_at, created_at
+      ) VALUES (
+        $1, $2, $3, NOW()
+      ) RETURNING token, operator_id, expires_at, created_at`,
+      [token, operatorId, expiresAt],
+    );
+    return res.rows[0]!;
+  }
+
+  async getSessionWithOperator(
+    token: string,
+  ): Promise<{ session: DbOperatorSession; operator: OperatorProfile } | null> {
+    const res = await this.client.query<{
+      token: string;
+      operator_id: string;
+      expires_at: Date;
+      session_created_at: Date;
+      op_id: string;
+      username: string;
+      name: string;
+      role: OperatorRole;
+      is_active: boolean;
+    }>(
+      `SELECT 
+        s.token, s.operator_id, s.expires_at, s.created_at AS session_created_at,
+        o.id AS op_id, o.username, o.name, o.role, o.is_active
+       FROM operator_sessions s
+       JOIN operators o ON s.operator_id = o.id
+       WHERE s.token = $1 AND s.expires_at > NOW() AND o.is_active = TRUE`,
+      [token],
+    );
+
+    if (res.rows.length === 0 || !res.rows[0]) {
+      return null;
+    }
+
+    const r = res.rows[0];
+    return {
+      session: {
+        token: r.token,
+        operator_id: r.operator_id,
+        expires_at: r.expires_at,
+        created_at: r.session_created_at,
+      },
+      operator: {
+        id: r.op_id,
+        username: r.username,
+        name: r.name,
+        role: r.role,
+      },
+    };
+  }
+
+  async deleteSession(token: string): Promise<boolean> {
+    const res = await this.client.query('DELETE FROM operator_sessions WHERE token = $1', [token]);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async cleanExpiredSessions(): Promise<number> {
+    const res = await this.client.query('DELETE FROM operator_sessions WHERE expires_at <= NOW()');
+    return res.rowCount ?? 0;
+  }
+
+  async countOperators(): Promise<number> {
+    const res = await this.client.query<{ count: string }>(
+      'SELECT COUNT(*)::text as count FROM operators',
+    );
+    return parseInt(res.rows[0]?.count ?? '0', 10);
   }
 }

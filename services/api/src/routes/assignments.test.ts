@@ -5,6 +5,7 @@ import { createApp } from '../app.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
 import { AssignmentService } from '../services/assignmentService.js';
 import { RequestService } from '../services/requestService.js';
+import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import type {
   DbAssignment,
   DbAssignmentStop,
@@ -500,13 +501,27 @@ describe('Assignment Endpoints Integration Tests', () => {
   let assignmentService: AssignmentService;
   let requestService: RequestService;
   let app: ReturnType<typeof createApp>;
+  let agent: ReturnType<typeof request.agent>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dbMock = new InMemoryAssignmentDbMock();
     repo = new PostgisRepository(dbMock);
+    const authRepo = new InMemoryAuthRepository();
+    const authService = new AuthService(authRepo);
+    await authService.createOperator({
+      username: 'test_operator',
+      password: 'TestPassword123!',
+      name: 'Capt. Vance',
+      role: 'OPERATOR',
+    });
+    const session = await authService.authenticate('test_operator', 'TestPassword123!');
+    const authToken = session.token;
+
     assignmentService = new AssignmentService(repo);
     requestService = new RequestService(repo);
-    app = createApp({ repository: repo, requestService, assignmentService });
+    app = createApp({ repository: repo, requestService, assignmentService, authService });
+    agent = request.agent(app);
+    agent.set('Authorization', `Bearer ${authToken}`);
 
     // Seed test shelters
     const shelter1: DbShelter = {
@@ -578,9 +593,23 @@ describe('Assignment Endpoints Integration Tests', () => {
     dbMock.requests.set(req2.id, req2);
   });
 
+  describe('Operator Authorization Enforcement', () => {
+    it('blocks anonymous access to POST /assignments/propose with 401 UNAUTHORIZED', async () => {
+      const res = await request(app).post('/assignments/propose').send({});
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('blocks anonymous access to GET /assignments with 401 UNAUTHORIZED', async () => {
+      const res = await request(app).get('/assignments');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+  });
+
   describe('POST /assignments/propose', () => {
     it('runs solver on stored requests and resources and returns 201 Created with status PROPOSED', async () => {
-      const res = await request(app).post('/assignments/propose').send({
+      const res = await agent.post('/assignments/propose').send({
         scenarioId: 'test-scenario',
         algorithm: 'cluster-allocation',
       });
@@ -603,29 +632,27 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('supports selecting different algorithms (nearest-first and savings baseline)', async () => {
-      const resNearest = await request(app)
+      const resNearest = await agent
         .post('/assignments/propose')
         .send({ algorithm: 'nearest-first' });
       expect(resNearest.status).toBe(201);
       expect(resNearest.body.data.status).toBe('PROPOSED');
 
-      const resSavings = await request(app)
-        .post('/assignments/propose')
-        .send({ algorithm: 'savings' });
+      const resSavings = await agent.post('/assignments/propose').send({ algorithm: 'savings' });
       expect(resSavings.status).toBe(201);
       expect(resSavings.body.data.status).toBe('PROPOSED');
     });
 
     it('rejects nearest-first or savings with 400 when committed frozen stops exist or preserveFrozen: true is set', async () => {
       // 1. Propose and commit an initial plan so committed frozen stops exist
-      const firstPropose = await request(app).post('/assignments/propose').send({
+      const firstPropose = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-check',
       });
       const firstId = firstPropose.body.data.id;
-      await request(app).post(`/assignments/${firstId}/commit`).send({ operatorId: 'op_1' });
+      await agent.post(`/assignments/${firstId}/commit`).send({ operatorId: 'op_1' });
 
       // 2. Attempt to propose with nearest-first while frozen stops exist -> 400
-      const nfRes = await request(app).post('/assignments/propose').send({
+      const nfRes = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-check',
         algorithm: 'nearest-first',
       });
@@ -634,7 +661,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(nfRes.body.error.message).toContain('does not support preserving frozen routes');
 
       // 3. Attempt to propose with savings while frozen stops exist -> 400
-      const savingsRes = await request(app).post('/assignments/propose').send({
+      const savingsRes = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-check',
         algorithm: 'savings',
       });
@@ -642,7 +669,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(savingsRes.body.error.code).toBe('UNSUPPORTED_ALGORITHM_OPTION');
 
       // 4. Passing preserveFrozen: false explicitly allows running baseline from scratch
-      const scratchRes = await request(app).post('/assignments/propose').send({
+      const scratchRes = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-check',
         algorithm: 'nearest-first',
         preserveFrozen: false,
@@ -651,9 +678,7 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('rejects invalid algorithm option with 400 Bad Request', async () => {
-      const res = await request(app)
-        .post('/assignments/propose')
-        .send({ algorithm: 'invalid-algo' });
+      const res = await agent.post('/assignments/propose').send({ algorithm: 'invalid-algo' });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -662,7 +687,7 @@ describe('Assignment Endpoints Integration Tests', () => {
     it('handles scenario with no pending requests gracefully with 0 routes and 100% coverage', async () => {
       dbMock.requests.clear();
 
-      const res = await request(app).post('/assignments/propose').send({});
+      const res = await agent.post('/assignments/propose').send({});
 
       expect(res.status).toBe(201);
       expect(res.body.data.status).toBe('PROPOSED');
@@ -677,7 +702,7 @@ describe('Assignment Endpoints Integration Tests', () => {
         res.status = 'OFFLINE';
       }
 
-      const res = await request(app).post('/assignments/propose').send({});
+      const res = await agent.post('/assignments/propose').send({});
 
       expect(res.status).toBe(201);
       expect(res.body.data.status).toBe('PROPOSED');
@@ -690,33 +715,33 @@ describe('Assignment Endpoints Integration Tests', () => {
   describe('GET /assignments and GET /assignments/:id', () => {
     it('lists stored assignments and filters by status', async () => {
       // Create a proposed assignment
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
       // List all assignments
-      const listAll = await request(app).get('/assignments');
+      const listAll = await agent.get('/assignments');
       expect(listAll.status).toBe(200);
       expect(listAll.body.count).toBe(1);
 
       // Filter by PROPOSED
-      const listProp = await request(app).get('/assignments?status=PROPOSED');
+      const listProp = await agent.get('/assignments?status=PROPOSED');
       expect(listProp.status).toBe(200);
       expect(listProp.body.count).toBe(1);
 
       // Filter by COMMITTED
-      const listComm = await request(app).get('/assignments?status=COMMITTED');
+      const listComm = await agent.get('/assignments?status=COMMITTED');
       expect(listComm.status).toBe(200);
       expect(listComm.body.count).toBe(0);
 
       // Retrieve by ID
-      const getSingle = await request(app).get(`/assignments/${assignId}`);
+      const getSingle = await agent.get(`/assignments/${assignId}`);
       expect(getSingle.status).toBe(200);
       expect(getSingle.body.data.id).toBe(assignId);
       expect(getSingle.body.data.routes).toBeInstanceOf(Array);
     });
 
     it('returns 404 Not Found for non-existent assignment ID', async () => {
-      const res = await request(app).get('/assignments/assign_non_existent');
+      const res = await agent.get('/assignments/assign_non_existent');
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');
     });
@@ -724,10 +749,10 @@ describe('Assignment Endpoints Integration Tests', () => {
 
   describe('POST /assignments/:id/commit', () => {
     it('operator commits a proposed assignment and freezes all stops', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
-      const commitRes = await request(app).post(`/assignments/${assignId}/commit`).send({
+      const commitRes = await agent.post(`/assignments/${assignId}/commit`).send({
         operatorId: 'operator_karan',
         notes: 'Approved primary river dispatch plan',
       });
@@ -751,15 +776,13 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('rejects committing an already committed assignment with 409 Conflict', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
-      await request(app)
-        .post(`/assignments/${assignId}/commit`)
-        .send({ operatorId: 'operator_karan' });
+      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'operator_karan' });
 
       // Second commit attempt
-      const secondCommit = await request(app)
+      const secondCommit = await agent
         .post(`/assignments/${assignId}/commit`)
         .send({ operatorId: 'operator_another' });
 
@@ -768,17 +791,17 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('rejects commit without operatorId with 400 Bad Request', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
-      const res = await request(app).post(`/assignments/${assignId}/commit`).send({});
+      const res = await agent.post(`/assignments/${assignId}/commit`).send({});
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 404 when attempting to commit a non-existent assignment', async () => {
-      const res = await request(app)
+      const res = await agent
         .post('/assignments/assign_missing/commit')
         .send({ operatorId: 'op_1' });
 
@@ -789,18 +812,16 @@ describe('Assignment Endpoints Integration Tests', () => {
 
   describe('PATCH /assignments/:id/stops/:stopId (Operator changes stop)', () => {
     it('operator modifies a stop on a PROPOSED assignment', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
       // Find first stop ID
       const firstStop = Array.from(dbMock.stops.values()).find((s) => s.assignment_id === assignId);
       expect(firstStop).toBeDefined();
 
-      const patchRes = await request(app)
-        .patch(`/assignments/${assignId}/stops/${firstStop!.id}`)
-        .send({
-          isFrozen: true,
-        });
+      const patchRes = await agent.patch(`/assignments/${assignId}/stops/${firstStop!.id}`).send({
+        isFrozen: true,
+      });
 
       expect(patchRes.status).toBe(200);
       expect(patchRes.body.success).toBe(true);
@@ -809,17 +830,15 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('rejects modifying stops on a COMMITTED assignment with 409 Conflict', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
       const firstStop = Array.from(dbMock.stops.values()).find((s) => s.assignment_id === assignId);
 
       // Commit assignment
-      await request(app)
-        .post(`/assignments/${assignId}/commit`)
-        .send({ operatorId: 'operator_karan' });
+      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'operator_karan' });
 
       // Attempt to modify after commit
-      const patchRes = await request(app)
+      const patchRes = await agent
         .patch(`/assignments/${assignId}/stops/${firstStop!.id}`)
         .send({ isFrozen: false });
 
@@ -828,16 +847,16 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('returns 404 when modifying a non-existent stop or assignment', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
-      const nonExistentStopRes = await request(app)
+      const nonExistentStopRes = await agent
         .patch(`/assignments/${assignId}/stops/non_existent_stop`)
         .send({ isFrozen: true });
       expect(nonExistentStopRes.status).toBe(404);
       expect(nonExistentStopRes.body.error.code).toBe('NOT_FOUND');
 
-      const nonExistentAssignRes = await request(app)
+      const nonExistentAssignRes = await agent
         .patch('/assignments/non_existent_assign/stops/some_stop')
         .send({ isFrozen: true });
       expect(nonExistentAssignRes.status).toBe(404);
@@ -846,11 +865,11 @@ describe('Assignment Endpoints Integration Tests', () => {
 
     it('preserves committed frozen stops when replanning with preserveFrozen: true', async () => {
       // 1. Propose first plan and commit it
-      const proposeRes = await request(app).post('/assignments/propose').send({
+      const proposeRes = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-scenario',
       });
       const firstAssignId = proposeRes.body.data.id;
-      await request(app)
+      await agent
         .post(`/assignments/${firstAssignId}/commit`)
         .send({ operatorId: 'operator_karan' });
 
@@ -875,7 +894,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       dbMock.requests.set(newReq.id, newReq);
 
       // 3. Propose new plan with preserveFrozen: true
-      const secondPropose = await request(app).post('/assignments/propose').send({
+      const secondPropose = await agent.post('/assignments/propose').send({
         scenarioId: 'test-frozen-scenario',
         preserveFrozen: true,
       });
@@ -891,11 +910,11 @@ describe('Assignment Endpoints Integration Tests', () => {
   describe('Transaction Safety & Concurrency on commitAssignment', () => {
     it('an injected failure on each statement leaves the database unchanged', async () => {
       // 1. Failure on UPDATE assignment_stops
-      const proposeRes1 = await request(app).post('/assignments/propose').send({});
+      const proposeRes1 = await agent.post('/assignments/propose').send({});
       const assignId1 = proposeRes1.body.data.id;
       dbMock.failOnStatement = 'UPDATE assignment_stops SET is_frozen = TRUE';
 
-      const resFail1 = await request(app)
+      const resFail1 = await agent
         .post(`/assignments/${assignId1}/commit`)
         .send({ operatorId: 'op_test' });
 
@@ -908,7 +927,7 @@ describe('Assignment Endpoints Integration Tests', () => {
 
       // 2. Failure on UPDATE requests
       dbMock.failOnStatement = "UPDATE requests SET status = 'ASSIGNED'";
-      const resFail2 = await request(app)
+      const resFail2 = await agent
         .post(`/assignments/${assignId1}/commit`)
         .send({ operatorId: 'op_test' });
 
@@ -918,7 +937,7 @@ describe('Assignment Endpoints Integration Tests', () => {
 
       // 3. Failure on INSERT INTO audit_events
       dbMock.failOnStatement = 'INSERT INTO audit_events';
-      const resFail3 = await request(app)
+      const resFail3 = await agent
         .post(`/assignments/${assignId1}/commit`)
         .send({ operatorId: 'op_test' });
 
@@ -928,7 +947,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       // Clean up failure injection
       dbMock.failOnStatement = undefined;
       // Now commit should succeed completely
-      const successRes = await request(app)
+      const successRes = await agent
         .post(`/assignments/${assignId1}/commit`)
         .send({ operatorId: 'op_test' });
       expect(successRes.status).toBe(200);
@@ -937,12 +956,12 @@ describe('Assignment Endpoints Integration Tests', () => {
     });
 
     it('two concurrent commits of the same assignment give one 200 and one 409', async () => {
-      const proposeRes = await request(app).post('/assignments/propose').send({});
+      const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
       const [res1, res2] = await Promise.all([
-        request(app).post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_1' }),
-        request(app).post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_2' }),
+        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_1' }),
+        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_2' }),
       ]);
 
       const statuses = [res1.status, res2.status].sort();
@@ -954,23 +973,19 @@ describe('Assignment Endpoints Integration Tests', () => {
 
     it('two different proposals containing the same request cannot both be committed', async () => {
       // Both proposals will include the same initial pending requests (e.g. req_1)
-      const prop1 = await request(app).post('/assignments/propose').send({});
-      const prop2 = await request(app).post('/assignments/propose').send({});
+      const prop1 = await agent.post('/assignments/propose').send({});
+      const prop2 = await agent.post('/assignments/propose').send({});
 
       const id1 = prop1.body.data.id;
       const id2 = prop2.body.data.id;
       expect(id1).not.toBe(id2);
 
       // Commit first proposal -> succeeds
-      const commit1 = await request(app)
-        .post(`/assignments/${id1}/commit`)
-        .send({ operatorId: 'op_1' });
+      const commit1 = await agent.post(`/assignments/${id1}/commit`).send({ operatorId: 'op_1' });
       expect(commit1.status).toBe(200);
 
       // Attempt to commit second proposal containing the now-ASSIGNED requests -> must fail with 409
-      const commit2 = await request(app)
-        .post(`/assignments/${id2}/commit`)
-        .send({ operatorId: 'op_2' });
+      const commit2 = await agent.post(`/assignments/${id2}/commit`).send({ operatorId: 'op_2' });
       expect(commit2.status).toBe(409);
       expect(commit2.body.error.code).toBe('REQUEST_ALREADY_ASSIGNED');
     });
@@ -1033,13 +1048,13 @@ describe('Assignment Endpoints Integration Tests', () => {
       });
 
       // Commit first proposal -> succeeds
-      const commit1 = await request(app)
+      const commit1 = await agent
         .post(`/assignments/${plan1Id}/commit`)
         .send({ operatorId: 'op_1' });
       expect(commit1.status).toBe(200);
 
       // Commit second proposal using same resource boat_01 -> must fail with 409 RESOURCE_ALREADY_COMMITTED
-      const commit2 = await request(app)
+      const commit2 = await agent
         .post(`/assignments/${plan2Id}/commit`)
         .send({ operatorId: 'op_2' });
       expect(commit2.status).toBe(409);
