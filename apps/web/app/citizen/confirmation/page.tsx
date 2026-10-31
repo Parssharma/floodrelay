@@ -12,11 +12,17 @@ interface CitizenReceipt {
   isFlaggedDuplicate: boolean;
   duplicateOfId: string | null;
   idempotent: boolean;
-  address: string;
-  lat: number;
-  lng: number;
-  waterLevel: string;
-  specialNeeds: string[];
+  addressSummary?: string;
+  approxLat?: number;
+  approxLng?: number;
+  waterLevel?: string;
+  hasSpecialNeeds?: boolean;
+  hasFieldNotes?: boolean;
+  // Backward compatibility with legacy receipts
+  address?: string;
+  lat?: number;
+  lng?: number;
+  specialNeeds?: string[];
   notes?: string;
 }
 
@@ -304,9 +310,12 @@ export default function CitizenConfirmationPage() {
                   <p className="text-xs text-on-surface-variant font-medium">
                     Reported Incident Location
                   </p>
-                  <p className="text-on-surface font-semibold">{receipt.address}</p>
+                  <p className="text-on-surface font-semibold">
+                    {receipt.addressSummary || receipt.address || 'Reported Location'}
+                  </p>
                   <span className="text-xs font-mono text-on-surface-variant">
-                    Coordinates: {receipt.lat.toFixed(6)}° N, {receipt.lng.toFixed(6)}° W
+                    Sector: {(receipt.approxLat ?? receipt.lat ?? 0).toFixed(2)}° N,{' '}
+                    {(receipt.approxLng ?? receipt.lng ?? 0).toFixed(2)}° W
                   </span>
                 </div>
               </div>
@@ -327,40 +336,27 @@ export default function CitizenConfirmationPage() {
                 <span className="material-symbols-outlined text-primary text-xl mt-0.5">group</span>
                 <div>
                   <p className="text-xs text-on-surface-variant font-medium">
-                    Occupancy &amp; Special Needs
+                    Occupancy &amp; Dispatch Status
                   </p>
                   <p className="text-on-surface font-semibold">
-                    {receipt.peopleCount} {receipt.peopleCount === 1 ? 'Person' : 'Persons'}{' '}
-                    requiring evacuation
+                    {receipt.peopleCount} {receipt.peopleCount === 1 ? 'Person' : 'Persons'} logged
+                    for evacuation
                   </p>
-                  {receipt.specialNeeds.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {receipt.specialNeeds.map((need, idx) => (
-                        <span
-                          className="px-2 py-0.5 bg-surface-container rounded font-mono text-[11px] font-semibold text-on-surface-variant"
-                          key={idx}
-                        >
-                          {need}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {receipt.notes && (
-                <div className="flex items-start gap-3 pt-2 border-t border-outline-variant">
-                  <span className="material-symbols-outlined text-primary text-xl mt-0.5">
-                    notes
-                  </span>
-                  <div>
-                    <p className="text-xs text-on-surface-variant font-medium">
-                      Rescue Team Field Notes
-                    </p>
-                    <p className="text-xs text-on-surface italic mt-0.5">{receipt.notes}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {(receipt.hasSpecialNeeds ??
+                      (receipt.specialNeeds && receipt.specialNeeds.length > 0)) && (
+                      <span className="px-2 py-0.5 bg-surface-container rounded font-mono text-[11px] font-semibold text-on-surface-variant">
+                        Special evacuation assistance logged
+                      </span>
+                    )}
+                    {(receipt.hasFieldNotes ?? Boolean(receipt.notes)) && (
+                      <span className="px-2 py-0.5 bg-surface-container rounded font-mono text-[11px] font-semibold text-on-surface-variant">
+                        Crew navigation instructions recorded
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 

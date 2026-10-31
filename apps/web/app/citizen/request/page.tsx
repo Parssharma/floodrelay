@@ -194,7 +194,7 @@ export default function CitizenRequestPage() {
     try {
       const result = await apiClient.createRequest(payload);
 
-      // Persist submission receipt in browser sessionStorage
+      // Persist minimized submission receipt in browser sessionStorage (privacy-preserving)
       const receipt = {
         id: result.id,
         createdAt: result.createdAt,
@@ -203,12 +203,12 @@ export default function CitizenRequestPage() {
         isFlaggedDuplicate: Boolean(result.isFlaggedDuplicate),
         duplicateOfId: result.duplicateOfId ?? null,
         idempotent: Boolean(result.idempotent),
-        address: address.trim(),
-        lat: parseFloat(lat),
-        lng: parseFloat(lng),
+        addressSummary: address.trim().split(',')[0] || 'Reported Location',
+        approxLat: parseFloat(parseFloat(lat).toFixed(2)),
+        approxLng: parseFloat(parseFloat(lng).toFixed(2)),
         waterLevel: WATER_LEVEL_LABELS[waterLevel] || waterLevel,
-        specialNeeds: activeNeeds,
-        notes: notes.trim(),
+        hasSpecialNeeds: activeNeeds.length > 0,
+        hasFieldNotes: Boolean(notes.trim()),
       };
 
       if (typeof window !== 'undefined') {
@@ -228,7 +228,7 @@ export default function CitizenRequestPage() {
         if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
           setIs409Conflict(true);
           setSubmitError(
-            'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. If you intended to submit an entirely separate emergency request with these updated details, tap "Submit as New Separate Request" below.',
+            'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate dispatch ticket, click "Submit as New Separate Request" below.',
           );
           // Do NOT automatically regenerate the key or silently resubmit.
           return;
@@ -867,7 +867,10 @@ export default function CitizenRequestPage() {
               {isPayloadEdited && (
                 <div className="p-2.5 rounded bg-amber-100/70 border border-amber-300 text-[11px] text-amber-900 flex items-center gap-1.5 font-medium">
                   <span className="material-symbols-outlined text-sm">edit_note</span>
-                  <span>Notice: Request details have been modified since the last attempt.</span>
+                  <span>
+                    Notice: Form details were modified. Submitting will transmit a new separate
+                    dispatch ticket, not modify an existing one.
+                  </span>
                 </div>
               )}
 

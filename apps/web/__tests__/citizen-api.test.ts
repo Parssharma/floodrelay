@@ -450,7 +450,7 @@ describe('Phase 3 Milestone 2 — Citizen Portal Live API Integration', () => {
   });
 
   describe('Session Storage Receipt & Confirmation Page Invariants', () => {
-    it('formats ticket receipt structure accurately', () => {
+    it('formats minimized privacy-preserving ticket receipt structure accurately', () => {
       const receipt = {
         id: 'req-482a8b9f',
         createdAt: '2026-10-31T14:32:00.000Z',
@@ -459,12 +459,12 @@ describe('Phase 3 Milestone 2 — Citizen Portal Live API Integration', () => {
         isFlaggedDuplicate: true,
         duplicateOfId: 'req-original-123',
         idempotent: false,
-        address: '1428 Riverbend Dr, Houston, TX',
-        lat: 29.7604,
-        lng: -95.3698,
+        addressSummary: '1428 Riverbend Dr',
+        approxLat: 29.76,
+        approxLng: -95.37,
         waterLevel: 'Reached ground floor interior (1 - 3 feet)',
-        specialNeeds: ['Elderly/Children', 'Medical Emergency/Oxygen Required'],
-        notes: 'White sheet on roof',
+        hasSpecialNeeds: true,
+        hasFieldNotes: true,
       };
 
       const serialized = JSON.stringify(receipt);
@@ -473,7 +473,11 @@ describe('Phase 3 Milestone 2 — Citizen Portal Live API Integration', () => {
       expect(parsed.id).toBe('req-482a8b9f');
       expect(parsed.isFlaggedDuplicate).toBe(true);
       expect(parsed.duplicateOfId).toBe('req-original-123');
-      expect(parsed.specialNeeds).toHaveLength(2);
+      expect(parsed.addressSummary).toBe('1428 Riverbend Dr');
+      expect(parsed.approxLat).toBe(29.76);
+      expect(parsed.approxLng).toBe(-95.37);
+      expect(parsed.hasSpecialNeeds).toBe(true);
+      expect(parsed.notes).toBeUndefined(); // Sensitive PII freeform notes are omitted from client storage
     });
   });
 
