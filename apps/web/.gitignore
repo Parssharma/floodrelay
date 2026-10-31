@@ -8,3 +8,7 @@ node_modules/
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Screenshots
+screenshots/
+
