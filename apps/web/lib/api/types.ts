@@ -90,6 +90,8 @@ export interface ApiResponse<T> {
   success: boolean;
   data: T;
   message?: string;
+  idempotent?: boolean;
+  count?: number;
 }
 
 export interface ApiErrorPayload {

@@ -1,30 +1,170 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { SimulatedNotice } from '@/components/ui/SimulatedNotice';
+import type { UrgencyLevel } from '@floodrelay/shared';
+
+interface CitizenReceipt {
+  id: string;
+  createdAt: string;
+  urgency: UrgencyLevel;
+  peopleCount: number;
+  isFlaggedDuplicate: boolean;
+  duplicateOfId: string | null;
+  idempotent: boolean;
+  address: string;
+  lat: number;
+  lng: number;
+  waterLevel: string;
+  specialNeeds: string[];
+  notes?: string;
+}
 
 export default function CitizenConfirmationPage() {
+  const [receipt, setReceipt] = useState<CitizenReceipt | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
-  const ticketId = '#FL-8824-TX';
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const stored = sessionStorage.getItem('floodrelay_citizen_receipt');
+        if (stored) {
+          setReceipt(JSON.parse(stored));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse citizen receipt from sessionStorage:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const copyTicketId = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(ticketId);
+    if (receipt?.id && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(receipt.id);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
+  const formatTimestamp = (isoString?: string): string => {
+    if (!isoString) return 'Just now';
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short',
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-16 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-on-surface-variant">
+          <span className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm font-semibold">Loading official intake receipt...</span>
+        </div>
+      </main>
+    );
+  }
+
+  // Fallback state when accessed directly without an active session receipt
+  if (!receipt) {
+    return (
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-12 pb-20">
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center space-y-6">
+          <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 mx-auto flex items-center justify-center">
+            <span className="material-symbols-outlined text-3xl">info</span>
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="font-manrope text-2xl md:text-3xl font-bold text-on-surface">
+              No Active Rescue Request Found in Session
+            </h1>
+            <p className="text-sm text-on-surface-variant max-w-lg mx-auto leading-relaxed">
+              No recent emergency submission was detected in this browser session. If you or someone
+              near you requires flood evacuation or medical rescue, please submit an official
+              request immediately.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
+            <Link
+              className="w-full sm:w-auto px-6 py-3 rounded-lg bg-primary-container text-on-primary font-bold text-sm hover:bg-primary transition-colors flex items-center justify-center gap-2"
+              href="/citizen/request"
+            >
+              <span className="material-symbols-outlined text-lg">emergency</span>
+              <span>Submit Rescue Assistance Request</span>
+            </Link>
+            <Link
+              className="w-full sm:w-auto px-6 py-3 rounded-lg bg-surface-container border border-outline-variant text-on-surface font-semibold text-sm hover:bg-surface-container-high transition-colors flex items-center justify-center gap-2"
+              href="/citizen"
+            >
+              <span className="material-symbols-outlined text-lg">home</span>
+              <span>Return to Public Portal</span>
+            </Link>
+          </div>
+
+          <div className="pt-6 border-t border-outline-variant text-xs text-on-surface-variant">
+            <span>In immediate life-threatening situations, dial </span>
+            <a className="font-bold text-tertiary underline" href="tel:911">
+              911
+            </a>
+            <span> or contact your local emergency management agency.</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const urgencyBadgeConfig: Record<
+    UrgencyLevel,
+    { label: string; badgeClass: string; dotClass: string }
+  > = {
+    CRITICAL: {
+      label: 'Critical Urgency (Immediate Danger)',
+      badgeClass: 'bg-red-100 text-red-900 border-red-300',
+      dotClass: 'bg-red-600',
+    },
+    HIGH: {
+      label: 'High Urgency (Rising Water)',
+      badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
+      dotClass: 'bg-amber-600',
+    },
+    MEDIUM: {
+      label: 'Moderate Risk',
+      badgeClass: 'bg-blue-100 text-blue-900 border-blue-300',
+      dotClass: 'bg-blue-600',
+    },
+    LOW: {
+      label: 'Low Priority (Precautionary)',
+      badgeClass: 'bg-slate-200 text-slate-800 border-slate-300',
+      dotClass: 'bg-slate-500',
+    },
+  };
+
+  const currentBadge = urgencyBadgeConfig[receipt.urgency] || urgencyBadgeConfig.HIGH;
+
   return (
     <main className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-8 md:py-12 pb-20">
-      {/* System Status Micro-Banner with Explicit Simulated Notice */}
+      {/* System Status Micro-Banner */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 mb-6 bg-surface-container-low border border-outline-variant rounded-lg text-xs text-on-surface-variant">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
-          <span>Regional EOC Sector 4 (Harris County Flood Basin) Active Logging</span>
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-600" />
+          <span>Regional Emergency Dispatch Intake Hub • Live Session</span>
         </div>
-        <SimulatedNotice label="SIMULATED CONFIRMATION FIXTURE" />
+        <span className="font-mono text-[11px] font-bold text-emerald-800 uppercase bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+          Official Receipt Active
+        </span>
       </div>
 
       {/* Confirmation Header Banner */}
@@ -60,6 +200,40 @@ export default function CitizenConfirmationPage() {
         </div>
       </section>
 
+      {/* Potential Duplicate Advisory (Non-Alarmist) */}
+      {receipt.isFlaggedDuplicate && (
+        <aside className="mb-8 p-5 rounded-xl bg-amber-50 border-2 border-amber-400 text-amber-950 flex items-start gap-4">
+          <span className="material-symbols-outlined text-amber-700 text-2xl mt-0.5">info</span>
+          <div className="space-y-1">
+            <strong className="block text-amber-900 font-bold text-sm tracking-wide">
+              Potential Duplicate Flagged for Coordinator Review
+            </strong>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              A rescue request was recently submitted at or near this location. Your report has been
+              securely linked to that coordinate cluster for operator inspection. Our dispatch
+              coordinators consolidate nearby reports to prevent redundant resource deployment while
+              ensuring all occupants are accounted for.
+            </p>
+          </div>
+        </aside>
+      )}
+
+      {/* Idempotent Confirmation Notice */}
+      {receipt.idempotent && (
+        <aside className="mb-8 p-4 rounded-xl bg-blue-50 border border-blue-300 text-blue-950 flex items-start gap-3">
+          <span className="material-symbols-outlined text-blue-600 text-xl mt-0.5">verified</span>
+          <div>
+            <strong className="block text-blue-900 font-bold text-xs uppercase tracking-wide">
+              Existing Record Confirmed
+            </strong>
+            <p className="text-xs text-blue-900">
+              This request was previously received and confirmed in the dispatch queue. No duplicate
+              dispatch record was created.
+            </p>
+          </div>
+        </aside>
+      )}
+
       {/* Grid: Ticket Details + Operational Flow */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
         {/* Left Column: Request Summary Card */}
@@ -72,8 +246,11 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <h2 className="font-manrope text-xl text-on-surface font-bold">Request Summary</h2>
               </div>
-              <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300">
-                Urgent (Upper Level Safe)
+              <span
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${currentBadge.badgeClass}`}
+              >
+                <span className={`w-2 h-2 rounded-full inline-block ${currentBadge.dotClass}`} />
+                <span>{currentBadge.label}</span>
               </span>
             </div>
 
@@ -85,18 +262,18 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <div className="flex items-center gap-2">
                   <span
-                    className="font-manrope text-xl md:text-2xl font-bold text-primary tracking-tight"
+                    className="font-mono text-lg md:text-xl font-bold text-primary tracking-tight select-all break-all"
                     id="ticket-id"
                   >
-                    {ticketId}
+                    {receipt.id}
                   </span>
-                  <span className="font-mono text-[10px] font-bold uppercase bg-surface-container px-1.5 py-0.5 rounded border border-outline-variant">
-                    Simulated
+                  <span className="font-mono text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-300">
+                    Live Record
                   </span>
                 </div>
               </div>
               <button
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant text-xs font-semibold text-on-surface hover:bg-surface-container active:scale-95 transition-all"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant text-xs font-semibold text-on-surface hover:bg-surface-container active:scale-95 transition-all shrink-0"
                 onClick={copyTicketId}
                 type="button"
               >
@@ -113,9 +290,12 @@ export default function CitizenConfirmationPage() {
                 </span>
                 <div>
                   <p className="text-xs text-on-surface-variant font-medium">Logged Timestamp</p>
-                  <p className="text-on-surface font-semibold">Submitted today at 14:32 CST</p>
+                  <p className="text-on-surface font-semibold">
+                    {formatTimestamp(receipt.createdAt)}
+                  </p>
                 </div>
               </div>
+
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-primary text-xl mt-0.5">
                   pin_drop
@@ -124,30 +304,68 @@ export default function CitizenConfirmationPage() {
                   <p className="text-xs text-on-surface-variant font-medium">
                     Reported Incident Location
                   </p>
-                  <p className="text-on-surface font-semibold">
-                    1428 Riverbend Dr (GPS: 29.7604° N, 95.3698° W)
-                  </p>
-                  <span className="text-xs text-on-surface-variant">
-                    Quadrant 4B • Buffalo Bayou Sub-basin
+                  <p className="text-on-surface font-semibold">{receipt.address}</p>
+                  <span className="text-xs font-mono text-on-surface-variant">
+                    Coordinates: {receipt.lat.toFixed(6)}° N, {receipt.lng.toFixed(6)}° W
                   </span>
                 </div>
               </div>
+
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-primary text-xl mt-0.5">
+                  water_damage
+                </span>
+                <div>
+                  <p className="text-xs text-on-surface-variant font-medium">
+                    Reported Water Level
+                  </p>
+                  <p className="text-on-surface font-semibold">{receipt.waterLevel}</p>
+                </div>
+              </div>
+
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-primary text-xl mt-0.5">group</span>
                 <div>
                   <p className="text-xs text-on-surface-variant font-medium">
-                    Vulnerability &amp; Occupancy
+                    Occupancy &amp; Special Needs
                   </p>
                   <p className="text-on-surface font-semibold">
-                    3 Persons (Elderly relative &amp; pets included)
+                    {receipt.peopleCount} {receipt.peopleCount === 1 ? 'Person' : 'Persons'}{' '}
+                    requiring evacuation
                   </p>
+                  {receipt.specialNeeds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {receipt.specialNeeds.map((need, idx) => (
+                        <span
+                          className="px-2 py-0.5 bg-surface-container rounded font-mono text-[11px] font-semibold text-on-surface-variant"
+                          key={idx}
+                        >
+                          {need}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {receipt.notes && (
+                <div className="flex items-start gap-3 pt-2 border-t border-outline-variant">
+                  <span className="material-symbols-outlined text-primary text-xl mt-0.5">
+                    notes
+                  </span>
+                  <div>
+                    <p className="text-xs text-on-surface-variant font-medium">
+                      Rescue Team Field Notes
+                    </p>
+                    <p className="text-xs text-on-surface italic mt-0.5">{receipt.notes}</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="mt-6 pt-4 border-t border-outline-variant flex items-center justify-between text-xs text-on-surface-variant">
-            <span>Relay Node: TX-EOC-HUB-09</span>
+            <span>Intake Channel: Civil Defense Web Protocol</span>
             <span className="inline-flex items-center gap-1 text-primary font-bold">
               <span className="material-symbols-outlined text-sm">verified_user</span>
               Dispatch Logged
@@ -186,7 +404,7 @@ export default function CitizenConfirmationPage() {
                 <h3 className="text-sm font-bold text-on-surface">Route Inclusion</h3>
                 <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
                   Your ticket is sequenced into the nearest operational craft routing cluster
-                  (Zodiac or high-water truck).
+                  (Zodiac boat, high-water vehicle, or air asset).
                 </p>
               </li>
 
@@ -204,7 +422,7 @@ export default function CitizenConfirmationPage() {
             </ol>
           </div>
 
-          <div className="mt-8 pt-4 border-t border-outline-variant">
+          <div className="mt-8 pt-4 border-t border-outline-variant space-y-3">
             <Link
               className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-surface-container text-on-surface text-xs font-bold hover:bg-surface-container-high transition-colors"
               href="/citizen"
@@ -212,6 +430,10 @@ export default function CitizenConfirmationPage() {
               <span>Return to Public Portal</span>
               <span className="material-symbols-outlined text-sm">home</span>
             </Link>
+
+            <p className="text-[11px] text-center text-on-surface-variant">
+              Keep your reference ID handy for contact with local emergency responders.
+            </p>
           </div>
         </section>
       </div>

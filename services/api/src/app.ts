@@ -22,6 +22,21 @@ export interface AppDependencies {
 export function createApp(deps?: AppDependencies): Express {
   const app = express();
 
+  // CORS headers middleware for browser clients
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.header('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept, Idempotency-Key, X-Idempotency-Key',
+    );
+    if (_req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '100kb' }));
 
   const repo = deps?.repository ?? new PostgisRepository(getPool());
@@ -38,7 +53,7 @@ export function createApp(deps?: AppDependencies): Express {
     res.status(200).json(openapiSpec);
   });
 
-  // Mount API routers
+  // Mount API routers matching OpenAPI specification paths
   app.use('/requests', createRequestsRouter(requestService));
   app.use('/assignments', createAssignmentsRouter(assignmentService));
 

@@ -97,7 +97,10 @@ export class FloodRelayApiClient {
   }
 
   // Citizen & Operator Request Endpoints
-  async createRequest(input: CreateRequestInput, signal?: AbortSignal): Promise<RescueRequest> {
+  async createRequest(
+    input: CreateRequestInput,
+    signal?: AbortSignal,
+  ): Promise<RescueRequest & { idempotent?: boolean }> {
     const headers: Record<string, string> = {};
     if (input.idempotencyKey) {
       headers['Idempotency-Key'] = input.idempotencyKey;
@@ -109,7 +112,10 @@ export class FloodRelayApiClient {
       headers,
       signal,
     });
-    return res.data;
+    return {
+      ...res.data,
+      idempotent: Boolean(res.idempotent),
+    };
   }
 
   async getRequest(id: string, signal?: AbortSignal): Promise<RescueRequest> {

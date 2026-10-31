@@ -2,13 +2,42 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { UrgencyLevel } from '@floodrelay/shared';
+import { apiClient } from '@/lib/api/client';
+import { ApiClientError } from '@/lib/api/errors';
+import type { CreateRequestInput } from '@/lib/api/types';
+
+export type GpsStatus =
+  'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
+
+const WATER_LEVEL_LABELS: Record<string, string> = {
+  ankle_knee: 'Ankle to Knee-deep in yard / driveway (Evacuation possible)',
+  ground_floor: 'Reached ground floor interior (1 - 3 feet)',
+  submerged_ground: 'Ground floor fully submerged (Trapped on 2nd story)',
+  roof_access: 'Attic or Roof access only (Critical water crest)',
+  surrounded: 'House dry on hill but surrounded by swift water',
+};
+
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export default function CitizenRequestPage() {
+  const router = useRouter();
+
   // Form State
   const [lat, setLat] = useState<string>('29.7604');
   const [lng, setLng] = useState<string>('-95.3698');
-  const [gpsStatus, setGpsStatus] = useState<'IDLE' | 'ACQUIRED'>('ACQUIRED');
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>('IDLE');
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [address, setAddress] = useState<string>(
     '1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower',
   );
@@ -23,30 +52,52 @@ export default function CitizenRequestPage() {
   const [urgency, setUrgency] = useState<UrgencyLevel>('HIGH');
   const [notes, setNotes] = useState<string>('');
 
-  // Validation & Submission State
+  // Idempotency & Submission State
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => generateUUID());
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [submittedDevMode, setSubmittedDevMode] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [is409Conflict, setIs409Conflict] = useState<boolean>(false);
 
   const handleUseLocation = () => {
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setLat(pos.coords.latitude.toFixed(6));
-          setLng(pos.coords.longitude.toFixed(6));
-          setGpsStatus('ACQUIRED');
-        },
-        () => {
-          // Fallback to simulated location if permission denied
-          setLat('29.7604');
-          setLng('-95.3698');
-          setGpsStatus('ACQUIRED');
-        },
-      );
-    } else {
-      setLat('29.7604');
-      setLng('-95.3698');
-      setGpsStatus('ACQUIRED');
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGpsStatus('UNSUPPORTED');
+      return;
     }
+
+    setGpsStatus('ACQUIRING');
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLat(pos.coords.latitude.toFixed(6));
+        setLng(pos.coords.longitude.toFixed(6));
+        setGpsAccuracy(pos.coords.accuracy);
+        setGpsStatus('ACQUIRED');
+
+        // Clear coordinate field errors if any existed
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.lat;
+          delete next.lng;
+          return next;
+        });
+      },
+      (err) => {
+        // Strict real-geolocation error handling: NO mock fallback coordinates
+        if (err.code === 1) {
+          setGpsStatus('DENIED');
+        } else if (err.code === 3) {
+          setGpsStatus('TIMEOUT');
+        } else {
+          setGpsStatus('UNAVAILABLE');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      },
+    );
   };
 
   const validateForm = (): boolean => {
@@ -74,16 +125,124 @@ export default function CitizenRequestPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (validateForm()) {
-      setSubmittedDevMode(true);
+  const synthesizeNotes = (): { notesString: string; activeNeeds: string[] } => {
+    const activeNeeds: string[] = [];
+    if (specialNeeds.elderlyChildren) activeNeeds.push('Elderly/Children');
+    if (specialNeeds.mobilityImpaired) activeNeeds.push('Mobility Impaired');
+    if (specialNeeds.medicalOxygen) activeNeeds.push('Medical Emergency/Oxygen Required');
+    if (specialNeeds.pets) activeNeeds.push('Pets');
+
+    const parts: string[] = [];
+    if (address.trim()) {
+      parts.push(`Address: ${address.trim()}`);
     }
+    if (waterLevel && WATER_LEVEL_LABELS[waterLevel]) {
+      parts.push(`Water Level: ${WATER_LEVEL_LABELS[waterLevel]}`);
+    }
+    if (activeNeeds.length > 0) {
+      parts.push(`Special Needs: ${activeNeeds.join(', ')}`);
+    }
+    if (notes.trim()) {
+      parts.push(`Field Notes: ${notes.trim()}`);
+    }
+
+    const notesString = parts.join(' | ').slice(0, 1000);
+    return { notesString, activeNeeds };
+  };
+
+  const executeSubmission = async () => {
+    if (isSubmitting) return;
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setIs409Conflict(false);
+
+    const { notesString, activeNeeds } = synthesizeNotes();
+
+    const payload: CreateRequestInput = {
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
+      peopleCount: partyCount,
+      urgency,
+      medicalNeeds: Boolean(specialNeeds.medicalOxygen),
+      notes: notesString,
+      source: 'REPORTED',
+      idempotencyKey,
+    };
+
+    try {
+      const result = await apiClient.createRequest(payload);
+
+      // Persist submission receipt in browser sessionStorage
+      const receipt = {
+        id: result.id,
+        createdAt: result.createdAt,
+        urgency: result.urgency,
+        peopleCount: result.peopleCount,
+        isFlaggedDuplicate: Boolean(result.isFlaggedDuplicate),
+        duplicateOfId: result.duplicateOfId ?? null,
+        idempotent: Boolean(result.idempotent),
+        address: address.trim(),
+        lat: parseFloat(lat),
+        lng: parseFloat(lng),
+        waterLevel: WATER_LEVEL_LABELS[waterLevel] || waterLevel,
+        specialNeeds: activeNeeds,
+        notes: notes.trim(),
+      };
+
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('floodrelay_citizen_receipt', JSON.stringify(receipt));
+        } catch (storageErr) {
+          console.warn('Unable to store receipt in sessionStorage:', storageErr);
+        }
+      }
+
+      // Navigate to confirmation receipt
+      router.push('/citizen/confirmation');
+    } catch (err: unknown) {
+      setIsSubmitting(false);
+
+      if (err instanceof ApiClientError) {
+        if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
+          setIs409Conflict(true);
+          setSubmitError(
+            'This submission key was previously registered with differing information. A new key has been refreshed. Please tap Retry to transmit.',
+          );
+          // Regenerate key for 409 Conflict
+          setIdempotencyKey(generateUUID());
+          return;
+        }
+
+        if (err.statusCode === 400) {
+          setSubmitError(`Validation Error: ${err.message}`);
+          return;
+        }
+
+        setSubmitError(
+          `Emergency intake transmission error (${err.code || 'HTTP ' + err.statusCode}): ${err.message}. Your entered information is preserved. Please tap Retry Submission.`,
+        );
+      } else {
+        const errorMsg = (err as Error)?.message || 'Network communication failure';
+        setSubmitError(
+          `Unable to connect to civil defense emergency intake server: ${errorMsg}. Your information is preserved. Please tap Retry Submission.`,
+        );
+      }
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await executeSubmission();
   };
 
   return (
     <div className="flex-1 flex flex-col pb-16">
-      {/* Offline Resilient Connectivity Notification Banner */}
+      {/* Real Live Connectivity Notification Banner */}
       <aside className="bg-surface-container-high border-b border-outline-variant px-4 py-2.5 text-on-surface">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3 text-xs md:text-sm">
           <div className="flex items-center gap-2">
@@ -93,11 +252,11 @@ export default function CitizenRequestPage() {
             </span>
             <span className="font-semibold text-on-surface-variant">Intake Status:</span>
             <span className="text-on-surface">
-              Low-bandwidth protocol active. High-priority dispatch connection ready.
+              Live Intake Protocol Active. High-priority dispatch connection ready.
             </span>
           </div>
           <span className="hidden md:inline font-mono text-[11px] font-bold text-primary uppercase bg-surface px-2 py-0.5 rounded border border-outline-variant">
-            Phase 3 • M1 Prototype
+            Live Intake Node
           </span>
         </div>
       </aside>
@@ -126,21 +285,6 @@ export default function CitizenRequestPage() {
           </p>
         </div>
 
-        {/* Milestone 1 Development Boundary Notice */}
-        <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-3">
-          <span className="material-symbols-outlined text-amber-700 text-lg mt-0.5">info</span>
-          <div>
-            <strong className="block text-amber-900 font-bold uppercase tracking-wider mb-0.5 font-mono">
-              Milestone 1 UI Verification Mode
-            </strong>
-            <span>
-              This form demonstrates complete client-side controls, validation foundations, and
-              reactive state. Live server persistence and Express API transmission activate in{' '}
-              <strong>Milestone 2</strong>.
-            </span>
-          </div>
-        </div>
-
         {/* Form Interface */}
         <form className="space-y-8" onSubmit={handleSubmit}>
           {/* Section 1: Location Intake */}
@@ -161,23 +305,51 @@ export default function CitizenRequestPage() {
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                 <button
-                  className="flex items-center justify-center gap-2 bg-primary-container text-on-primary px-4 py-3 rounded-lg text-sm font-semibold hover:bg-primary transition-colors shadow-sm active:scale-95"
+                  className="flex items-center justify-center gap-2 bg-primary-container text-on-primary px-4 py-3 rounded-lg text-sm font-semibold hover:bg-primary transition-colors shadow-sm active:scale-95 disabled:opacity-60"
+                  disabled={isSubmitting || gpsStatus === 'ACQUIRING'}
                   onClick={handleUseLocation}
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-lg">satellite_alt</span>
-                  <span>Use My Current Location</span>
+                  <span
+                    className={`material-symbols-outlined text-lg ${
+                      gpsStatus === 'ACQUIRING' ? 'animate-spin' : ''
+                    }`}
+                  >
+                    satellite_alt
+                  </span>
+                  <span>
+                    {gpsStatus === 'ACQUIRING'
+                      ? 'Acquiring Device GPS...'
+                      : 'Use My Current Location'}
+                  </span>
                 </button>
+
+                {/* GPS Status Pill */}
                 <div className="flex items-center gap-2 px-3 py-2 bg-surface-container rounded-lg border border-outline-variant text-on-surface-variant text-xs font-medium">
                   <span
-                    className={`w-2 h-2 rounded-full inline-block ${
-                      gpsStatus === 'ACQUIRED' ? 'bg-emerald-600' : 'bg-amber-600'
+                    className={`w-2.5 h-2.5 rounded-full inline-block ${
+                      gpsStatus === 'ACQUIRED'
+                        ? 'bg-emerald-600'
+                        : gpsStatus === 'ACQUIRING'
+                          ? 'bg-blue-600 animate-pulse'
+                          : gpsStatus === 'DENIED'
+                            ? 'bg-red-600'
+                            : 'bg-amber-600'
                     }`}
                   />
                   <span>
-                    {gpsStatus === 'ACQUIRED'
-                      ? 'Location Acquired: Accuracy ±5m'
-                      : 'Tap to fetch device coordinates'}
+                    {gpsStatus === 'ACQUIRED' &&
+                      `Location Acquired: Accuracy ±${gpsAccuracy ? Math.round(gpsAccuracy) : 5}m`}
+                    {gpsStatus === 'ACQUIRING' && 'Acquiring satellite coordinate lock...'}
+                    {gpsStatus === 'DENIED' &&
+                      'Location permission denied. Please enter coordinates manually.'}
+                    {gpsStatus === 'UNAVAILABLE' &&
+                      'Location signal unavailable. Please enter coordinates manually.'}
+                    {gpsStatus === 'TIMEOUT' &&
+                      'Location request timed out. Please enter coordinates manually.'}
+                    {gpsStatus === 'UNSUPPORTED' &&
+                      'Geolocation unsupported. Please enter coordinates manually.'}
+                    {gpsStatus === 'IDLE' && 'Tap button to acquire browser GPS coordinates'}
                   </span>
                 </div>
               </div>
@@ -193,13 +365,15 @@ export default function CitizenRequestPage() {
                       Latitude
                     </label>
                     <span className="font-mono text-[10px] text-primary font-bold uppercase">
-                      GPS Coordinate
+                      {gpsStatus === 'ACQUIRED' ? 'GPS Fixed' : 'Decimal Degrees'}
                     </span>
                   </div>
                   <input
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                    disabled={isSubmitting}
                     id="latInput"
                     onChange={(e) => setLat(e.target.value)}
+                    placeholder="e.g. 29.7604"
                     type="text"
                     value={lat}
                   />
@@ -214,13 +388,15 @@ export default function CitizenRequestPage() {
                       Longitude
                     </label>
                     <span className="font-mono text-[10px] text-primary font-bold uppercase">
-                      GPS Coordinate
+                      {gpsStatus === 'ACQUIRED' ? 'GPS Fixed' : 'Decimal Degrees'}
                     </span>
                   </div>
                   <input
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                    disabled={isSubmitting}
                     id="lngInput"
                     onChange={(e) => setLng(e.target.value)}
+                    placeholder="e.g. -95.3698"
                     type="text"
                     value={lng}
                   />
@@ -236,7 +412,8 @@ export default function CitizenRequestPage() {
                 <span className="text-tertiary">*</span>
               </label>
               <input
-                className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                disabled={isSubmitting}
                 id="addressInput"
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
@@ -259,7 +436,8 @@ export default function CitizenRequestPage() {
                 Water level relative to your position <span className="text-tertiary">*</span>
               </label>
               <select
-                className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                disabled={isSubmitting}
                 id="waterLevelInput"
                 onChange={(e) => setWaterLevel(e.target.value)}
                 value={waterLevel}
@@ -310,7 +488,8 @@ export default function CitizenRequestPage() {
               <div className="flex items-center space-x-3 self-start sm:self-auto">
                 <button
                   aria-label="Decrease party size"
-                  className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold"
+                  className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold disabled:opacity-50"
+                  disabled={isSubmitting || partyCount <= 1}
                   onClick={() => setPartyCount((prev) => Math.max(1, prev - 1))}
                   type="button"
                 >
@@ -321,7 +500,8 @@ export default function CitizenRequestPage() {
                 </span>
                 <button
                   aria-label="Increase party size"
-                  className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold"
+                  className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold disabled:opacity-50"
+                  disabled={isSubmitting || partyCount >= 20}
                   onClick={() => setPartyCount((prev) => Math.min(20, prev + 1))}
                   type="button"
                 >
@@ -340,6 +520,7 @@ export default function CitizenRequestPage() {
                   <input
                     checked={specialNeeds.elderlyChildren}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
+                    disabled={isSubmitting}
                     onChange={(e) =>
                       setSpecialNeeds((prev) => ({ ...prev, elderlyChildren: e.target.checked }))
                     }
@@ -359,6 +540,7 @@ export default function CitizenRequestPage() {
                   <input
                     checked={specialNeeds.mobilityImpaired}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
+                    disabled={isSubmitting}
                     onChange={(e) =>
                       setSpecialNeeds((prev) => ({ ...prev, mobilityImpaired: e.target.checked }))
                     }
@@ -378,6 +560,7 @@ export default function CitizenRequestPage() {
                   <input
                     checked={specialNeeds.medicalOxygen}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
+                    disabled={isSubmitting}
                     onChange={(e) =>
                       setSpecialNeeds((prev) => ({ ...prev, medicalOxygen: e.target.checked }))
                     }
@@ -397,6 +580,7 @@ export default function CitizenRequestPage() {
                   <input
                     checked={specialNeeds.pets}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
+                    disabled={isSubmitting}
                     onChange={(e) =>
                       setSpecialNeeds((prev) => ({ ...prev, pets: e.target.checked }))
                     }
@@ -441,6 +625,7 @@ export default function CitizenRequestPage() {
                 <input
                   checked={urgency === 'CRITICAL'}
                   className="mt-1 w-5 h-5 text-tertiary focus:ring-tertiary border-outline"
+                  disabled={isSubmitting}
                   name="urgency_level"
                   onChange={() => setUrgency('CRITICAL')}
                   type="radio"
@@ -477,6 +662,7 @@ export default function CitizenRequestPage() {
                 <input
                   checked={urgency === 'HIGH'}
                   className="mt-1 w-5 h-5 text-amber-600 focus:ring-amber-500 border-outline"
+                  disabled={isSubmitting}
                   name="urgency_level"
                   onChange={() => setUrgency('HIGH')}
                   type="radio"
@@ -513,6 +699,7 @@ export default function CitizenRequestPage() {
                 <input
                   checked={urgency === 'MEDIUM'}
                   className="mt-1 w-5 h-5 text-blue-600 focus:ring-blue-500 border-outline"
+                  disabled={isSubmitting}
                   name="urgency_level"
                   onChange={() => setUrgency('MEDIUM')}
                   type="radio"
@@ -548,6 +735,7 @@ export default function CitizenRequestPage() {
                 <input
                   checked={urgency === 'LOW'}
                   className="mt-1 w-5 h-5 text-slate-700 focus:ring-slate-500 border-outline"
+                  disabled={isSubmitting}
                   name="urgency_level"
                   onChange={() => setUrgency('LOW')}
                   type="radio"
@@ -590,7 +778,8 @@ export default function CitizenRequestPage() {
                 Additional Instructions for Rescue Crews
               </label>
               <textarea
-                className="w-full h-24 p-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full h-24 p-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                disabled={isSubmitting}
                 id="notesInput"
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g., White bedsheet tied to chimney; please approach from south side to avoid submerged fence."
@@ -599,38 +788,50 @@ export default function CitizenRequestPage() {
             </div>
           </fieldset>
 
-          {/* Submission Feedback Modal/Alert for Milestone 1 */}
-          {submittedDevMode && (
-            <div className="p-5 rounded-xl bg-emerald-50 border-2 border-emerald-500 text-emerald-950 space-y-3">
-              <div className="flex items-center gap-2 text-emerald-800 font-bold text-base">
-                <span className="material-symbols-outlined text-emerald-600">check_circle</span>
-                <span>Client-Side Validation Passed (Milestone 1 Preview)</span>
-              </div>
-              <p className="text-xs text-emerald-900 leading-relaxed">
-                Form inputs are valid. In accordance with Milestone 1 rules, no fake server request
-                ID was generated and no live dispatch mutation occurred. Real database persistence
-                connects in <strong>Milestone 2</strong>.
-              </p>
-              <div className="flex items-center gap-3 pt-2">
-                <Link
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-container text-on-primary text-xs font-bold hover:bg-primary transition-colors"
-                  href="/citizen/confirmation"
+          {/* Live Submission Error & Retry Banner */}
+          {submitError && (
+            <div
+              className={`p-5 rounded-xl border-2 space-y-3 ${
+                is409Conflict
+                  ? 'bg-amber-50 border-amber-500 text-amber-950'
+                  : 'bg-red-50 border-red-500 text-red-950'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-base">
+                <span
+                  className={`material-symbols-outlined ${
+                    is409Conflict ? 'text-amber-600' : 'text-red-600'
+                  }`}
                 >
-                  <span>View Simulated Confirmation Layout</span>
-                  <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                </Link>
+                  {is409Conflict ? 'warning' : 'error'}
+                </span>
+                <span>
+                  {is409Conflict ? 'Idempotency Conflict Resolved' : 'Intake Submission Error'}
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed">{submitError}</p>
+              <div className="pt-2 flex items-center gap-3">
                 <button
-                  className="px-3 py-2 text-xs font-semibold text-emerald-800 hover:underline"
-                  onClick={() => setSubmittedDevMode(false)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors shadow-sm"
+                  disabled={isSubmitting}
+                  onClick={executeSubmission}
                   type="button"
                 >
-                  Dismiss Preview
+                  <span className="material-symbols-outlined text-sm">refresh</span>
+                  <span>Retry Submission</span>
+                </button>
+                <button
+                  className="px-3 py-2 text-xs font-semibold text-on-surface-variant hover:underline"
+                  onClick={() => setSubmitError(null)}
+                  type="button"
+                >
+                  Dismiss Notice
                 </button>
               </div>
             </div>
           )}
 
-          {/* Submit Trigger */}
+          {/* Submit Trigger with Double-Click Protection & Spinner */}
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-xs text-on-surface-variant flex items-center gap-1.5">
               <span className="material-symbols-outlined text-primary text-[18px]">lock</span>
@@ -638,11 +839,21 @@ export default function CitizenRequestPage() {
             </div>
 
             <button
-              className="w-full sm:w-auto px-8 py-4 rounded-xl bg-primary-container text-on-primary font-manrope text-base font-bold shadow-md hover:bg-primary transition-all active:scale-[0.99] flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-4 rounded-xl bg-primary-container text-on-primary font-manrope text-base font-bold shadow-md hover:bg-primary transition-all active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={isSubmitting}
               type="submit"
             >
-              <span className="material-symbols-outlined text-[20px]">send</span>
-              <span>Transmit Emergency Dispatch Request</span>
+              {isSubmitting ? (
+                <>
+                  <span className="w-5 h-5 border-2 border-on-primary border-t-transparent rounded-full animate-spin inline-block" />
+                  <span>Transmitting Dispatch Request...</span>
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[20px]">send</span>
+                  <span>Transmit Emergency Dispatch Request</span>
+                </>
+              )}
             </button>
           </div>
         </form>
