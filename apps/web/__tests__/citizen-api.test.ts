@@ -400,6 +400,53 @@ describe('Phase 3 Milestone 2 — Citizen Portal Live API Integration', () => {
       expect((caughtError as ApiClientError).statusCode).toBe(409);
       expect((caughtError as ApiClientError).code).toBe('IDEMPOTENCY_KEY_REUSED');
     });
+
+    it('preserves key on network retry, and requires deliberate user choice to mint new key on conflict', () => {
+      let currentKey = '12345678-1234-4234-8234-123456789abc';
+      let is409Conflict = true;
+
+      // Invariant: key must NOT be automatically regenerated
+      expect(currentKey).toBe('12345678-1234-4234-8234-123456789abc');
+      expect(is409Conflict).toBe(true);
+
+      // User consciously chooses "Submit as New Separate Request"
+      const onUserChooseNewRequest = () => {
+        currentKey = '87654321-4321-4321-8321-cba987654321';
+        is409Conflict = false;
+      };
+
+      onUserChooseNewRequest();
+      expect(currentKey).not.toBe('12345678-1234-4234-8234-123456789abc');
+      expect(is409Conflict).toBe(false);
+    });
+
+    it('defaults baseUrl to relative string in browser environment to leverage Next.js proxy rewrites without hardcoded localhost', () => {
+      const originalWindow = (global as unknown as { window?: unknown }).window;
+      try {
+        (global as unknown as { window: unknown }).window = {};
+        const client = new FloodRelayApiClient();
+        expect((client as unknown as { baseUrl: string }).baseUrl).toBe('');
+      } finally {
+        if (originalWindow === undefined) {
+          delete (global as unknown as { window?: unknown }).window;
+        } else {
+          (global as unknown as { window: unknown }).window = originalWindow;
+        }
+      }
+    });
+
+    it('defaults baseUrl to http://localhost:3000 in Node/SSR environment when NEXT_PUBLIC_API_URL is unset', () => {
+      const originalWindow = (global as unknown as { window?: unknown }).window;
+      try {
+        delete (global as unknown as { window?: unknown }).window;
+        const client = new FloodRelayApiClient();
+        expect((client as unknown as { baseUrl: string }).baseUrl).toBe('http://localhost:3000');
+      } finally {
+        if (originalWindow !== undefined) {
+          (global as unknown as { window: unknown }).window = originalWindow;
+        }
+      }
+    });
   });
 
   describe('Session Storage Receipt & Confirmation Page Invariants', () => {

@@ -22,11 +22,10 @@ export class FloodRelayApiClient {
   private readonly defaultHeaders: Record<string, string>;
 
   constructor(config: ApiClientConfig = {}) {
-    this.baseUrl = (
-      config.baseUrl ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      'http://localhost:3000'
-    ).replace(/\/$/, '');
+    const isBrowser = typeof window !== 'undefined';
+    const configuredUrl = config.baseUrl || process.env.NEXT_PUBLIC_API_URL;
+    // In browser, default to relative '' to leverage Next.js proxy rewrites; in Node/SSR default to http://localhost:3000
+    this.baseUrl = (configuredUrl ?? (isBrowser ? '' : 'http://localhost:3000')).replace(/\/$/, '');
     this.defaultHeaders = {
       'Content-Type': 'application/json',
       ...config.defaultHeaders,

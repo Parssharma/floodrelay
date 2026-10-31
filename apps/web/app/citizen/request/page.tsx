@@ -54,10 +54,18 @@ export default function CitizenRequestPage() {
 
   // Idempotency & Submission State
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => generateUUID());
+  const [submittedPayload, setSubmittedPayload] = useState<string | null>(null);
+  const [isPayloadEdited, setIsPayloadEdited] = useState<boolean>(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [is409Conflict, setIs409Conflict] = useState<boolean>(false);
+
+  const markEdited = () => {
+    if (submittedPayload) {
+      setIsPayloadEdited(true);
+    }
+  };
 
   const handleUseLocation = () => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -73,6 +81,7 @@ export default function CitizenRequestPage() {
         setLng(pos.coords.longitude.toFixed(6));
         setGpsAccuracy(pos.coords.accuracy);
         setGpsStatus('ACQUIRED');
+        markEdited();
 
         // Clear coordinate field errors if any existed
         setErrors((prev) => {
@@ -150,7 +159,7 @@ export default function CitizenRequestPage() {
     return { notesString, activeNeeds };
   };
 
-  const executeSubmission = async () => {
+  const executeSubmission = async (forceNewKey = false) => {
     if (isSubmitting) return;
 
     if (!validateForm()) {
@@ -159,7 +168,12 @@ export default function CitizenRequestPage() {
 
     setIsSubmitting(true);
     setSubmitError(null);
-    setIs409Conflict(false);
+
+    const effectiveKey = forceNewKey ? generateUUID() : idempotencyKey;
+    if (forceNewKey) {
+      setIdempotencyKey(effectiveKey);
+      setIs409Conflict(false);
+    }
 
     const { notesString, activeNeeds } = synthesizeNotes();
 
@@ -171,8 +185,11 @@ export default function CitizenRequestPage() {
       medicalNeeds: Boolean(specialNeeds.medicalOxygen),
       notes: notesString,
       source: 'REPORTED',
-      idempotencyKey,
+      idempotencyKey: effectiveKey,
     };
+
+    setSubmittedPayload(JSON.stringify(payload));
+    setIsPayloadEdited(false);
 
     try {
       const result = await apiClient.createRequest(payload);
@@ -211,10 +228,9 @@ export default function CitizenRequestPage() {
         if (err.statusCode === 409 || err.code === 'IDEMPOTENCY_KEY_REUSED') {
           setIs409Conflict(true);
           setSubmitError(
-            'This submission key was previously registered with differing information. A new key has been refreshed. Please tap Retry to transmit.',
+            'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. If you intended to submit an entirely separate emergency request with these updated details, tap "Submit as New Separate Request" below.',
           );
-          // Regenerate key for 409 Conflict
-          setIdempotencyKey(generateUUID());
+          // Do NOT automatically regenerate the key or silently resubmit.
           return;
         }
 
@@ -372,7 +388,10 @@ export default function CitizenRequestPage() {
                     className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                     disabled={isSubmitting}
                     id="latInput"
-                    onChange={(e) => setLat(e.target.value)}
+                    onChange={(e) => {
+                      setLat(e.target.value);
+                      markEdited();
+                    }}
                     placeholder="e.g. 29.7604"
                     type="text"
                     value={lat}
@@ -395,7 +414,10 @@ export default function CitizenRequestPage() {
                     className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                     disabled={isSubmitting}
                     id="lngInput"
-                    onChange={(e) => setLng(e.target.value)}
+                    onChange={(e) => {
+                      setLng(e.target.value);
+                      markEdited();
+                    }}
                     placeholder="e.g. -95.3698"
                     type="text"
                     value={lng}
@@ -415,7 +437,10 @@ export default function CitizenRequestPage() {
                 className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                 disabled={isSubmitting}
                 id="addressInput"
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={(e) => {
+                  setAddress(e.target.value);
+                  markEdited();
+                }}
                 placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
                 type="text"
                 value={address}
@@ -439,7 +464,10 @@ export default function CitizenRequestPage() {
                 className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                 disabled={isSubmitting}
                 id="waterLevelInput"
-                onChange={(e) => setWaterLevel(e.target.value)}
+                onChange={(e) => {
+                  setWaterLevel(e.target.value);
+                  markEdited();
+                }}
                 value={waterLevel}
               >
                 <option value="">Select current flood situation...</option>
@@ -490,7 +518,10 @@ export default function CitizenRequestPage() {
                   aria-label="Decrease party size"
                   className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold disabled:opacity-50"
                   disabled={isSubmitting || partyCount <= 1}
-                  onClick={() => setPartyCount((prev) => Math.max(1, prev - 1))}
+                  onClick={() => {
+                    setPartyCount((prev) => Math.max(1, prev - 1));
+                    markEdited();
+                  }}
                   type="button"
                 >
                   <span className="material-symbols-outlined">remove</span>
@@ -502,7 +533,10 @@ export default function CitizenRequestPage() {
                   aria-label="Increase party size"
                   className="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold disabled:opacity-50"
                   disabled={isSubmitting || partyCount >= 20}
-                  onClick={() => setPartyCount((prev) => Math.min(20, prev + 1))}
+                  onClick={() => {
+                    setPartyCount((prev) => Math.min(20, prev + 1));
+                    markEdited();
+                  }}
                   type="button"
                 >
                   <span className="material-symbols-outlined">add</span>
@@ -521,9 +555,10 @@ export default function CitizenRequestPage() {
                     checked={specialNeeds.elderlyChildren}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
                     disabled={isSubmitting}
-                    onChange={(e) =>
-                      setSpecialNeeds((prev) => ({ ...prev, elderlyChildren: e.target.checked }))
-                    }
+                    onChange={(e) => {
+                      setSpecialNeeds((prev) => ({ ...prev, elderlyChildren: e.target.checked }));
+                      markEdited();
+                    }}
                     type="checkbox"
                   />
                   <div>
@@ -541,9 +576,10 @@ export default function CitizenRequestPage() {
                     checked={specialNeeds.mobilityImpaired}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
                     disabled={isSubmitting}
-                    onChange={(e) =>
-                      setSpecialNeeds((prev) => ({ ...prev, mobilityImpaired: e.target.checked }))
-                    }
+                    onChange={(e) => {
+                      setSpecialNeeds((prev) => ({ ...prev, mobilityImpaired: e.target.checked }));
+                      markEdited();
+                    }}
                     type="checkbox"
                   />
                   <div>
@@ -561,9 +597,10 @@ export default function CitizenRequestPage() {
                     checked={specialNeeds.medicalOxygen}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
                     disabled={isSubmitting}
-                    onChange={(e) =>
-                      setSpecialNeeds((prev) => ({ ...prev, medicalOxygen: e.target.checked }))
-                    }
+                    onChange={(e) => {
+                      setSpecialNeeds((prev) => ({ ...prev, medicalOxygen: e.target.checked }));
+                      markEdited();
+                    }}
                     type="checkbox"
                   />
                   <div>
@@ -581,9 +618,10 @@ export default function CitizenRequestPage() {
                     checked={specialNeeds.pets}
                     className="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline"
                     disabled={isSubmitting}
-                    onChange={(e) =>
-                      setSpecialNeeds((prev) => ({ ...prev, pets: e.target.checked }))
-                    }
+                    onChange={(e) => {
+                      setSpecialNeeds((prev) => ({ ...prev, pets: e.target.checked }));
+                      markEdited();
+                    }}
                     type="checkbox"
                   />
                   <div>
@@ -627,7 +665,10 @@ export default function CitizenRequestPage() {
                   className="mt-1 w-5 h-5 text-tertiary focus:ring-tertiary border-outline"
                   disabled={isSubmitting}
                   name="urgency_level"
-                  onChange={() => setUrgency('CRITICAL')}
+                  onChange={() => {
+                    setUrgency('CRITICAL');
+                    markEdited();
+                  }}
                   type="radio"
                   value="CRITICAL"
                 />
@@ -664,7 +705,10 @@ export default function CitizenRequestPage() {
                   className="mt-1 w-5 h-5 text-amber-600 focus:ring-amber-500 border-outline"
                   disabled={isSubmitting}
                   name="urgency_level"
-                  onChange={() => setUrgency('HIGH')}
+                  onChange={() => {
+                    setUrgency('HIGH');
+                    markEdited();
+                  }}
                   type="radio"
                   value="HIGH"
                 />
@@ -701,7 +745,10 @@ export default function CitizenRequestPage() {
                   className="mt-1 w-5 h-5 text-blue-600 focus:ring-blue-500 border-outline"
                   disabled={isSubmitting}
                   name="urgency_level"
-                  onChange={() => setUrgency('MEDIUM')}
+                  onChange={() => {
+                    setUrgency('MEDIUM');
+                    markEdited();
+                  }}
                   type="radio"
                   value="MEDIUM"
                 />
@@ -737,7 +784,10 @@ export default function CitizenRequestPage() {
                   className="mt-1 w-5 h-5 text-slate-700 focus:ring-slate-500 border-outline"
                   disabled={isSubmitting}
                   name="urgency_level"
-                  onChange={() => setUrgency('LOW')}
+                  onChange={() => {
+                    setUrgency('LOW');
+                    markEdited();
+                  }}
                   type="radio"
                   value="LOW"
                 />
@@ -781,7 +831,10 @@ export default function CitizenRequestPage() {
                 className="w-full h-24 p-3 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                 disabled={isSubmitting}
                 id="notesInput"
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => {
+                  setNotes(e.target.value);
+                  markEdited();
+                }}
                 placeholder="e.g., White bedsheet tied to chimney; please approach from south side to avoid submerged fence."
                 value={notes}
               />
@@ -806,27 +859,61 @@ export default function CitizenRequestPage() {
                   {is409Conflict ? 'warning' : 'error'}
                 </span>
                 <span>
-                  {is409Conflict ? 'Idempotency Conflict Resolved' : 'Intake Submission Error'}
+                  {is409Conflict ? 'Idempotency Conflict Detected' : 'Intake Submission Error'}
                 </span>
               </div>
               <p className="text-xs leading-relaxed">{submitError}</p>
-              <div className="pt-2 flex items-center gap-3">
-                <button
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors shadow-sm"
-                  disabled={isSubmitting}
-                  onClick={executeSubmission}
-                  type="button"
-                >
-                  <span className="material-symbols-outlined text-sm">refresh</span>
-                  <span>Retry Submission</span>
-                </button>
-                <button
-                  className="px-3 py-2 text-xs font-semibold text-on-surface-variant hover:underline"
-                  onClick={() => setSubmitError(null)}
-                  type="button"
-                >
-                  Dismiss Notice
-                </button>
+
+              {isPayloadEdited && (
+                <div className="p-2.5 rounded bg-amber-100/70 border border-amber-300 text-[11px] text-amber-900 flex items-center gap-1.5 font-medium">
+                  <span className="material-symbols-outlined text-sm">edit_note</span>
+                  <span>Notice: Request details have been modified since the last attempt.</span>
+                </div>
+              )}
+
+              <div className="pt-2 flex flex-wrap items-center gap-3">
+                {is409Conflict ? (
+                  <>
+                    <button
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors shadow-sm"
+                      disabled={isSubmitting}
+                      onClick={() => executeSubmission(true)}
+                      type="button"
+                    >
+                      <span className="material-symbols-outlined text-sm">add_circle</span>
+                      <span>Submit as New Separate Request</span>
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-semibold text-on-surface-variant hover:underline"
+                      onClick={() => {
+                        setSubmitError(null);
+                        setIs409Conflict(false);
+                      }}
+                      type="button"
+                    >
+                      Keep Existing &amp; Dismiss
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors shadow-sm"
+                      disabled={isSubmitting}
+                      onClick={() => executeSubmission(false)}
+                      type="button"
+                    >
+                      <span className="material-symbols-outlined text-sm">refresh</span>
+                      <span>Retry Submission</span>
+                    </button>
+                    <button
+                      className="px-3 py-2 text-xs font-semibold text-on-surface-variant hover:underline"
+                      onClick={() => setSubmitError(null)}
+                      type="button"
+                    >
+                      Dismiss Notice
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
