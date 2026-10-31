@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Request Flood Rescue Assistance - FloodRelay</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "inverse-surface": "#2d3133",
+            "on-primary-fixed-variant": "#00504a",
+            "on-tertiary-fixed-variant": "#93000b",
+            "on-tertiary-fixed": "#410002",
+            "on-primary-container": "#a3faef",
+            "on-background": "#191c1e",
+            "on-tertiary": "#ffffff",
+            "surface-container-low": "#f2f4f6",
+            "on-surface-variant": "#3e4947",
+            "primary-container": "#0f766e",
+            "on-secondary-container": "#5c647a",
+            "inverse-primary": "#80d5cb",
+            "surface-tint": "#006a63",
+            "tertiary": "#a7000f",
+            "on-primary-fixed": "#00201d",
+            "surface": "#f7f9fb",
+            "outline-variant": "#bdc9c6",
+            "tertiary-fixed-dim": "#ffb4ab",
+            "surface-container-high": "#e6e8ea",
+            "surface-variant": "#e0e3e5",
+            "secondary-fixed-dim": "#bec6e0",
+            "tertiary-fixed": "#ffdad6",
+            "on-secondary": "#ffffff",
+            "secondary-container": "#dae2fd",
+            "surface-container-highest": "#e0e3e5",
+            "error-container": "#ffdad6",
+            "secondary-fixed": "#dae2fd",
+            "surface-dim": "#d8dadc",
+            "on-tertiary-container": "#ffe4e1",
+            "background": "#f7f9fb",
+            "tertiary-container": "#cf1b1e",
+            "secondary": "#565e74",
+            "surface-container-lowest": "#ffffff",
+            "on-primary": "#ffffff",
+            "on-surface": "#191c1e",
+            "inverse-on-surface": "#eff1f3",
+            "on-error": "#ffffff",
+            "surface-bright": "#f7f9fb",
+            "surface-container": "#eceef0",
+            "on-secondary-fixed": "#131b2e",
+            "error": "#ba1a1a",
+            "on-error-container": "#93000a",
+            "primary-fixed": "#9cf2e8",
+            "primary": "#005c55",
+            "primary-fixed-dim": "#80d5cb",
+            "outline": "#6e7977",
+            "on-secondary-fixed-variant": "#3f465c"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "1rem",
+            "margin-mobile": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2.5rem",
+            "space-md": "1rem",
+            "space-lg": "1.5rem",
+            "margin": "2rem",
+            "space-sm": "0.5rem",
+            "gutter": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Manrope"],
+            "body-md": ["Public Sans"],
+            "headline-xl": ["Manrope"],
+            "label-caps": ["Manrope"],
+            "label-lg": ["Public Sans"],
+            "label-md": ["Public Sans"],
+            "body-lg": ["Public Sans"],
+            "headline-xl-mobile": ["Manrope"],
+            "headline-lg-mobile": ["Manrope"],
+            "headline-lg": ["Manrope"],
+            "body-sm": ["Public Sans"],
+            "title-md": ["Public Sans"],
+            "title-lg": ["Public Sans"],
+            "headline-md": ["Manrope"]
+          },
+          "fontSize": {
+            "headline-sm": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "body-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.08em", "fontWeight": "700" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "body-lg": ["18px", { "lineHeight": "28px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-sm": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "400" }],
+            "title-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "title-lg": ["18px", { "lineHeight": "26px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface antialiased min-h-screen flex flex-col font-body-md text-body-md selection:bg-primary selection:text-on-primary">
+<!-- Top Navigation (Aligned with TopAppBar shared anchor, custom back departure for focused intake) -->
+<header class="bg-surface sticky top-0 z-40 w-full shadow-sm">
+<div class="w-full max-w-7xl mx-auto px-4 md:px-8 flex items-center justify-between h-16">
+<!-- Brand & Direct Navigation -->
+<div class="flex items-center space-x-3 md:space-x-4">
+<a class="flex items-center gap-1.5 py-1 px-2.5 rounded-lg text-primary hover:bg-surface-container transition-colors duration-150 font-label-lg text-label-lg active:opacity-90" href="/citizen" title="Return to Home">
+<span class="material-symbols-outlined text-lg" data-icon="arrow_back">arrow_back</span>
+<span class="hidden sm:inline">Back to Home</span>
+</a>
+<div class="h-4 w-px bg-outline-variant"></div>
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary text-2xl" data-icon="water_damage">water_damage</span>
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">FloodRelay</span>
+</div>
+</div>
+<!-- Action Anchor: Emergency Protocol 'Call 911' -->
+<div class="flex items-center">
+<a class="inline-flex items-center gap-2 bg-tertiary text-on-tertiary px-3.5 py-2 rounded-lg font-label-lg text-label-lg hover:bg-tertiary-container transition-colors duration-150 shadow-sm active:scale-95" href="tel:911">
+<span class="material-symbols-outlined text-base font-bold" data-icon="phone_in_talk">phone_in_talk</span>
+<span>Call 911</span>
+</a>
+</div>
+</div>
+</header>
+<!-- Offline Resilient Connectivity Notification Banner -->
+<aside class="bg-surface-container-high border-b border-outline-variant px-4 py-2.5 text-on-surface">
+<div class="max-w-4xl mx-auto flex items-center justify-between gap-3 text-xs md:text-sm">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary"></span>
+</span>
+<span class="font-label-md text-label-md text-on-surface-variant font-semibold">Offline resilient:</span>
+<span class="font-body-sm text-body-sm text-on-surface">Data cached locally until reconnected. Low-bandwidth protocol active.</span>
+</div>
+<span class="hidden md:inline font-label-caps text-label-caps text-primary uppercase bg-surface px-2 py-0.5 rounded border border-outline-variant">Protocol v2.4</span>
+</div>
+</aside>
+<!-- Main Content Layout (Task-Focused Single-Column Journey) -->
+<main class="flex-1 max-w-4xl w-full mx-auto px-4 md:px-8 py-6 md:py-10">
+<!-- Form Header & Incident Context -->
+<section class="mb-8">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-secondary-container text-on-secondary-fixed mb-3 font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-xs" data-icon="verified_user">verified_user</span>
+<span>Civil Defense Dispatch Tier-1</span>
+</div>
+<h1 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg font-bold text-on-surface tracking-tight mb-2">
+        Request Flood Rescue Assistance
+      </h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl leading-relaxed">
+        Complete this form to alert active emergency dispatch teams. Please provide as precise a location as possible.
+      </p>
+</section>
+<!-- Request Form Interface -->
+<form class="space-y-8" id="rescueRequestForm" onsubmit="event.preventDefault(); handleSubmit();">
+<!-- Section 1: Location Intake Section -->
+<fieldset class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 space-y-5">
+<legend class="sr-only">Location Details</legend>
+<div class="flex items-center justify-between pb-3 border-b border-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="pin_drop">pin_drop</span>
+<h2 class="font-title-lg text-title-lg text-on-surface font-semibold">1. Incident Location</h2>
+</div>
+<span class="font-label-caps text-label-caps bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Required</span>
+</div>
+<!-- GPS Locator Module -->
+<div class="space-y-3">
+<div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+<button class="flex items-center justify-center gap-2 bg-primary-container text-on-primary-container px-4 py-3 rounded-lg font-label-lg text-label-lg hover:bg-primary transition-colors duration-150 active:scale-95 shadow-sm text-left" id="geoBtn" onclick="simulateGpsAcquisition()" type="button">
+<span class="material-symbols-outlined text-xl" data-icon="satellite_alt">satellite_alt</span>
+<span>Use My Current Location</span>
+</button>
+<div class="flex items-center gap-2 px-3 py-2 bg-surface-container rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md" id="gpsStatusPill">
+<span class="w-2 h-2 rounded-full bg-emerald-600 inline-block"></span>
+<span id="gpsStatusText">Location Acquired: Accuracy ±5m</span>
+</div>
+</div>
+<!-- Coordinate Readout Panel -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-surface rounded-lg border border-outline-variant">
+<div>
+<div class="flex items-center justify-between mb-1">
+<label class="font-label-md text-label-md text-on-surface-variant font-semibold" for="latInput">Latitude</label>
+<span class="font-label-caps text-label-caps text-primary">GPS Fixed</span>
+</div>
+<input class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" id="latInput" type="text" value="29.7604° N"/>
+</div>
+<div>
+<div class="flex items-center justify-between mb-1">
+<label class="font-label-md text-label-md text-on-surface-variant font-semibold" for="lngInput">Longitude</label>
+<span class="font-label-caps text-label-caps text-primary">GPS Fixed</span>
+</div>
+<input class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" id="lngInput" type="text" value="95.3698° W"/>
+</div>
+</div>
+</div>
+<!-- Street Address & Detailed Landmark Input -->
+<div class="space-y-1.5">
+<label class="block font-label-lg text-label-lg text-on-surface" for="addressInput">
+            Street Address / Apartment / Structural Landmark <span class="text-tertiary">*</span>
+</label>
+<input class="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" id="addressInput" placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower" required="" type="text" value="1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"/>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Include building unit, color of external walls, or high visibility markers for air and boat crews.</p>
+</div>
+<!-- Water Depth Context Field -->
+<div class="space-y-1.5">
+<label class="block font-label-lg text-label-lg text-on-surface" for="waterLevelInput">
+            Water level relative to your position <span class="text-tertiary">*</span>
+</label>
+<select class="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" id="waterLevelInput" required="">
+<option value="">Select current flood situation...</option>
+<option value="ankle_knee">Ankle to Knee-deep in yard / driveway (Evacuation possible)</option>
+<option selected="" value="ground_floor">Reached ground floor interior (1 - 3 feet)</option>
+<option value="submerged_ground">Ground floor fully submerged (Trapped on 2nd story)</option>
+<option value="roof_access">Attic or Roof access only (Critical water crest)</option>
+<option value="surrounded">House dry on hill but surrounded by swift water</option>
+</select>
+</div>
+</fieldset>
+<!-- Section 2: Party Information -->
+<fieldset class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 space-y-6">
+<legend class="sr-only">Party Composition and Special Requirements</legend>
+<div class="flex items-center justify-between pb-3 border-b border-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="group">group</span>
+<h2 class="font-title-lg text-title-lg text-on-surface font-semibold">2. Party Information</h2>
+</div>
+<span class="font-label-caps text-label-caps bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Occupants</span>
+</div>
+<!-- Numeric Stepper: People Requiring Rescue -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-surface border border-outline-variant">
+<div>
+<div class="font-label-lg text-label-lg text-on-surface font-bold">Number of people requiring rescue</div>
+<div class="font-body-sm text-body-sm text-on-surface-variant">Boat capacity triage depends on total head count.</div>
+</div>
+<div class="flex items-center space-x-3 self-start sm:self-auto">
+<button aria-label="Decrease party size" class="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold" onclick="adjustCount(-1)" type="button">
+<span class="material-symbols-outlined" data-icon="remove">remove</span>
+</button>
+<span class="w-12 text-center font-headline-md text-headline-md font-bold text-on-surface" id="partyCount">3</span>
+<button aria-label="Increase party size" class="w-12 h-12 flex items-center justify-center rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface hover:bg-surface-container active:scale-95 transition-all text-xl font-bold" onclick="adjustCount(1)" type="button">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+</button>
+</div>
+</div>
+<!-- Special Circumstances Checkboxes -->
+<div class="space-y-3">
+<div class="font-label-lg text-label-lg text-on-surface font-semibold">Special needs or specific dispatch requirements</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<label class="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
+<input checked="" class="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline" name="special_needs" type="checkbox"/>
+<div>
+<span class="font-label-md text-label-md font-bold text-on-surface block">Elderly / Children present</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Infants, toddlers or seniors needing transfer assistance.</span>
+</div>
+</label>
+<label class="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
+<input class="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline" name="special_needs" type="checkbox"/>
+<div>
+<span class="font-label-md text-label-md font-bold text-on-surface block">Mobility impaired</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Wheelchair dependent, bedridden, or non-ambulatory.</span>
+</div>
+</label>
+<label class="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
+<input class="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline" name="special_needs" type="checkbox"/>
+<div>
+<span class="font-label-md text-label-md font-bold text-on-surface block">Medical emergency / Oxygen required</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Critical prescription loss, dialysis, or powered oxygen reliance.</span>
+</div>
+</label>
+<label class="flex items-start gap-3 p-3.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors cursor-pointer">
+<input checked="" class="mt-0.5 w-5 h-5 rounded text-primary focus:ring-primary border-outline" name="special_needs" type="checkbox"/>
+<div>
+<span class="font-label-md text-label-md font-bold text-on-surface block">Pets requiring evacuation</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Domestic animals needing crates or vessel safety gear.</span>
+</div>
+</label>
+</div>
+</div>
+</fieldset>
+<!-- Section 3: Urgency Level Selector (High-Clarity Segmented Triage Cards) -->
+<fieldset class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 space-y-4">
+<legend class="sr-only">Triage Urgency Rating</legend>
+<div class="flex items-center justify-between pb-3 border-b border-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary" data-icon="emergency">emergency</span>
+<h2 class="font-title-lg text-title-lg text-on-surface font-semibold">3. Urgency Level</h2>
+</div>
+<span class="font-label-caps text-label-caps bg-error-container text-on-error-container px-2 py-0.5 rounded font-bold">Select One</span>
+</div>
+<div aria-label="Urgency Assessment" class="space-y-3" role="radiogroup">
+<!-- Option 1: Critical -->
+<label class="relative flex items-start gap-3.5 p-4 rounded-lg border-2 border-outline-variant bg-surface hover:bg-red-50/50 cursor-pointer transition-all has-[:checked]:border-tertiary has-[:checked]:bg-red-50/40">
+<input class="mt-1 w-5 h-5 text-tertiary focus:ring-tertiary border-outline" name="urgency_level" type="radio" value="critical"/>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-3 h-3 rounded-full bg-tertiary inline-block"></span>
+<span class="font-label-lg text-label-lg font-bold text-tertiary uppercase tracking-wide">Critical Urgency</span>
+<span class="font-label-caps text-label-caps bg-red-100 text-red-900 px-1.5 py-0.5 rounded ml-auto">Tier 1</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface font-medium">
+                Immediate danger — rising water entering living space or severe physical injury.
+              </p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                Dispatches nearest active swift-water boat or rotary-wing team immediately.
+              </p>
+</div>
+</label>
+<!-- Option 2: Urgent (Default Checked for High Danger Reality) -->
+<label class="relative flex items-start gap-3.5 p-4 rounded-lg border-2 border-amber-500 bg-amber-50/40 cursor-pointer transition-all has-[:checked]:border-amber-600 has-[:checked]:bg-amber-50/60">
+<input checked="" class="mt-1 w-5 h-5 text-amber-600 focus:ring-amber-500 border-outline" name="urgency_level" type="radio" value="urgent"/>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-3 h-3 rounded-full bg-amber-600 inline-block"></span>
+<span class="font-label-lg text-label-lg font-bold text-amber-900 uppercase tracking-wide">Urgent Situation</span>
+<span class="font-label-caps text-label-caps bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded ml-auto">Tier 2</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface font-medium">
+                Surrounded by floodwaters — safe for now on upper level, rising slowly.
+              </p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                Queued into secondary rescue zone evacuation sweeps over the next 1–3 hours.
+              </p>
+</div>
+</label>
+<!-- Option 3: Stable / Shelter-in-place -->
+<label class="relative flex items-start gap-3.5 p-4 rounded-lg border-2 border-outline-variant bg-surface hover:bg-slate-50 cursor-pointer transition-all has-[:checked]:border-primary has-[:checked]:bg-teal-50/40">
+<input class="mt-1 w-5 h-5 text-primary focus:ring-primary border-outline" name="urgency_level" type="radio" value="stable"/>
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-1">
+<span class="w-3 h-3 rounded-full bg-primary inline-block"></span>
+<span class="font-label-lg text-label-lg font-bold text-primary uppercase tracking-wide">Stable / Shelter-In-Place</span>
+<span class="font-label-caps text-label-caps bg-teal-100 text-teal-900 px-1.5 py-0.5 rounded ml-auto">Tier 3</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface font-medium">
+                Supplies low, road impassable, non-immediate danger.
+              </p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                Scheduled for resource resupply drops or non-tactical evacuation staging.
+              </p>
+</div>
+</label>
+</div>
+</fieldset>
+<!-- Section 4: Additional Notes & Markers -->
+<fieldset class="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 space-y-3">
+<legend class="sr-only">Additional Context</legend>
+<div class="flex items-center justify-between pb-3 border-b border-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="notes">notes</span>
+<h2 class="font-title-lg text-title-lg text-on-surface font-semibold">4. Visual Markers &amp; Entry Details</h2>
+</div>
+<span class="font-label-caps text-label-caps bg-surface-container px-2 py-0.5 rounded text-on-surface-variant">Optional</span>
+</div>
+<div class="space-y-1.5">
+<label class="block font-label-lg text-label-lg text-on-surface" for="notesInput">
+            Optional details (entry points, color of roof, visible markers)
+          </label>
+<textarea class="w-full p-3 bg-surface-container-lowest border border-outline-variant rounded-lg font-body-md text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" id="notesInput" placeholder="e.g., Red shingle roof, tied a white bedsheet to balcony railing facing south, front door jammed from water pressure, back balcony easily accessible." rows="3"></textarea>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+            Mention if there are hazardous overhead power lines nearby or submerged vehicles obstructing entry.
+          </p>
+</div>
+</fieldset>
+<!-- Section 5: Form Submission & State Feedback -->
+<section class="space-y-4 pt-2">
+<!-- Live Loading / Submitting State Badge Demo (Hidden until click or toggle) -->
+<div class="hidden flex items-center justify-between p-4 rounded-lg bg-primary-container text-on-primary-container border border-primary" id="submittingStatus">
+<div class="flex items-center gap-3">
+<div class="w-5 h-5 border-2 border-on-primary-container border-t-transparent rounded-full animate-spin"></div>
+<span class="font-label-lg text-label-lg">Submitting encrypted emergency report...</span>
+</div>
+<span class="font-label-caps text-label-caps px-2 py-0.5 bg-black/20 rounded">Priority Transmission</span>
+</div>
+<!-- Primary Action Trigger -->
+<button class="w-full min-h-[52px] bg-primary text-on-primary rounded-lg font-label-lg text-label-lg md:text-title-md font-bold hover:bg-primary-container transition-all duration-150 active:scale-[0.99] flex items-center justify-center gap-3 shadow-md" id="submitBtn" type="submit">
+<span class="material-symbols-outlined text-2xl" data-icon="send">send</span>
+<span>Submit Rescue Request</span>
+</button>
+<!-- Privacy & Authority Reassurance Footnote -->
+<div class="text-center space-y-1">
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+            This request transmits directly to the County Emergency Operations Center (EOC) and accredited civil rescue units.
+          </p>
+<p class="font-label-caps text-label-caps text-outline uppercase tracking-wider">
+            Encrypted End-to-End • Compliant with Federal Disaster Relief Data Acts
+          </p>
+</div>
+</section>
+</form>
+</main>
+<!-- Shared Component: Footer (Verbatim from Shared Components JSON) -->
+<footer class="bg-surface-container-low border-t border-outline-variant mt-12">
+<div class="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 flex flex-col md:flex-row justify-between items-center gap-4">
+<div class="text-body-sm font-body-sm text-on-surface-variant text-center md:text-left">
+        © 2025 FloodRelay Civic Emergency Response. Official public safety service portal.
+      </div>
+<nav aria-label="Official Protocols" class="flex flex-wrap justify-center gap-x-6 gap-y-2 font-label-caps text-label-caps">
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#helplines">Crisis Helplines</a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#shelters">Shelter Network</a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#privacy">Data Privacy</a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#accessibility">Accessibility</a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#protocols">Emergency Protocols</a>
+</nav>
+</div>
+</footer>
+<!-- Light Vanilla Script for Intuitive Interactive Polish -->
+<script>
+    // Numeric stepper handler
+    function adjustCount(delta) {
+      const el = document.getElementById('partyCount');
+      let val = parseInt(el.textContent, 10) + delta;
+      if (val < 1) val = 1;
+      if (val > 25) val = 25;
+      el.textContent = val;
+    }
+
+    // GPS Acquisition micro-interaction
+    function simulateGpsAcquisition() {
+      const pill = document.getElementById('gpsStatusPill');
+      const text = document.getElementById('gpsStatusText');
+      const lat = document.getElementById('latInput');
+      const lng = document.getElementById('lngInput');
+
+      text.textContent = 'Recalibrating GPS satellite lock...';
+      pill.classList.add('bg-yellow-50', 'text-yellow-900');
+
+      setTimeout(() => {
+        text.textContent = 'Location Acquired: Accuracy ±3m (Refreshed)';
+        pill.classList.remove('bg-yellow-50', 'text-yellow-900');
+        pill.classList.add('bg-emerald-50', 'text-emerald-900');
+        lat.value = '29.7612° N';
+        lng.value = '95.3705° W';
+      }, 700);
+    }
+
+    // Form Submission Feedback Simulation
+    function handleSubmit() {
+      const statusBanner = document.getElementById('submittingStatus');
+      const submitBtn = document.getElementById('submitBtn');
+
+      statusBanner.classList.remove('hidden');
+      submitBtn.disabled = true;
+      submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+
+      setTimeout(() => {
+        statusBanner.innerHTML = `
+          <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-2xl" data-icon="check_circle">check_circle</span>
+            <div>
+              <div class="font-label-lg text-label-lg font-bold">Request Dispatched: Case #FLR-9042</div>
+              <div class="font-body-sm text-body-sm">Your rescue ticket has been confirmed by Sector 4 Dispatch. Keep device battery preserved.</div>
+            </div>
+          </div>
+          <a href="/citizen/track" class="bg-surface-container-lowest text-primary px-3 py-1.5 rounded font-label-md text-label-md font-bold shadow-sm whitespace-nowrap">Track Dispatch</a>
+        `;
+        statusBanner.className = 'flex items-center justify-between p-4 rounded-lg bg-emerald-700 text-white border border-emerald-800 shadow-md';
+        window.scrollTo({ top: statusBanner.offsetTop - 80, behavior: 'smooth' });
+      }, 1200);
+    }
+  </script>
+</body></html>

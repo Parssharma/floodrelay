@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FloodRelay — Citizen Emergency Response</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Manrope & Public Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&amp;family=Public Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "inverse-surface": "#2d3133",
+            "on-primary-fixed-variant": "#00504a",
+            "on-tertiary-fixed-variant": "#93000b",
+            "on-tertiary-fixed": "#410002",
+            "on-primary-container": "#a3faef",
+            "on-background": "#191c1e",
+            "on-tertiary": "#ffffff",
+            "surface-container-low": "#f2f4f6",
+            "on-surface-variant": "#3e4947",
+            "primary-container": "#0f766e",
+            "on-secondary-container": "#5c647a",
+            "inverse-primary": "#80d5cb",
+            "surface-tint": "#006a63",
+            "tertiary": "#a7000f",
+            "on-primary-fixed": "#00201d",
+            "surface": "#f7f9fb",
+            "outline-variant": "#bdc9c6",
+            "tertiary-fixed-dim": "#ffb4ab",
+            "surface-container-high": "#e6e8ea",
+            "surface-variant": "#e0e3e5",
+            "secondary-fixed-dim": "#bec6e0",
+            "tertiary-fixed": "#ffdad6",
+            "on-secondary": "#ffffff",
+            "secondary-container": "#dae2fd",
+            "surface-container-highest": "#e0e3e5",
+            "error-container": "#ffdad6",
+            "secondary-fixed": "#dae2fd",
+            "surface-dim": "#d8dadc",
+            "on-tertiary-container": "#ffe4e1",
+            "background": "#f7f9fb",
+            "tertiary-container": "#cf1b1e",
+            "secondary": "#565e74",
+            "surface-container-lowest": "#ffffff",
+            "on-primary": "#ffffff",
+            "on-surface": "#191c1e",
+            "inverse-on-surface": "#eff1f3",
+            "on-error": "#ffffff",
+            "surface-bright": "#f7f9fb",
+            "surface-container": "#eceef0",
+            "on-secondary-fixed": "#131b2e",
+            "error": "#ba1a1a",
+            "on-error-container": "#93000a",
+            "primary-fixed": "#9cf2e8",
+            "primary": "#005c55",
+            "primary-fixed-dim": "#80d5cb",
+            "outline": "#6e7977",
+            "on-secondary-fixed-variant": "#3f465c"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "1rem",
+            "margin-mobile": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2.5rem",
+            "space-md": "1rem",
+            "space-lg": "1.5rem",
+            "margin": "2rem",
+            "space-sm": "0.5rem",
+            "gutter": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Manrope"],
+            "body-md": ["Public Sans"],
+            "headline-xl": ["Manrope"],
+            "label-caps": ["Manrope"],
+            "label-lg": ["Public Sans"],
+            "label-md": ["Public Sans"],
+            "body-lg": ["Public Sans"],
+            "headline-xl-mobile": ["Manrope"],
+            "headline-lg-mobile": ["Manrope"],
+            "headline-lg": ["Manrope"],
+            "body-sm": ["Public Sans"],
+            "title-md": ["Public Sans"],
+            "title-lg": ["Public Sans"],
+            "headline-md": ["Manrope"]
+          },
+          "fontSize": {
+            "headline-sm": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "body-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-xl": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.08em", "fontWeight": "700" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "body-lg": ["18px", { "lineHeight": "28px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-xl-mobile": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.015em", "fontWeight": "700" }],
+            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-sm": ["14px", { "lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "400" }],
+            "title-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "title-lg": ["18px", { "lineHeight": "26px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background antialiased min-h-screen flex flex-col font-body-md text-body-md selection:bg-primary-container selection:text-on-primary">
+<!-- Immediate Danger Red Alert Ribbon -->
+<aside aria-label="Emergency warning" class="bg-tertiary-container text-on-tertiary px-4 py-2 text-center text-body-sm font-body-sm">
+<div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-2">
+<div class="flex items-center gap-1.5 font-title-md text-title-md">
+<span class="material-symbols-outlined text-[18px]" data-icon="warning" style="font-variation-settings: 'FILL' 1;">warning</span>
+<span>Immediate life-threatening danger?</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="hidden sm:inline">Call emergency dispatch directly:</span>
+<a class="inline-flex items-center gap-1 bg-surface-container-lowest text-tertiary px-2.5 py-0.5 rounded font-label-caps text-label-caps uppercase hover:bg-surface-container transition-colors" href="tel:911">
+<span class="material-symbols-outlined text-[14px]" data-icon="call">call</span>
+<span>Dial 911 Now</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- TopAppBar Component (from Shared JSON) -->
+<header class="bg-surface docked full-width top-0 border-b border-outline-variant flat no shadows sticky z-40">
+<div class="w-full max-w-7xl mx-auto px-4 md:px-8 flex items-center justify-between h-16">
+<!-- Logo and Civic Title -->
+<a class="flex items-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-primary rounded p-1" href="/citizen">
+<div class="w-9 h-9 rounded bg-primary-container flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[22px]" data-icon="water_damage">water_damage</span>
+</div>
+<div class="flex flex-col">
+<span class="text-headline-md font-headline-md text-primary font-bold tracking-tight leading-none">FloodRelay</span>
+<span class="text-[10px] tracking-wider text-on-surface-variant font-label-caps uppercase mt-0.5">Civic Relief Operations</span>
+</div>
+</a>
+<!-- Desktop Navigation Cluster -->
+<nav aria-label="Desktop Primary" class="hidden md:flex items-center gap-6">
+<a class="text-primary font-semibold text-label-lg font-label-lg pb-0.5 border-b-2 border-primary" href="/citizen">
+          Home
+        </a>
+<a class="text-on-surface-variant text-label-lg font-label-lg hover:bg-surface-container-high transition-colors duration-150 px-2 py-1 rounded" href="/citizen/request">
+          New Request
+        </a>
+<a class="text-on-surface-variant text-label-lg font-label-lg hover:bg-surface-container-high transition-colors duration-150 px-2 py-1 rounded" href="/citizen/track">
+          Track Status
+        </a>
+</nav>
+<!-- Trailing Action (Direct Call 911 Trigger) -->
+<div class="flex items-center gap-3">
+<a class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-tertiary text-on-tertiary text-label-lg font-label-lg active:opacity-90 hover:bg-opacity-95 transition-opacity" href="tel:911">
+<span class="material-symbols-outlined text-[18px]" data-icon="emergency">emergency</span>
+<span>Call 911</span>
+</a>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 pb-20 md:pb-12">
+<!-- HERO SECTION -->
+<section class="relative bg-surface-container-lowest border-b border-outline-variant pt-8 pb-12 md:py-16 overflow-hidden">
+<!-- Calm structural subtle grid backdrop -->
+<div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: linear-gradient(#005c55 1px, transparent 1px), linear-gradient(90deg, #005c55 1px, transparent 1px); background-size: 32px 32px;"></div>
+<div class="w-full max-w-7xl mx-auto px-4 md:px-8 relative z-10">
+<div class="max-w-3xl">
+<!-- Badge -->
+<div class="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-surface-container text-primary border border-outline-variant mb-4">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label-caps text-label-caps uppercase tracking-wider text-on-surface-variant">Official Citizen Relief Portal</span>
+</div>
+<!-- Headline -->
+<h1 class="text-headline-xl-mobile md:text-headline-xl font-headline-xl-mobile md:font-headline-xl text-on-surface font-extrabold tracking-tight mb-4">
+            Help Starts With Your Request
+          </h1>
+<!-- Reassuring subhead -->
+<p class="text-body-lg font-body-lg text-on-surface-variant mb-8 leading-relaxed max-w-2xl">
+            Connect directly with certified community rescue units and flood response coordinators. Submit your situation and exact coordinates securely.
+          </p>
+<!-- Primary & Secondary CTA Cluster -->
+<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5 mb-8">
+<a class="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-primary-container text-on-primary font-title-md text-title-md rounded-lg shadow-sm hover:bg-primary transition-all duration-150 active:scale-[0.99] text-center" href="/citizen/request">
+<span class="material-symbols-outlined text-[20px]" data-icon="emergency_home">emergency_home</span>
+<span>Request Rescue Assistance</span>
+<span class="material-symbols-outlined text-[20px]" data-icon="arrow_forward">arrow_forward</span>
+</a>
+<a class="inline-flex items-center justify-center gap-2 px-5 py-3.5 bg-surface-container-low text-on-surface border border-outline-variant font-title-md text-title-md rounded-lg hover:bg-surface-container transition-colors duration-150 text-center" href="/citizen/track">
+<span class="material-symbols-outlined text-[20px]" data-icon="pending_actions">pending_actions</span>
+<span>Check Existing Request Status</span>
+</a>
+</div>
+<!-- Reassurance Metadata Bar -->
+<div class="pt-4 border-t border-outline-variant/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-body-sm font-body-sm text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="verified_user">verified_user</span>
+<span>Direct field radio dispatch link</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="wifi_tethering">wifi_tethering</span>
+<span>Low-bandwidth optimized</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="lock">lock</span>
+<span>Coordinates strictly private</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- LIVE MONITORING TICKER (Civic Transparency) -->
+<section class="bg-surface-container-low border-b border-outline-variant py-3 px-4 md:px-8">
+<div class="w-full max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2 text-body-sm font-body-sm text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-container-highest font-label-caps text-label-caps text-on-surface uppercase">Region Status</span>
+<span class="font-medium text-on-surface">Crest Watch Active:</span>
+<span>Basin gauges monitored in real time across all sectors.</span>
+</div>
+<div class="flex items-center gap-4 text-label-md font-label-md">
+<span class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle">check_circle</span>
+            9 Central Triage Nodes Active
+          </span>
+<span class="text-on-surface-variant">Updated 2m ago</span>
+</div>
+</div>
+</section>
+<!-- THREE-STEP PROCESS SECTION -->
+<section class="py-12 md:py-16 max-w-7xl mx-auto px-4 md:px-8">
+<div class="mb-10 text-left max-w-2xl">
+<div class="font-label-caps text-label-caps uppercase text-primary tracking-wider mb-2">How Dispatch Operates</div>
+<h2 class="text-headline-lg-mobile md:text-headline-lg font-headline-lg-mobile md:font-headline-lg text-on-surface font-bold tracking-tight">
+          Three Steps from Intake to Safe Extraction
+        </h2>
+<p class="text-body-md font-body-md text-on-surface-variant mt-2">
+          Every request is triaged immediately by civil protection volunteers and rescue commanders without algorithmic delays.
+        </p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Step 1 Card -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant flex flex-col justify-between relative group hover:border-primary transition-colors">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center font-headline-sm text-headline-sm font-bold text-primary">
+                01
+              </span>
+<span class="material-symbols-outlined text-outline text-[24px]" data-icon="edit_location">edit_location</span>
+</div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold mb-2">
+              Submit Details
+            </h3>
+<p class="text-body-md font-body-md text-on-surface-variant leading-relaxed">
+              Provide your location, head count, and water level conditions. Include mobility needs or stranded pets so the appropriate watercraft is deployed.
+            </p>
+</div>
+<div class="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-label-md font-label-md text-primary font-medium">
+<span>Takes under 90 seconds</span>
+</div>
+</div>
+<!-- Step 2 Card -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant flex flex-col justify-between relative group hover:border-primary transition-colors">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center font-headline-sm text-headline-sm font-bold text-primary">
+                02
+              </span>
+<span class="material-symbols-outlined text-outline text-[24px]" data-icon="fact_check">fact_check</span>
+</div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold mb-2">
+              Triage &amp; Review
+            </h3>
+<p class="text-body-md font-body-md text-on-surface-variant leading-relaxed">
+              Central operations team validates your location and verifies rescue priority. Incidents involving roof isolation and medical risks are flagged instantly.
+            </p>
+</div>
+<div class="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-label-md font-label-md text-primary font-medium">
+<span>Persistent queue confirmation</span>
+</div>
+</div>
+<!-- Step 3 Card -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant flex flex-col justify-between relative group hover:border-primary transition-colors">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center font-headline-sm text-headline-sm font-bold text-primary">
+                03
+              </span>
+<span class="material-symbols-outlined text-outline text-[24px]" data-icon="directions_boat">directions_boat</span>
+</div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold mb-2">
+              Coordinated Response
+            </h3>
+<p class="text-body-md font-body-md text-on-surface-variant leading-relaxed">
+              Local emergency crews receive your dispatch ticket and deploy based on route accessibility, water depth clearance, and nearest staging grounds.
+            </p>
+</div>
+<div class="mt-6 pt-4 border-t border-outline-variant/60 flex items-center text-label-md font-label-md text-primary font-medium">
+<span>Direct ETA &amp; boat unit identifier</span>
+</div>
+</div>
+</div>
+</section>
+<!-- CRITICAL EMERGENCY & FLOOD SAFETY GUIDANCE (Bento / Structured Triage Cards) -->
+<section class="py-12 bg-surface-container-low border-y border-outline-variant">
+<div class="max-w-7xl mx-auto px-4 md:px-8">
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+<div>
+<div class="font-label-caps text-label-caps uppercase text-tertiary-container tracking-wider mb-1 font-bold">Public Safety Directives</div>
+<h2 class="text-headline-lg-mobile md:text-headline-lg font-headline-lg-mobile md:font-headline-lg text-on-surface font-bold">
+              Critical Emergency &amp; Flood Safety Guidance
+            </h2>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant max-w-md">
+            Adhere strictly to official safety procedures while dispatch teams navigate blocked channels and rising waterlines.
+          </p>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: High Water Safety Tips (7 Cols) -->
+<div class="lg:col-span-7 bg-surface-container-lowest rounded-xl border border-outline-variant p-6 md:p-8 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-3 mb-6 pb-4 border-b border-outline-variant">
+<div class="w-8 h-8 rounded bg-error-container text-tertiary flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="crisis_alert">crisis_alert</span>
+</div>
+<div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold">High Water Survival Protocols</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Mandatory precautions in rising water areas</p>
+</div>
+</div>
+<div class="space-y-4">
+<div class="flex items-start gap-3.5 p-3 rounded bg-surface-container-low border-l-4 border-tertiary">
+<span class="material-symbols-outlined text-tertiary shrink-0 mt-0.5" data-icon="waves">waves</span>
+<div>
+<h4 class="text-title-md font-title-md text-on-surface font-bold">Avoid Moving Water Entirely</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                      Just six inches of fast-moving flood water can knock an adult off their feet. Twelve inches can carry a vehicle away. Never walk or drive through standing depth.
+                    </p>
+</div>
+</div>
+<div class="flex items-start gap-3.5 p-3 rounded bg-surface-container-low border-l-4 border-tertiary">
+<span class="material-symbols-outlined text-tertiary shrink-0 mt-0.5" data-icon="warning_amber">warning_amber</span>
+<div>
+<h4 class="text-title-md font-title-md text-on-surface font-bold">Never Enter Flooded Basements or Cellars</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                      Rapid pressure can collapse foundation walls or create electrical live-wire hazards in standing sump water. Move to second floors or roof decks if stairs are unobstructed.
+                    </p>
+</div>
+</div>
+<div class="flex items-start gap-3.5 p-3 rounded bg-surface-container-low border-l-4 border-tertiary">
+<span class="material-symbols-outlined text-tertiary shrink-0 mt-0.5" data-icon="power_settings_new">power_settings_new</span>
+<div>
+<h4 class="text-title-md font-title-md text-on-surface font-bold">Turn Off Main Electrical Breaker If Safe</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                      Only turn off power if the breaker panel is in a completely dry area. Do not step in standing water to reach an electrical switch.
+                    </p>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-6 pt-4 border-t border-outline-variant flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant">
+<span>Federal Civil Defense Compliance</span>
+<span class="font-medium text-primary">Reference Code: #FL-802</span>
+</div>
+</div>
+<!-- Right Column: What to Prepare While Waiting (5 Cols) -->
+<div class="lg:col-span-5 bg-surface-container-lowest rounded-xl border border-outline-variant p-6 md:p-8 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-3 mb-6 pb-4 border-b border-outline-variant">
+<div class="w-8 h-8 rounded bg-surface-container text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="inventory_2">inventory_2</span>
+</div>
+<div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold">What to Prepare While Waiting</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Checklist for imminent extraction</p>
+</div>
+</div>
+<ul class="space-y-4 text-body-sm font-body-sm text-on-surface">
+<li class="flex items-start gap-3 pb-3 border-b border-outline-variant/50">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0" data-icon="flashlight_on">flashlight_on</span>
+<div>
+<span class="font-semibold block text-on-surface">Signal Devices Ready</span>
+<span class="text-on-surface-variant">Charge mobile phones on power-saving mode. Keep flashlights, whistles, or brightly colored towels visible for boat crews.</span>
+</div>
+</li>
+<li class="flex items-start gap-3 pb-3 border-b border-outline-variant/50">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0" data-icon="dry_cleaning">dry_cleaning</span>
+<div>
+<span class="font-semibold block text-on-surface">Dry Clothes &amp; Sturdy Footwear</span>
+<span class="text-on-surface-variant">Seal one set of dry thermals in waterproof plastic bags. Wear sturdy shoes to prevent puncture wounds from hidden debris.</span>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0" data-icon="medication">medication</span>
+<div>
+<span class="font-semibold block text-on-surface">Vital Medications &amp; ID</span>
+<span class="text-on-surface-variant">Package prescriptions, baby formula, government IDs, and essential contact numbers in a sealed zip container around your neck.</span>
+</div>
+</li>
+</ul>
+</div>
+<div class="mt-6 p-4 rounded bg-surface-container border border-outline-variant flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[22px]" data-icon="info">info</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant leading-tight">
+                Remain calm and conserve phone battery. Units prioritize highest vulnerability reports first.
+              </p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- QUICK CALL ACTION BANNER -->
+<section class="max-w-7xl mx-auto px-4 md:px-8 py-12">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
+<div class="flex items-start gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary shrink-0">
+<span class="material-symbols-outlined text-[28px]" data-icon="contact_support">contact_support</span>
+</div>
+<div>
+<h3 class="text-title-lg font-title-lg text-on-surface font-bold">Have Inquiries or Need Shelter Locations?</h3>
+<p class="text-body-md font-body-md text-on-surface-variant mt-1 max-w-xl">
+              Our regional assistance call centers operate 24/7. Non-emergency coordination line: <span class="font-semibold text-on-surface">311</span> or <span class="font-semibold text-on-surface">1-800-555-FLOW</span>.
+            </p>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+<a class="px-5 py-2.5 rounded bg-surface-container text-on-surface font-title-md text-title-md border border-outline-variant text-center hover:bg-surface-container-high transition-colors" href="tel:311">
+            Call 311 Support
+          </a>
+<a class="px-5 py-2.5 rounded bg-primary-container text-on-primary font-title-md text-title-md text-center hover:bg-primary transition-colors" href="/citizen/request">
+            Start Request Form
+          </a>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar Component (Shared JSON Anchor - Mobile Only) -->
+<!-- Active state autonomously set to 'Home' since page is Citizen Home -->
+<nav aria-label="Mobile Navigation Bar" class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 px-4 md:hidden bg-surface border-t border-outline-variant flat no shadows">
+<!-- Home (Active) -->
+<a aria-current="page" class="flex flex-col items-center justify-center bg-primary-container text-on-primary-container rounded-lg px-3 py-1.5 active:scale-95 transition-transform duration-100" href="/citizen">
+<span class="material-symbols-outlined text-[20px]" data-icon="home" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="text-label-md font-label-md mt-0.5">Home</span>
+</a>
+<!-- New Request (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 active:scale-95 transition-transform duration-100 hover:bg-surface-container" href="/citizen/request">
+<span class="material-symbols-outlined text-[20px]" data-icon="emergency_home">emergency_home</span>
+<span class="text-label-md font-label-md mt-0.5">New Request</span>
+</a>
+<!-- Track Status (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1.5 active:scale-95 transition-transform duration-100 hover:bg-surface-container" href="/citizen/track">
+<span class="material-symbols-outlined text-[20px]" data-icon="pending_actions">pending_actions</span>
+<span class="text-label-md font-label-md mt-0.5">Track Status</span>
+</a>
+</nav>
+<!-- Footer Component (Shared JSON Anchor) -->
+<footer class="bg-surface-container-low docked full-width bottom border-t border-outline-variant flat no shadows mt-auto">
+<div class="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 flex flex-col md:flex-row justify-between items-center gap-4">
+<!-- Brand & Copyright -->
+<div class="flex flex-col items-center md:items-start text-center md:text-left gap-1">
+<span class="text-title-lg font-title-lg text-primary font-bold">FloodRelay</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant max-w-md">
+          © 2025 FloodRelay Civic Emergency Response. Official public safety service portal.
+        </p>
+</div>
+<!-- Institutional Links verbatim from Shared JSON -->
+<nav aria-label="Civic Emergency Resources" class="flex flex-wrap justify-center md:justify-end gap-x-6 gap-y-2 text-label-caps font-label-caps">
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#helplines">
+          Crisis Helplines
+        </a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#shelters">
+          Shelter Network
+        </a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#privacy">
+          Data Privacy
+        </a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#accessibility">
+          Accessibility
+        </a>
+<a class="text-on-surface-variant hover:text-primary underline transition-colors duration-150" href="#protocols">
+          Emergency Protocols
+        </a>
+</nav>
+</div>
+</footer>
+</body></html>

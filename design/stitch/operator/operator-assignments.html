@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FloodRelay Command - Rescue Resource Assignments &amp; Solver Proposals</title>
+<!-- Material Symbols Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Theme Configuration Verbatim -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary-fixed": "#9cf2e8",
+            "inverse-on-surface": "#ebf1ff",
+            "tertiary-container": "#cf1b1e",
+            "secondary-fixed": "#dae2fd",
+            "surface-tint": "#006a63",
+            "tertiary-fixed": "#ffdad6",
+            "surface": "#f8f9ff",
+            "on-secondary-fixed-variant": "#3f465c",
+            "on-error": "#ffffff",
+            "on-surface-variant": "#3e4947",
+            "on-secondary-fixed": "#131b2e",
+            "surface-container-highest": "#d5e3fd",
+            "primary": "#005c55",
+            "outline-variant": "#bdc9c6",
+            "on-primary": "#ffffff",
+            "secondary": "#565e74",
+            "primary-fixed-dim": "#80d5cb",
+            "surface-container": "#e6eeff",
+            "surface-container-high": "#dde9ff",
+            "surface-bright": "#f8f9ff",
+            "on-tertiary-fixed-variant": "#93000b",
+            "on-tertiary": "#ffffff",
+            "tertiary-fixed-dim": "#ffb4ab",
+            "surface-dim": "#ccdbf4",
+            "tertiary": "#a7000f",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary-container": "#5c647a",
+            "on-error-container": "#93000a",
+            "surface-variant": "#d5e3fd",
+            "on-surface": "#0d1c2f",
+            "on-primary-fixed": "#00201d",
+            "on-secondary": "#ffffff",
+            "on-background": "#0d1c2f",
+            "on-primary-fixed-variant": "#00504a",
+            "primary-container": "#0f766e",
+            "surface-container-low": "#eff4ff",
+            "error-container": "#ffdad6",
+            "inverse-surface": "#233144",
+            "on-primary-container": "#a3faef",
+            "error": "#ba1a1a",
+            "inverse-primary": "#80d5cb",
+            "background": "#f8f9ff",
+            "secondary-container": "#dae2fd",
+            "on-tertiary-container": "#ffe4e1",
+            "outline": "#6e7977",
+            "on-tertiary-fixed": "#410002",
+            "secondary-fixed-dim": "#bec6e0"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "space-md": "0.75rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "space-lg": "1rem",
+            "gutter-dense": "0.5rem",
+            "space-2xl": "2rem",
+            "space-xl": "1.5rem",
+            "margin": "1.5rem",
+            "margin-mobile": "0.75rem"
+          },
+          "fontFamily": {
+            "code-sm": ["Inter"],
+            "display-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-sm": ["Inter"],
+            "metric-md": ["Inter"],
+            "body-md": ["Inter"],
+            "label-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "metric-xl": ["Inter"]
+          },
+          "fontSize": {
+            "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "metric-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "body-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "metric-xl": ["28px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .tabular-nums {
+      font-feature-settings: 'tnum' 1;
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface antialiased overflow-x-hidden min-h-screen">
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT: SideNavBar                                              -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-inverse-surface border-r border-outline-variant/20 flex flex-col justify-between p-space-md">
+<!-- Top Branding / Operator Portal Identity -->
+<div>
+<div class="flex items-center gap-space-sm pb-space-md mb-space-md border-b border-outline-variant/20">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined" style="font-size: 20px;">flood</span>
+</div>
+<div class="flex flex-col">
+<span class="text-headline-sm font-headline-sm font-bold text-inverse-on-surface tracking-tight leading-tight">FloodRelay Command</span>
+<span class="text-label-sm font-label-sm text-surface-dim uppercase tracking-wider">OPERATOR PORTAL</span>
+</div>
+</div>
+<!-- Sector Dispatch CTA Indicator -->
+<div class="mb-space-md px-space-sm py-space-xs rounded bg-surface-variant/10 border border-outline-variant/20 flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span class="text-code-sm font-code-sm text-inverse-on-surface font-semibold tracking-wider">ONLINE - SECTOR 4 DISPATCH</span>
+</div>
+<span class="text-code-sm font-code-sm text-surface-dim">TX-EOC</span>
+</div>
+<!-- Navigation Links: 4 tabs with 'Assignments' strictly active -->
+<nav class="space-y-1">
+<!-- 1. Overview -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="/operator/overview">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span class="text-label-md font-label-md">Overview</span>
+</a>
+<!-- 2. Rescue Requests -->
+<a class="flex items-center justify-between px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="/operator/requests">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px]">emergency</span>
+<span class="text-label-md font-label-md">Rescue Requests</span>
+</div>
+<span class="text-code-sm font-code-sm bg-tertiary-container/30 text-rose-300 px-1.5 py-0.5 rounded text-[10px]">14 NEW</span>
+</a>
+<!-- 3. Operations Map -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="/operator/map">
+<span class="material-symbols-outlined text-[18px]">map</span>
+<span class="text-label-md font-label-md">Operations Map</span>
+</a>
+<!-- 4. Assignments (ACTIVE ITEM) -->
+<a class="flex items-center justify-between px-space-md py-space-sm rounded-lg bg-primary text-on-primary font-semibold shadow-sm" href="/operator/assignments">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">assignment</span>
+<span class="text-label-md font-label-md">Assignments</span>
+</div>
+<span class="text-code-sm font-code-sm bg-primary-fixed-dim text-on-primary-fixed px-1.5 py-0.5 rounded font-bold">24 Active</span>
+</a>
+</nav>
+</div>
+<!-- Bottom Operator Info & Status -->
+<div class="pt-space-md border-t border-outline-variant/20">
+<div class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg hover:bg-surface-variant/10 text-inverse-on-surface transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[26px] text-surface-dim">account_circle</span>
+<div class="flex flex-col truncate">
+<span class="text-label-md font-label-md text-inverse-on-surface truncate">Capt. R. Vance - EOC Lead</span>
+<span class="text-code-sm font-code-sm text-surface-dim">Duty Station: Alpha-1</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT: TopNavBar                                               -->
+<!-- ========================================================================= -->
+<header class="fixed top-0 left-64 right-0 h-14 z-30 bg-surface-container-lowest border-b border-outline-variant shadow-sm flex items-center justify-between px-space-xl">
+<div class="flex items-center gap-space-md">
+<h1 class="text-headline-sm font-headline-sm font-semibold text-on-surface flex items-center gap-2">
+<span>Resource Assignment &amp; Dispatch Planning</span>
+<span class="text-code-sm font-code-sm text-on-surface-variant bg-surface-container px-2 py-0.5 rounded border border-outline-variant/40 font-mono">/operator/assignments</span>
+</h1>
+<div class="h-4 w-[1px] bg-outline-variant"></div>
+<div class="flex items-center gap-2 text-code-sm font-code-sm text-on-surface-variant">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+<span class="tabular-nums font-mono font-medium">14:52:10 CDT [SIMULATED DATA]</span>
+</div>
+</div>
+<!-- Right Actions & Alert Badges -->
+<div class="flex items-center gap-space-md">
+<!-- 3 Active Alerts Indicator -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-300 rounded text-code-sm font-code-sm font-semibold">
+<span class="material-symbols-outlined text-[15px] text-amber-700" style="font-variation-settings: 'FILL' 1;">warning</span>
+<span>3 Active Alerts</span>
+</div>
+<!-- Icon Actions -->
+<div class="flex items-center gap-1">
+<button class="p-1.5 text-on-surface-variant hover:bg-surface-container-high rounded transition-colors" title="Broadcast Volume">
+<span class="material-symbols-outlined text-[20px]">volume_up</span>
+</button>
+<button class="p-1.5 text-on-surface-variant hover:bg-surface-container-high rounded transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 bg-tertiary rounded-full"></span>
+</button>
+</div>
+<div class="h-4 w-[1px] bg-outline-variant"></div>
+<!-- Secondary Action: Export Incident Log -->
+<button class="h-8 px-3 rounded border border-outline bg-surface-container-lowest text-on-surface text-label-md font-label-md hover:bg-surface-container-high transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+<span>Export Incident Log</span>
+</button>
+<!-- Trailing Primary Action: Emergency Broadcast -->
+<button class="h-8 px-3 rounded bg-tertiary text-on-tertiary text-label-md font-label-md hover:bg-tertiary-container transition-colors flex items-center gap-1.5 font-semibold shadow-xs">
+<span class="material-symbols-outlined text-[16px]">campaign</span>
+<span>Emergency Broadcast</span>
+</button>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN WORKSPACE CONTENT CANVAS                                             -->
+<!-- ========================================================================= -->
+<main class="ml-64 pt-14 pb-12 px-space-xl min-h-screen bg-surface">
+<div class="max-w-[1440px] mx-auto py-space-lg space-y-space-lg">
+<!-- ===================================================================== -->
+<!-- WORKSPACE HEADER & PRIMARY DISPATCH ACTIONS                          -->
+<!-- ===================================================================== -->
+<section class="flex flex-col md:flex-row md:items-center md:justify-between gap-space-md pb-space-sm border-b border-outline-variant/30">
+<div>
+<h2 class="text-headline-lg font-headline-lg font-bold text-on-surface tracking-tight">Rescue Resource Assignments &amp; Solver Proposals</h2>
+<p class="text-body-md font-body-md text-on-surface-variant mt-0.5">
+            Human-supervised fleet allocation. Distinct separation between automated solver proposals and human-committed field plans.
+          </p>
+</div>
+<div class="flex items-center gap-space-sm shrink-0">
+<!-- Secondary Action: Upload Manual Dispatch Plan -->
+<button class="h-8 px-3 rounded border border-outline bg-surface-container-lowest text-on-surface text-label-md font-label-md hover:bg-surface-container-high transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]">upload_file</span>
+<span>Upload Manual Dispatch Plan</span>
+</button>
+<!-- Primary Action: [+] Generate New VRP Solver Proposal -->
+<button class="h-8 px-3.5 rounded bg-primary-container text-on-primary text-label-md font-label-md hover:bg-primary transition-colors flex items-center gap-1.5 font-semibold shadow-sm focus:ring-2 focus:ring-primary-fixed focus:outline-none">
+<span class="material-symbols-outlined text-[18px]">add_circle</span>
+<span>[+] Generate New VRP Solver Proposal</span>
+</button>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- ACTIVE BATCH & METRIC SUMMARY CARDS                                   -->
+<!-- ===================================================================== -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-space-md">
+<!-- Metric 1: Active Committed Plans -->
+<div class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-space-md shadow-xs flex flex-col justify-between border-l-4 border-l-primary">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="text-label-sm font-label-sm uppercase tracking-wider">Active Committed Plans</span>
+<span class="material-symbols-outlined text-[20px] text-primary" style="font-variation-settings: 'FILL' 1;">directions_boat</span>
+</div>
+<div class="mt-1">
+<div class="text-metric-xl font-metric-xl text-on-surface tabular-nums">6 <span class="text-body-lg font-body-lg text-on-surface-variant font-normal">Active Fleets</span></div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">24 vessels deployed, <strong class="text-on-surface font-semibold">82 civilians</strong> rescued today</p>
+</div>
+<div class="mt-3 pt-2 border-t border-outline-variant/30 flex items-center justify-between text-code-sm font-code-sm">
+<span class="text-primary font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live Telemetry OK
+            </span>
+<span class="text-on-surface-variant font-mono">100% SatLink</span>
+</div>
+</div>
+<!-- Metric 2: Pending Solver Proposals -->
+<div class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-space-md shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="text-label-sm font-label-sm uppercase tracking-wider">Pending Solver Proposals</span>
+<span class="material-symbols-outlined text-[20px] text-amber-600" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</div>
+<div class="mt-1">
+<div class="text-metric-xl font-metric-xl text-amber-700 tabular-nums">2 <span class="text-body-lg font-body-lg text-on-surface-variant font-normal">Proposals</span></div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Awaiting operator review and formal authorization</p>
+</div>
+<div class="mt-3 pt-2 border-t border-outline-variant/30 flex items-center justify-between text-code-sm font-code-sm">
+<span class="text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">Action Required</span>
+<span class="text-on-surface-variant font-mono">VRP 2.4 Solved</span>
+</div>
+</div>
+<!-- Metric 3: Unserved Incident Backlog -->
+<div class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-space-md shadow-xs flex flex-col justify-between border-l-4 border-l-tertiary">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="text-label-sm font-label-sm uppercase tracking-wider">Unserved Incident Backlog</span>
+<span class="material-symbols-outlined text-[20px] text-tertiary">report_problem</span>
+</div>
+<div class="mt-1">
+<div class="text-metric-xl font-metric-xl text-tertiary tabular-nums">12 <span class="text-body-lg font-body-lg text-on-surface-variant font-normal">Requests</span></div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">Unassigned due to draft or hazardous wire constraints</p>
+</div>
+<div class="mt-3 pt-2 border-t border-outline-variant/30 flex items-center justify-between text-code-sm font-code-sm">
+<span class="text-tertiary font-semibold">2 Critical In Backlog</span>
+<span class="text-on-surface-variant font-mono">Air Support Req</span>
+</div>
+</div>
+<!-- Metric 4: Fleet Utilization -->
+<div class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-space-md shadow-xs flex flex-col justify-between border-l-4 border-l-secondary">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="text-label-sm font-label-sm uppercase tracking-wider">Fleet Utilization</span>
+<span class="material-symbols-outlined text-[20px] text-secondary">speed</span>
+</div>
+<div class="mt-1">
+<div class="text-metric-xl font-metric-xl text-on-surface tabular-nums">80% <span class="text-body-lg font-body-lg text-on-surface-variant font-normal">(24/30)</span></div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1">6 standby vessels at Sector 4 staging depot</p>
+</div>
+<div class="mt-3 pt-2 border-t border-outline-variant/30 flex items-center justify-between text-code-sm font-code-sm">
+<div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden mr-2">
+<div class="bg-primary-container h-1.5 rounded-full" style="width: 80%"></div>
+</div>
+<span class="text-on-surface font-mono shrink-0">6 Reserve</span>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- WORKSPACE TABS & FILTER CONTROLS                                      -->
+<!-- ===================================================================== -->
+<section class="space-y-space-md">
+<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-sm border-b border-outline-variant pb-1">
+<!-- Proposal vs. Committed Filter Tabs -->
+<div class="flex items-center gap-1">
+<button class="px-space-md py-2 text-label-md font-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low rounded-t transition-colors border-b-2 border-transparent">
+              All Plans (8)
+            </button>
+<button class="px-space-md py-2 text-label-md font-label-md text-primary font-bold border-b-2 border-primary bg-surface-container-lowest rounded-t shadow-xs flex items-center gap-2">
+<span>Pending Review &amp; Commit</span>
+<span class="px-1.5 py-0.2 rounded-full text-code-sm font-code-sm font-bold bg-amber-100 text-amber-900 border border-amber-300">2</span>
+</button>
+<button class="px-space-md py-2 text-label-md font-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low rounded-t transition-colors flex items-center gap-2 border-b-2 border-transparent">
+<span>Committed / In Execution</span>
+<span class="px-1.5 py-0.2 rounded-full text-code-sm font-code-sm font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">6</span>
+</button>
+<button class="px-space-md py-2 text-label-md font-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low rounded-t transition-colors border-b-2 border-transparent">
+              Completed (14)
+            </button>
+</div>
+<!-- Utility Filter Actions -->
+<div class="flex items-center gap-2">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-2 top-2 text-[16px] text-on-surface-variant">search</span>
+<input class="h-8 pl-7 pr-3 rounded border border-outline bg-surface-container-lowest text-body-sm font-body-sm text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary-container focus:ring-1 focus:ring-primary-container" placeholder="Search proposal or fleet..." type="text"/>
+</div>
+<button class="h-8 px-2.5 rounded border border-outline bg-surface-container-lowest text-on-surface text-label-sm font-label-sm hover:bg-surface-container-high transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">filter_list</span>
+<span>Filter Sector</span>
+</button>
+</div>
+</div>
+<!-- =================================================================== -->
+<!-- PRIMARY ASSIGNMENT CARDS & PROPOSALS LIST                           -->
+<!-- =================================================================== -->
+<div class="space-y-space-md">
+<!-- ----------------------------------------------------------------- -->
+<!-- CARD 1 (PROPOSED): Proposal #PR-105                                -->
+<!-- ----------------------------------------------------------------- -->
+<div class="bg-surface-container-lowest border-2 border-amber-400 rounded-xl shadow-xs overflow-hidden transition-all hover:border-amber-500">
+<!-- Header Bar -->
+<div class="bg-amber-50/80 px-space-lg py-space-sm border-b border-amber-200 flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-md">
+<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-code-sm font-code-sm font-bold tracking-wide flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                  PROPOSED - PENDING HUMAN COMMIT
+                </span>
+<div class="h-3.5 w-[1px] bg-amber-300"></div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Proposal #PR-105: Greenspoint &amp; Buffalo Bayou Rapid Sweep</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-amber-900 font-mono bg-amber-200/60 px-2 py-0.5 rounded">Engine: VRP Solver v2.4 (Max Pax / Min Travel Time Objective)</span>
+</div>
+</div>
+<!-- Card Body / Multi-Metric Grid -->
+<div class="p-space-lg">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-center">
+<!-- Assets Assigned -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">directions_boat</span>
+                    Assets Assigned (3 Vessels)
+                  </div>
+<div class="flex flex-wrap gap-1.5 pt-1">
+<span class="px-2 py-1 bg-surface-container text-on-surface text-code-sm font-code-sm rounded font-medium border border-outline-variant/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Boat Alpha-4 (12 Pax)
+                    </span>
+<span class="px-2 py-1 bg-surface-container text-on-surface text-code-sm font-code-sm rounded font-medium border border-outline-variant/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Boat Alpha-7 (8 Pax)
+                    </span>
+<span class="px-2 py-1 bg-surface-container text-on-surface text-code-sm font-code-sm rounded font-medium border border-outline-variant/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>High-Water HW-02
+                    </span>
+</div>
+</div>
+<!-- Served Requests & Civilians -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-emerald-600">group</span>
+                    Served Targets
+                  </div>
+<div class="text-body-md font-body-md text-on-surface font-semibold pt-1">
+                    14 Requests <span class="text-primary font-bold">(38 Civilians Rescued)</span>
+</div>
+<p class="text-code-sm font-code-sm text-on-surface-variant">Includes 4 non-ambulatory medical evacuations</p>
+</div>
+<!-- Unserved Backlog & Flag -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-tertiary flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">flag</span>
+                    Unserved Constraint Flag
+                  </div>
+<div class="text-code-sm font-code-sm text-tertiary font-semibold pt-1 bg-rose-50 px-2 py-1 rounded border border-rose-200">
+                    2 Requests flagged: water depth &gt; 2.5m requires rotary air unit
+                  </div>
+</div>
+<!-- Estimated Metrics & Action Button -->
+<div class="lg:col-span-3 flex flex-col items-start lg:items-end justify-between space-y-2">
+<div class="text-right">
+<div class="text-code-sm font-code-sm text-on-surface-variant font-mono">
+                      Total Mission: <span class="font-bold text-on-surface">~2h 15m</span> | Avg Wait: <span class="font-bold text-on-surface">34 min</span>
+</div>
+<div class="text-code-sm font-code-sm text-emerald-700">Calculated fuel reserve: +42% contingency</div>
+</div>
+<!-- Primary Action -->
+<a class="h-8 px-4 rounded bg-primary-container text-on-primary text-label-md font-label-md hover:bg-primary transition-colors flex items-center gap-1.5 font-bold shadow-xs" href="/operator/assignments/PR-105">
+<span>Review &amp; Commit Proposal</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+<!-- ----------------------------------------------------------------- -->
+<!-- CARD 2 (PROPOSED): Proposal #PR-106                                -->
+<!-- ----------------------------------------------------------------- -->
+<div class="bg-surface-container-lowest border-2 border-amber-400 rounded-xl shadow-xs overflow-hidden transition-all hover:border-amber-500">
+<!-- Header Bar -->
+<div class="bg-amber-50/80 px-space-lg py-space-sm border-b border-amber-200 flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-md">
+<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-code-sm font-code-sm font-bold tracking-wide flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                  PROPOSED - PENDING HUMAN COMMIT
+                </span>
+<div class="h-3.5 w-[1px] bg-amber-300"></div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Proposal #PR-106: Cypress Creek North Sector</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-amber-900 font-mono bg-amber-200/60 px-2 py-0.5 rounded">Engine: VRP Solver v2.4 (Shallow Draft Dynamic Routing)</span>
+</div>
+</div>
+<!-- Card Body -->
+<div class="p-space-lg">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-center">
+<!-- Assets Assigned -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">directions_boat</span>
+                    Assets Assigned (2 Units)
+                  </div>
+<div class="flex flex-wrap gap-1.5 pt-1">
+<span class="px-2 py-1 bg-surface-container text-on-surface text-code-sm font-code-sm rounded font-medium border border-outline-variant/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Boat Bravo-1 (Flatboat)
+                    </span>
+<span class="px-2 py-1 bg-surface-container text-on-surface text-code-sm font-code-sm rounded font-medium border border-outline-variant/60 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>Truck HW-05 (Support)
+                    </span>
+</div>
+</div>
+<!-- Served Requests -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-emerald-600">group</span>
+                    Served Targets
+                  </div>
+<div class="text-body-md font-body-md text-on-surface font-semibold pt-1">
+                    8 Requests <span class="text-primary font-bold">(19 Civilians)</span>
+</div>
+<p class="text-code-sm font-code-sm text-on-surface-variant">Staged at Louetta &amp; Stuebner Airline intersection</p>
+</div>
+<!-- Constraints & Status -->
+<div class="lg:col-span-3 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">verified</span>
+                    Feasibility Assessment
+                  </div>
+<div class="text-code-sm font-code-sm text-emerald-800 font-medium pt-1 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                    Optimal egress path verified. Zero power line interference.
+                  </div>
+</div>
+<!-- Estimated Metrics & Action Button -->
+<div class="lg:col-span-3 flex flex-col items-start lg:items-end justify-between space-y-2">
+<div class="text-right">
+<div class="text-code-sm font-code-sm text-on-surface-variant font-mono">
+                      Estimated Duration: <span class="font-bold text-on-surface">1h 40m</span> | Staging: <span class="font-bold text-on-surface">Immediate</span>
+</div>
+<div class="text-code-sm font-code-sm text-on-surface-variant">Ready for Capt. Vance sign-off</div>
+</div>
+<a class="h-8 px-4 rounded bg-primary-container text-on-primary text-label-md font-label-md hover:bg-primary transition-colors flex items-center gap-1.5 font-bold shadow-xs" href="/operator/assignments/PR-106">
+<span>Review &amp; Commit Proposal</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+<!-- ----------------------------------------------------------------- -->
+<!-- CARD 3 (COMMITTED): Plan #COM-088                                  -->
+<!-- ----------------------------------------------------------------- -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xs overflow-hidden">
+<!-- Header Bar -->
+<div class="bg-surface-container-low px-space-lg py-space-sm border-b border-outline-variant/60 flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-md">
+<span class="px-2 py-0.5 rounded bg-teal-100 text-teal-800 border border-teal-300 text-code-sm font-code-sm font-bold tracking-wide flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-teal-600"></span>
+                  COMMITTED - ACTIVE IN FIELD
+                </span>
+<div class="h-3.5 w-[1px] bg-outline-variant"></div>
+<h3 class="text-headline-sm font-headline-sm font-semibold text-on-surface">Plan #COM-088: Memorial Drive Residential Basin</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-on-surface-variant font-mono bg-surface-container px-2 py-0.5 rounded">
+                  Dispatched at 14:10 by Capt. Vance • Radio Net #04
+                </span>
+</div>
+</div>
+<!-- Card Body -->
+<div class="p-space-lg">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-center">
+<!-- Assets Assigned -->
+<div class="lg:col-span-4 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-teal-700">radio</span>
+                    Assets Deployed (4 Swift Water Boats)
+                  </div>
+<div class="flex flex-wrap gap-1.5 pt-1">
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">SW-01</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">SW-02</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">SW-03</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">Zodiac-9</span>
+</div>
+<span class="text-code-sm font-code-sm text-teal-800 font-medium block">Active telemetry stream syncing every 3s</span>
+</div>
+<!-- Requests Served -->
+<div class="lg:col-span-4 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">task_alt</span>
+                    Execution Status (18 Requests Total)
+                  </div>
+<div class="text-body-md font-body-md text-on-surface font-semibold pt-1">
+                    12 Completed • <span class="text-amber-700 font-bold">6 In Progress</span>
+</div>
+<!-- Mini Progress Bar -->
+<div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden mt-1">
+<div class="bg-teal-600 h-1.5 rounded-full" style="width: 66.6%"></div>
+</div>
+</div>
+<!-- Action Button -->
+<div class="lg:col-span-4 flex items-center justify-start lg:justify-end">
+<button class="h-8 px-3 rounded border border-outline bg-surface-container-lowest text-on-surface text-label-md font-label-md hover:bg-surface-container-high transition-colors flex items-center gap-1.5 font-medium">
+<span class="material-symbols-outlined text-[16px] text-teal-700">sensors</span>
+<span>View Live Execution Telemetry</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- ----------------------------------------------------------------- -->
+<!-- CARD 4 (COMMITTED): Plan #COM-087                                  -->
+<!-- ----------------------------------------------------------------- -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-xs overflow-hidden">
+<!-- Header Bar -->
+<div class="bg-surface-container-low px-space-lg py-space-sm border-b border-outline-variant/60 flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-md">
+<span class="px-2 py-0.5 rounded bg-teal-100 text-teal-800 border border-teal-300 text-code-sm font-code-sm font-bold tracking-wide flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-teal-600"></span>
+                  COMMITTED - ACTIVE IN FIELD
+                </span>
+<div class="h-3.5 w-[1px] bg-outline-variant"></div>
+<h3 class="text-headline-sm font-headline-sm font-semibold text-on-surface">Plan #COM-087: Brays Bayou South Triage</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-on-surface-variant font-mono bg-surface-container px-2 py-0.5 rounded">
+                  Dispatched at 13:45 by Capt. Vance • Radio Net #02
+                </span>
+</div>
+</div>
+<!-- Card Body -->
+<div class="p-space-lg">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg items-center">
+<!-- Assets Assigned -->
+<div class="lg:col-span-4 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-teal-700">directions_boat</span>
+                    Assets Deployed (3 Vessels)
+                  </div>
+<div class="flex flex-wrap gap-1.5 pt-1">
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">Boat Charlie-2</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">Boat Charlie-3</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface text-code-sm font-code-sm rounded border border-outline-variant/60">Tender-01</span>
+</div>
+<span class="text-code-sm font-code-sm text-teal-800 font-medium block">All units operating within normal engine temperature</span>
+</div>
+<!-- Requests Served -->
+<div class="lg:col-span-4 space-y-1">
+<div class="text-label-sm font-label-sm uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">task_alt</span>
+                    Execution Status (11 Requests Total)
+                  </div>
+<div class="text-body-md font-body-md text-on-surface font-semibold pt-1">
+                    9 Completed • <span class="text-amber-700 font-bold">2 In Progress</span>
+</div>
+<!-- Mini Progress Bar -->
+<div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden mt-1">
+<div class="bg-teal-600 h-1.5 rounded-full" style="width: 81.8%"></div>
+</div>
+</div>
+<!-- Action Button -->
+<div class="lg:col-span-4 flex items-center justify-start lg:justify-end">
+<button class="h-8 px-3 rounded border border-outline bg-surface-container-lowest text-on-surface text-label-md font-label-md hover:bg-surface-container-high transition-colors flex items-center gap-1.5 font-medium">
+<span class="material-symbols-outlined text-[16px] text-teal-700">sensors</span>
+<span>View Live Execution Telemetry</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- BOTTOM ALERT: UNSERVED REQUESTS & BOTTLENECK PANEL                   -->
+<!-- ===================================================================== -->
+<section class="bg-surface-container-lowest border border-tertiary-fixed-dim/60 rounded-xl p-space-md shadow-xs border-l-4 border-l-tertiary">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm mb-space-sm pb-space-xs border-b border-outline-variant/30">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-[22px]" style="font-variation-settings: 'FILL' 1;">warning_amber</span>
+<h4 class="text-headline-sm font-headline-sm font-bold text-on-surface">Unserved Incident Constraints &amp; Solver Bottlenecks</h4>
+</div>
+<div class="flex items-center gap-2 text-code-sm font-code-sm text-tertiary font-bold">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span>2 CRITICAL ITEMS EXCLUDED FROM AUTOMATED ROUTES</span>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+<!-- Unserved Incident 1 -->
+<div class="p-space-sm bg-surface rounded-lg border border-outline-variant/50 flex items-start gap-space-sm">
+<div class="p-1 rounded bg-amber-100 text-amber-800 shrink-0">
+<span class="material-symbols-outlined text-[18px]">water</span>
+</div>
+<div class="space-y-0.5">
+<div class="flex items-center gap-2">
+<span class="text-label-md font-label-md font-bold text-on-surface">#FL-8840</span>
+<span class="text-code-sm font-code-sm bg-surface-container-high px-1.5 py-0.2 rounded text-on-surface-variant font-mono">Lat: 29.814, Lng: -95.382</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+                Requires specialized shallow flatboat. Water depth reaches 0.3m over debris-laden parking lot; standard deep V-hull vessels cannot traverse safely.
+              </p>
+<div class="pt-1 flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-amber-800 font-semibold">Proposed Action: Dispatch Reserve Flatboat Bravo-2</span>
+</div>
+</div>
+</div>
+<!-- Unserved Incident 2 -->
+<div class="p-space-sm bg-surface rounded-lg border border-outline-variant/50 flex items-start gap-space-sm">
+<div class="p-1 rounded bg-rose-100 text-rose-800 shrink-0">
+<span class="material-symbols-outlined text-[18px]">bolt</span>
+</div>
+<div class="space-y-0.5">
+<div class="flex items-center gap-2">
+<span class="text-label-md font-label-md font-bold text-on-surface">#FL-8842</span>
+<span class="text-code-sm font-code-sm bg-surface-container-high px-1.5 py-0.2 rounded text-on-surface-variant font-mono">Lat: 29.831, Lng: -95.395</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+                Downed live high-voltage lines reported by reconnaissance drone. Water electrification hazard prevents vessel approaches within 120-meter zone.
+              </p>
+<div class="pt-1 flex items-center gap-2">
+<span class="text-code-sm font-code-sm text-tertiary font-semibold">Proposed Action: Request CenterPoint Energy Grid Cut-Off (P1 Priority)</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT: Footer                                                  -->
+<!-- ========================================================================= -->
+<footer class="fixed bottom-0 right-0 h-8 z-30 w-[calc(100%-16rem)] bg-surface-container-low border-t border-outline-variant flex items-center justify-between px-space-md">
+<div class="flex items-center gap-space-md">
+<span class="text-code-sm font-code-sm text-on-surface-variant font-mono">
+        VRP Solver v2.4 Active | Operational Telemetry Sync: 12ms
+      </span>
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</div>
+<div class="flex items-center gap-space-lg">
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer" href="tel:4401">
+        EOC Direct Hotline: ext 4401
+      </a>
+<span class="text-outline-variant/60">•</span>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer" href="#">
+        National Water Center Link
+      </a>
+<span class="text-outline-variant/60">•</span>
+<a class="text-label-sm font-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer" href="#">
+        Disaster Protocol SOP
+      </a>
+</div>
+</footer>
+</body></html>

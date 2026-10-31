@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FloodRelay Command - Assignment Review &amp; Commit</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary-fixed": "#9cf2e8",
+            "inverse-on-surface": "#ebf1ff",
+            "tertiary-container": "#cf1b1e",
+            "secondary-fixed": "#dae2fd",
+            "surface-tint": "#006a63",
+            "tertiary-fixed": "#ffdad6",
+            "surface": "#f8f9ff",
+            "on-secondary-fixed-variant": "#3f465c",
+            "on-error": "#ffffff",
+            "on-surface-variant": "#3e4947",
+            "on-secondary-fixed": "#131b2e",
+            "surface-container-highest": "#d5e3fd",
+            "primary": "#005c55",
+            "outline-variant": "#bdc9c6",
+            "on-primary": "#ffffff",
+            "secondary": "#565e74",
+            "primary-fixed-dim": "#80d5cb",
+            "surface-container": "#e6eeff",
+            "surface-container-high": "#dde9ff",
+            "surface-bright": "#f8f9ff",
+            "on-tertiary-fixed-variant": "#93000b",
+            "on-tertiary": "#ffffff",
+            "tertiary-fixed-dim": "#ffb4ab",
+            "surface-dim": "#ccdbf4",
+            "tertiary": "#a7000f",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary-container": "#5c647a",
+            "on-error-container": "#93000a",
+            "surface-variant": "#d5e3fd",
+            "on-surface": "#0d1c2f",
+            "on-primary-fixed": "#00201d",
+            "on-secondary": "#ffffff",
+            "on-background": "#0d1c2f",
+            "on-primary-fixed-variant": "#00504a",
+            "primary-container": "#0f766e",
+            "surface-container-low": "#eff4ff",
+            "error-container": "#ffdad6",
+            "inverse-surface": "#233144",
+            "on-primary-container": "#a3faef",
+            "error": "#ba1a1a",
+            "inverse-primary": "#80d5cb",
+            "background": "#f8f9ff",
+            "secondary-container": "#dae2fd",
+            "on-tertiary-container": "#ffe4e1",
+            "outline": "#6e7977",
+            "on-tertiary-fixed": "#410002",
+            "secondary-fixed-dim": "#bec6e0"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "space-md": "0.75rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "space-lg": "1rem",
+            "gutter-dense": "0.5rem",
+            "space-2xl": "2rem",
+            "space-xl": "1.5rem",
+            "margin": "1.5rem",
+            "margin-mobile": "0.75rem"
+          },
+          "fontFamily": {
+            "code-sm": ["Inter"],
+            "display-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-sm": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-sm": ["Inter"],
+            "metric-md": ["Inter"],
+            "body-md": ["Inter"],
+            "label-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "metric-xl": ["Inter"]
+          },
+          "fontSize": {
+            "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "metric-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+            "body-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "metric-xl": ["28px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+          }
+        },
+      },
+    }
+  </script>
+</head>
+<body class="bg-background text-on-surface antialiased overflow-x-hidden min-h-screen">
+<!-- ========================================================================= -->
+<!-- 1. SHARED COMPONENT: SideNavBar (Fixed Left, 64rem/16rem width, z-40)    -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-inverse-surface border-r border-outline-variant/20 flex flex-col justify-between p-space-md">
+<!-- Top Section & Brand Header -->
+<div class="flex flex-col gap-space-lg">
+<div class="flex items-center gap-space-sm px-space-xs pt-space-xs">
+<div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="tsunami">tsunami</span>
+</div>
+<div>
+<div class="text-headline-sm font-headline-sm font-bold text-inverse-on-surface tracking-tight leading-tight">
+            FloodRelay Command
+          </div>
+<div class="text-code-sm font-code-sm text-surface-dim tracking-wider">
+            OPERATOR PORTAL
+          </div>
+</div>
+</div>
+<!-- Live Dispatch Status Chip -->
+<div class="px-space-sm py-1 rounded bg-surface-container-highest/10 border border-primary-fixed-dim/30 flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary-fixed-dim animate-pulse"></span>
+<span class="text-code-sm font-code-sm text-inverse-primary">ONLINE - SECTOR 4 DISPATCH</span>
+</div>
+<span class="text-code-sm font-code-sm text-surface-dim">TX-04</span>
+</div>
+<!-- Primary Navigation Tabs -->
+<nav class="flex flex-col gap-1">
+<!-- Overview -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="#overview">
+<span class="material-symbols-outlined text-[18px]" data-icon="dashboard">dashboard</span>
+<span class="text-label-md font-label-md">Overview</span>
+</a>
+<!-- Rescue Requests -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="#requests">
+<span class="material-symbols-outlined text-[18px]" data-icon="emergency">emergency</span>
+<span class="text-label-md font-label-md flex-1">Rescue Requests</span>
+<span class="px-1.5 py-0.5 rounded text-code-sm font-code-sm bg-tertiary-container text-on-tertiary font-bold">14</span>
+</a>
+<!-- Operations Map -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors" href="#map">
+<span class="material-symbols-outlined text-[18px]" data-icon="map">map</span>
+<span class="text-label-md font-label-md">Operations Map</span>
+</a>
+<!-- Assignments (ACTIVE DESTINATION) -->
+<a class="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg bg-primary text-on-primary font-semibold shadow-sm" href="#assignments">
+<span class="material-symbols-outlined text-[18px]" data-icon="assignment">assignment</span>
+<span class="text-label-md font-label-md flex-1">Assignments</span>
+<span class="w-2 h-2 rounded-full bg-primary-fixed"></span>
+</a>
+</nav>
+</div>
+<!-- Bottom Operator Info & System State -->
+<div class="pt-space-md border-t border-outline-variant/20 flex flex-col gap-space-sm">
+<div class="flex items-center gap-space-sm px-space-xs py-1 rounded hover:bg-surface-variant/10 text-inverse-on-surface transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[24px] text-surface-dim" data-icon="account_circle">account_circle</span>
+<div class="overflow-hidden">
+<div class="text-label-md font-label-md text-inverse-on-surface truncate">Capt. R. Vance - EOC Lead</div>
+<div class="text-code-sm font-code-sm text-surface-dim">Harris County EOC Desks</div>
+</div>
+</div>
+<div class="text-code-sm font-code-sm text-surface-dim/70 px-space-xs">
+        VRP Node Sync: 99.8% (Ready)
+      </div>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- 2. SHARED COMPONENT: TopNavBar (Docked h-14, ml-64 offset, z-30)          -->
+<!-- ========================================================================= -->
+<header class="fixed top-0 right-0 h-14 z-30 w-[calc(100%-16rem)] bg-surface-container-lowest border-b border-outline-variant shadow-sm flex items-center justify-between px-space-xl">
+<!-- Breadcrumb & Back action -->
+<div class="flex items-center gap-space-md">
+<a class="flex items-center gap-1 text-primary hover:text-primary-container text-body-md font-body-md font-semibold transition-colors" href="#assignments-list">
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_back">arrow_back</span>
+<span>← Back to Assignments List</span>
+</a>
+<span class="text-outline-variant">|</span>
+<div class="flex items-center gap-1.5 text-body-sm font-body-sm text-on-surface-variant">
+<span>Assignments</span>
+<span>/</span>
+<span class="font-medium text-on-surface">Proposal #PR-105</span>
+<span>/</span>
+<span class="text-primary font-semibold">Human Review &amp; Commit</span>
+</div>
+</div>
+<!-- Trailing Actions & Operational Telemetry Indicators -->
+<div class="flex items-center gap-space-md">
+<!-- Simulated Clock & Status Link -->
+<div class="hidden lg:flex items-center gap-2 px-space-sm py-1 bg-surface-container-low rounded border border-outline-variant/60">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="schedule">schedule</span>
+<span class="text-code-sm font-code-sm text-secondary font-semibold">14:52:10 CDT [SIMULATED DATA]</span>
+</div>
+<div class="flex items-center gap-1.5 px-space-sm py-1 bg-error-container/40 rounded border border-error/30 text-error">
+<span class="w-1.5 h-1.5 rounded-full bg-error animate-ping"></span>
+<span class="text-code-sm font-code-sm font-bold">3 Active Alerts</span>
+</div>
+<!-- Icon Actions -->
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="p-1.5 rounded hover:bg-surface-container-high transition-colors" title="Emergency Audio Broadcast">
+<span class="material-symbols-outlined text-[20px]" data-icon="volume_up">volume_up</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-[20px]" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-tertiary"></span>
+</button>
+</div>
+<div class="h-6 w-px bg-outline-variant"></div>
+<!-- Secondary Trailing Action -->
+<button class="h-8 px-space-sm rounded bg-surface-container-lowest border border-outline-variant hover:bg-surface-container-high text-on-surface text-label-md font-label-md transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="file_download">file_download</span>
+<span>Export Incident Log</span>
+</button>
+<!-- Primary Action -->
+<button class="h-8 px-space-md rounded bg-tertiary hover:bg-tertiary-container text-on-tertiary text-label-md font-label-md font-semibold transition-colors flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[16px]" data-icon="cell_tower">cell_tower</span>
+<span>Emergency Broadcast</span>
+</button>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- 3. MAIN WORKSPACE CANVAS (Offset by 64rem left, 3.5rem top, 2rem bottom)  -->
+<!-- ========================================================================= -->
+<main class="ml-64 pt-14 pb-10 min-h-screen px-space-xl py-space-lg flex flex-col gap-space-lg">
+<!-- Proposal Banner & Action Header -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md">
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-md">
+<!-- Titles & Identifiers -->
+<div>
+<div class="flex flex-wrap items-center gap-space-sm mb-1">
+<span class="px-space-sm py-0.5 rounded text-code-sm font-code-sm bg-amber-100 text-amber-900 border border-amber-300 font-bold uppercase tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="pending">pending</span>
+              STATUS: PENDING HUMAN COMMIT (Generated by VRP Solver v2.4 at 14:35 CDT)
+            </span>
+<span class="text-code-sm font-code-sm text-secondary bg-surface-container px-2 py-0.5 rounded">
+              Sector: Harris North / Greenspoint
+            </span>
+</div>
+<h1 class="text-headline-lg font-headline-lg text-on-surface tracking-tight">
+            Proposal #PR-105: Greenspoint &amp; Buffalo Bayou Sweep
+          </h1>
+</div>
+<!-- Primary Action Buttons Cluster -->
+<div class="flex items-center gap-space-md">
+<button class="h-9 px-space-md rounded bg-surface-container-lowest border border-outline-variant hover:bg-surface-container-high text-on-surface text-label-md font-label-md transition-colors flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-secondary" data-icon="replay">replay</span>
+<span>Decline / Regenerate with Modified Parameters</span>
+</button>
+<button class="h-9 px-space-lg rounded bg-primary-container hover:bg-primary text-on-primary text-label-md font-label-md font-bold transition-all flex items-center gap-2 shadow-sm ring-1 ring-primary-fixed-dim/50 active:scale-[0.98]">
+<span class="material-symbols-outlined text-[18px]" data-icon="lock_open">lock_open</span>
+<span>Commit Assignment &amp; Dispatch (3 Assets)</span>
+</button>
+</div>
+</div>
+<!-- Critical Operational Notice Banner -->
+<div class="bg-surface-container-low border-l-4 border-primary-container rounded-r-lg p-space-md flex items-start gap-space-md">
+<span class="material-symbols-outlined text-[24px] text-primary-container shrink-0 mt-0.5" data-icon="gavel">gavel</span>
+<div class="flex-1">
+<div class="text-label-md font-label-md text-on-surface font-bold flex items-center gap-2">
+<span>Human-in-the-Loop Safeguard Active</span>
+<span class="text-code-sm font-code-sm font-normal text-secondary">(FEMA Incident Command Protocol §4.2)</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+            Human-in-the-Loop Safeguard: This plan is simulated and will <strong>NOT</strong> dispatch field assets until you explicitly verify safety constraints and click Commit Assignment below. Verify hydraulic drafts and safe drop-off shelter capacities before proceeding.
+          </p>
+</div>
+</div>
+</section>
+<!-- Two-Column Detailed Review Layout -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-lg items-start">
+<!-- ===================================================================== -->
+<!-- LEFT COLUMN: approx 60% width (7/12 cols) - Vehicle Routes & Staging   -->
+<!-- ===================================================================== -->
+<div class="xl:col-span-7 flex flex-col gap-space-lg">
+<!-- Vehicle Card 1: Primary Detailed Asset (Swift Water Boat Alpha-4) -->
+<article class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden">
+<!-- Card Header Bar -->
+<div class="bg-surface-container-low border-b border-outline-variant px-space-lg py-space-sm flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="p-1 rounded bg-primary-container text-on-primary">
+<span class="material-symbols-outlined text-[18px]" data-icon="sailing">sailing</span>
+</span>
+<div>
+<div class="flex items-center gap-2">
+<h2 class="text-headline-sm font-headline-sm text-on-surface font-bold">Swift Water Boat Alpha-4</h2>
+<span class="px-1.5 py-0.5 rounded text-code-sm font-code-sm bg-primary/10 text-primary font-bold border border-primary/20">SWB-04</span>
+</div>
+<div class="text-code-sm font-code-sm text-secondary">
+                  Pilot: <span class="font-semibold text-on-surface">Lt. J. Miller</span> • Medic: <span class="text-on-surface font-semibold">Sgt. C. Tran (Oxygen Rated)</span>
+</div>
+</div>
+</div>
+<!-- Capacity Progress Pill -->
+<div class="flex items-center gap-3 text-right">
+<div>
+<div class="text-label-sm font-label-sm text-secondary uppercase tracking-wider">Peak Vessel Load</div>
+<div class="text-metric-md font-metric-md text-on-surface">
+                  7 <span class="text-body-sm font-body-sm text-secondary font-normal">/ 8 pax max</span>
+</div>
+</div>
+<div class="w-12 h-2 rounded-full bg-slate-200 overflow-hidden border border-outline-variant">
+<div class="h-full bg-primary-container w-[87.5%]"></div>
+</div>
+</div>
+</div>
+<!-- Ordered Route Stops (Pickup & Shelter Sequence) -->
+<div class="p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-2">
+<span class="text-label-sm font-label-sm text-secondary uppercase tracking-wider">Ordered Navigation &amp; Pickup Sequence</span>
+<span class="text-code-sm font-code-sm text-primary font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="route">route</span>
+                Sequential VRP Solution: Opt-Path #1
+              </span>
+</div>
+<!-- Timeline Steps Container -->
+<div class="relative pl-6 flex flex-col gap-space-md before:absolute before:left-[11px] before:top-2 before:bottom-3 before:w-0.5 before:bg-outline-variant">
+<!-- Stop 1: Launch -->
+<div class="relative flex items-start gap-space-md">
+<div class="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-inverse-surface text-inverse-on-surface flex items-center justify-center text-code-sm font-code-sm font-bold ring-4 ring-surface-container-lowest">
+                  1
+                </div>
+<div class="flex-1 bg-surface-container-low/60 border border-outline-variant/60 rounded p-space-sm flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm font-bold text-secondary">[14:15]</span>
+<span class="text-body-md font-body-md font-bold text-on-surface">Launch: Buffalo Bayou Staging West</span>
+<span class="px-1.5 py-0.2 rounded text-code-sm font-code-sm bg-slate-200 text-secondary">Depot</span>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant">Vessel prepared with medical kits &amp; life vests</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-code-sm font-code-sm bg-surface-container text-on-surface font-semibold">0 pax</span>
+<div class="text-code-sm font-code-sm text-secondary mt-0.5">Vessel load: 0/8</div>
+</div>
+</div>
+</div>
+<!-- Stop 2: Pickup FL-8824 -->
+<div class="relative flex items-start gap-space-md">
+<div class="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-primary-container text-on-primary flex items-center justify-center text-code-sm font-code-sm font-bold ring-4 ring-surface-container-lowest">
+                  2
+                </div>
+<div class="flex-1 bg-surface-container-lowest border border-primary-container/40 rounded p-space-sm shadow-sm flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm font-bold text-primary-container">[14:48]</span>
+<span class="text-body-md font-body-md font-bold text-on-surface">Pickup #FL-8824: 1428 Riverbend Dr</span>
+<span class="px-1.5 py-0.2 rounded text-code-sm font-code-sm bg-red-100 text-red-800 border border-red-300 font-bold">Urgent</span>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 flex items-center gap-2">
+<span class="text-primary font-semibold">+4 pax</span>
+<span class="text-outline-variant">•</span>
+<span class="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 text-code-sm font-code-sm font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="medical_services">medical_services</span> 1 Oxygen Dependent
+                      </span>
+<span class="px-1.5 py-0.2 rounded bg-blue-100 text-blue-900 text-code-sm font-code-sm font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="child_care">child_care</span> 1 infant
+                      </span>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-code-sm font-code-sm bg-primary/10 text-primary font-bold">+4 boarded</span>
+<div class="text-code-sm font-code-sm font-bold text-on-surface mt-0.5">Vessel load: 4/8</div>
+</div>
+</div>
+</div>
+<!-- Stop 3: Pickup FL-8819 -->
+<div class="relative flex items-start gap-space-md">
+<div class="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-primary-container text-on-primary flex items-center justify-center text-code-sm font-code-sm font-bold ring-4 ring-surface-container-lowest">
+                  3
+                </div>
+<div class="flex-1 bg-surface-container-lowest border border-outline-variant rounded p-space-sm flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm font-bold text-primary-container">[15:05]</span>
+<span class="text-body-md font-body-md font-bold text-on-surface">Pickup #FL-8819: 102 Greens Rd, Bldg C</span>
+<span class="px-1.5 py-0.2 rounded text-code-sm font-code-sm bg-surface-container text-secondary">Apt 204</span>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 flex items-center gap-2">
+<span class="text-primary font-semibold">+3 pax</span>
+<span class="text-outline-variant">•</span>
+<span class="px-1.5 py-0.2 rounded bg-purple-100 text-purple-900 text-code-sm font-code-sm font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]" data-icon="accessible">accessible</span> 1 wheelchair folded
+                      </span>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-code-sm font-code-sm bg-primary/10 text-primary font-bold">+3 boarded</span>
+<div class="text-code-sm font-code-sm font-bold text-on-surface mt-0.5">Vessel load: 7/8</div>
+</div>
+</div>
+</div>
+<!-- Stop 4: Offload / Shelter -->
+<div class="relative flex items-start gap-space-md">
+<div class="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-primary text-on-primary flex items-center justify-center text-code-sm font-code-sm font-bold ring-4 ring-surface-container-lowest">
+                  4
+                </div>
+<div class="flex-1 bg-surface-container-low border border-primary/30 rounded p-space-sm flex items-center justify-between">
+<div>
+<div class="flex items-center gap-2">
+<span class="text-code-sm font-code-sm font-bold text-primary">[15:28]</span>
+<span class="text-body-md font-body-md font-bold text-on-surface">Offload / Shelter: Westchase High School Gymnasium</span>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                      Intake Triage Red Cross Station B • Paramedic Hand-off ready
+                    </div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-code-sm font-code-sm bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold">-7 pax safe</span>
+<div class="text-code-sm font-code-sm text-secondary mt-0.5">Vessel load: 0/8</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Travel Metrics Strip -->
+<div class="bg-surface-container-low rounded-lg p-space-sm border border-outline-variant flex flex-wrap items-center justify-between text-body-sm font-body-sm">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="straighten">straighten</span>
+<span>Est distance: <strong class="text-on-surface">4.2 nm</strong></span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="timer">timer</span>
+<span>Est duration: <strong class="text-on-surface">52m</strong></span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="local_gas_station">local_gas_station</span>
+<span>Fuel reserve: <strong class="text-on-surface">84%</strong></span>
+</div>
+</div>
+<div class="text-code-sm font-code-sm text-secondary flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Waterway Clearance: Safe (&gt;1.8m)
+              </div>
+</div>
+</div>
+</article>
+<!-- Vehicle Card 2: Swift Water Boat Alpha-7 -->
+<article class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="p-1 rounded bg-secondary text-on-secondary">
+<span class="material-symbols-outlined text-[18px]" data-icon="sailing">sailing</span>
+</span>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="text-headline-sm font-headline-sm text-on-surface font-bold">Swift Water Boat Alpha-7</h3>
+<span class="px-1.5 py-0.5 rounded text-code-sm font-code-sm bg-slate-200 text-secondary font-bold">SWB-07</span>
+</div>
+<div class="text-code-sm font-code-sm text-secondary">
+                  Pilot: CPO M. Briggs • Capacity: <strong class="text-on-surface">6 pax max</strong>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="px-2 py-1 rounded text-label-sm font-label-sm bg-surface-container text-on-surface font-semibold">
+                3 Pickups Scheduled (6 pax total)
+              </span>
+<button class="text-primary hover:text-primary-container text-label-md font-label-md font-semibold flex items-center gap-1">
+<span>View Route (38m)</span>
+<span class="material-symbols-outlined text-[16px]" data-icon="expand_more">expand_more</span>
+</button>
+</div>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant bg-surface-container-low/40 p-space-sm rounded border border-outline-variant/60 flex items-center justify-between">
+<div>
+<strong>Designated Shelter Drop:</strong> Delmar Fieldhouse Intake Wing • Route: White Oak Bayou Lateral
+            </div>
+<span class="text-code-sm font-code-sm text-secondary">Est. Completion: 15:42 CDT</span>
+</div>
+</article>
+<!-- Vehicle Card 3: High-Water Truck HW-02 -->
+<article class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="p-1 rounded bg-secondary text-on-secondary">
+<span class="material-symbols-outlined text-[18px]" data-icon="local_shipping">local_shipping</span>
+</span>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="text-headline-sm font-headline-sm text-on-surface font-bold">High-Water Truck HW-02</h3>
+<span class="px-1.5 py-0.5 rounded text-code-sm font-code-sm bg-slate-200 text-secondary font-bold">HWT-02</span>
+</div>
+<div class="text-code-sm font-code-sm text-secondary">
+                  Operator: Sgt. K. Lopez • Capacity: <strong class="text-on-surface">12 pax max</strong>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="px-2 py-1 rounded text-label-sm font-label-sm bg-surface-container text-on-surface font-semibold">
+                2 Shallow-Water Pickups (8 pax total)
+              </span>
+<button class="text-primary hover:text-primary-container text-label-md font-label-md font-semibold flex items-center gap-1">
+<span>View Route (44m)</span>
+<span class="material-symbols-outlined text-[16px]" data-icon="expand_more">expand_more</span>
+</button>
+</div>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant bg-surface-container-low/40 p-space-sm rounded border border-outline-variant/60 flex items-center justify-between">
+<div>
+<strong>Designated Shelter Drop:</strong> Westchase High School • Clearance Limit: 4.5 ft flood depth
+            </div>
+<span class="text-code-sm font-code-sm text-secondary">Est. Completion: 15:50 CDT</span>
+</div>
+</article>
+<!-- Unserved Incidents Warning Box -->
+<div class="bg-amber-50 border-2 border-amber-300 rounded-xl p-space-md flex items-start gap-space-md shadow-sm">
+<span class="material-symbols-outlined text-[28px] text-amber-700 shrink-0 mt-0.5" data-icon="warning">warning</span>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<h4 class="text-headline-sm font-headline-sm text-amber-950 font-bold">
+                2 Incidents Skipped by Solver: Manual Assignment Required
+              </h4>
+<span class="px-2 py-0.5 rounded text-code-sm font-code-sm bg-amber-200 text-amber-900 font-bold uppercase">
+                Action Needed
+              </span>
+</div>
+<p class="text-body-sm font-body-sm text-amber-900 mt-1">
+              The automated VRP algorithm excluded these locations due to safety boundary violations. These cases will remain queued unless assigned to a specialized amphibian unit:
+            </p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+<div class="bg-white/80 border border-amber-200 rounded p-2 text-body-sm font-body-sm">
+<span class="font-bold text-on-surface">#FL-8840</span> (1902 Greenspoint Mall) — <span class="text-amber-800 font-semibold">Draft depth &lt; 0.3m</span> (Inaccessible by boat hull). Requires High-Water clearance or airboat.
+              </div>
+<div class="bg-white/80 border border-amber-200 rounded p-2 text-body-sm font-body-sm">
+<span class="font-bold text-on-surface">#FL-8842</span> (Aldine Bender Rd) — <span class="text-amber-800 font-semibold">Power lines hazard</span>. Downed electrical feeder reported by CenterPoint.
+              </div>
+</div>
+</div>
+</div>
+</div>
+<!-- ===================================================================== -->
+<!-- RIGHT COLUMN: approx 40% width (5/12 cols) - Map, Checklist, Commit  -->
+<!-- ===================================================================== -->
+<div class="xl:col-span-5 flex flex-col gap-space-lg">
+<!-- Route Visualization Panel (Map Preview Schematic) -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm overflow-hidden flex flex-col">
+<div class="px-space-md py-space-sm bg-surface-container-low border-b border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-primary" data-icon="hub">hub</span>
+<span class="text-label-md font-label-md font-bold text-on-surface">Geospatial Routing Topology</span>
+</div>
+<div class="flex items-center gap-1 text-code-sm font-code-sm text-secondary">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Live USGS Gauge Feed: Greens Bayou
+            </div>
+</div>
+<!-- Map Visualizer Canvas Container -->
+<div class="relative w-full h-72 bg-slate-900 overflow-hidden">
+<!-- Simulated High-Precision Nautical Tactical Map Graphic -->
+<img class="w-full h-full object-cover opacity-80" data-alt="A highly detailed vector satellite tactical flood map of Houston Buffalo Bayou showing water depth contours in dark blue and teal, with high-contrast glowing orange waypoint markers numbered 1 through 4 connected by an illuminated navigational path. Crisp military command center aesthetic with coordinate grids and hydrographic depth numbers." data-location="Houston" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAcCKYB1sssn9FXRlvOA48-EssYZv0kbESJwK1nHDyXgqbmPNHyM59Fcs48dUkTF0F6e_TwaGU6Ndk568g9VXC1lCm_Z6hS4_G5JM1X29xHERA-TtdXgJqenmQmb98qzclFn_ZAQbK44_epdG_oKRJcyBewIJUiNqUHvytxUqcLJD5OqyWaT4Z3O7g1UmbkFyshwASCQNPpXrNbsJwCXaWAYKwTGZ-NE5b6oC_3S0E"/>
+<!-- Map Overlay HUD Elements -->
+<div class="absolute inset-0 p-3 pointer-events-none flex flex-col justify-between">
+<!-- Top HUD Floating Chips -->
+<div class="flex items-center justify-between">
+<div class="bg-inverse-surface/90 backdrop-blur border border-outline-variant/30 text-inverse-on-surface px-2.5 py-1 rounded text-code-sm font-code-sm flex items-center gap-2 shadow">
+<span class="w-2 h-2 rounded-full bg-primary-fixed animate-pulse"></span>
+<span>Bayou Stage: 38.4 ft (Crest: 16:00)</span>
+</div>
+<div class="bg-inverse-surface/90 backdrop-blur border border-outline-variant/30 text-inverse-on-surface px-2 py-1 rounded text-code-sm font-code-sm">
+                  1:24,000 Tactical Scale
+                </div>
+</div>
+<!-- Interactive Node Callouts on HUD -->
+<div class="flex items-end justify-between">
+<div class="bg-inverse-surface/95 text-inverse-on-surface border border-outline-variant/40 p-2 rounded text-code-sm font-code-sm space-y-1 shadow-lg max-w-[240px]">
+<div class="font-bold text-primary-fixed flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="alt_route">alt_route</span>
+                    Alpha-4 Nautical Path Active
+                  </div>
+<div class="text-[10px] text-surface-dim">
+                    Depot → Riverbend → Greens Rd → Westchase High
+                  </div>
+</div>
+<!-- Map Tools -->
+<div class="pointer-events-auto flex flex-col gap-1 bg-surface-container-lowest/90 backdrop-blur p-1 rounded border border-outline-variant shadow">
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container text-on-surface text-[14px] rounded">
+<span class="material-symbols-outlined text-[16px]" data-icon="add">add</span>
+</button>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container text-on-surface text-[14px] rounded">
+<span class="material-symbols-outlined text-[16px]" data-icon="remove">remove</span>
+</button>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-surface-container text-on-surface text-[14px] rounded" title="Layers">
+<span class="material-symbols-outlined text-[16px]" data-icon="layers">layers</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Route Node Legend -->
+<div class="p-space-sm bg-surface-container-low/60 border-t border-outline-variant flex items-center justify-around text-code-sm font-code-sm text-secondary">
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-inverse-surface inline-block"></span> 1. Staging Depot</span>
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-primary-container inline-block"></span> 2 &amp; 3. Pickups</span>
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-primary inline-block"></span> 4. Safe Shelter</span>
+</div>
+</div>
+<!-- Safety & Conflict Checklist (Operator Must Acknowledge) -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary" data-icon="verified_user">verified_user</span>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Safety &amp; Conflict Checklist</h3>
+</div>
+<span class="text-code-sm font-code-sm text-primary font-bold">Mandatory Verification</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+            Each physical operational parameter must be reviewed prior to transmitting dispatches to field personnel tablets:
+          </p>
+<!-- Check items -->
+<div class="flex flex-col gap-2 mt-1">
+<!-- Item 1: Verified -->
+<label class="flex items-start gap-space-sm p-2 rounded bg-surface-container-low border border-primary/20 cursor-pointer hover:bg-surface-container transition-colors">
+<input checked="" class="mt-0.5 rounded text-primary focus:ring-primary border-outline cursor-pointer" type="checkbox"/>
+<div class="text-body-sm font-body-sm">
+<span class="font-bold text-on-surface">[✓] Boat draft clearances verified against USGS gauge sensors</span>
+<p class="text-code-sm font-code-sm text-secondary mt-0.5">Greens Bayou sensor #08075900 confirms min channel depth 2.4m along path.</p>
+</div>
+</label>
+<!-- Item 2: Shelter capacity -->
+<label class="flex items-start gap-space-sm p-2 rounded bg-surface-container-low border border-primary/20 cursor-pointer hover:bg-surface-container transition-colors">
+<input checked="" class="mt-0.5 rounded text-primary focus:ring-primary border-outline cursor-pointer" type="checkbox"/>
+<div class="text-body-sm font-body-sm">
+<span class="font-bold text-on-surface">[✓] Shelter capacity confirmed (Westchase High: 142 beds remaining)</span>
+<p class="text-code-sm font-code-sm text-secondary mt-0.5">Red Cross Liaison verified ready for intake (+7 pax incoming from Alpha-4).</p>
+</div>
+</label>
+<!-- Item 3: Medic / Oxygen assignment -->
+<label class="flex items-start gap-space-sm p-2 rounded bg-surface-container-low border border-primary/20 cursor-pointer hover:bg-surface-container transition-colors">
+<input checked="" class="mt-0.5 rounded text-primary focus:ring-primary border-outline cursor-pointer" type="checkbox"/>
+<div class="text-body-sm font-body-sm">
+<span class="font-bold text-on-surface">[✓] Oxygen protocol assigned to medic on Boat Alpha-4</span>
+<p class="text-code-sm font-code-sm text-secondary mt-0.5">Sgt. Tran confirmed equipped with portable O2 concentrator kit #M-04.</p>
+</div>
+</label>
+<!-- Item 4: Meteorological Advisory / Warning -->
+<div class="flex items-start gap-space-sm p-2 rounded bg-amber-50 border border-amber-300">
+<span class="material-symbols-outlined text-[18px] text-amber-700 shrink-0 mt-0.5" data-icon="report_problem">report_problem</span>
+<div class="text-body-sm font-body-sm">
+<span class="font-bold text-amber-950">[!] WARNING: Gusts 22kt in Greenspoint sector may slow transit by 8-12 min</span>
+<p class="text-code-sm font-code-sm text-amber-900 mt-0.5">VRP solution includes +15% safety buffer for weather contingencies.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Pre-Commit Confirmation Box (Final Authorization Panel) -->
+<section class="bg-surface-container-lowest border-2 border-primary-container rounded-xl p-space-md shadow-md flex flex-col gap-space-md">
+<div class="flex items-center gap-2 border-b border-outline-variant/60 pb-2">
+<span class="p-1 rounded bg-primary-container text-on-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="lock">lock</span>
+</span>
+<div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Ready to Dispatch?</h3>
+<p class="text-code-sm font-code-sm text-secondary">Irrevocable operational transmission trigger</p>
+</div>
+</div>
+<div class="text-body-sm font-body-sm text-on-surface-variant bg-surface-container-low p-space-sm rounded border border-outline-variant">
+            Committing will transmit official operational dispatch tickets to <strong>3 crew vessel tablets</strong> and initiate <strong>automated citizen SMS alerts</strong> to 15 affected residents with live tracking links.
+          </div>
+<!-- Action Buttons -->
+<div class="flex flex-col gap-2 pt-1">
+<button class="w-full h-11 rounded-lg bg-primary-container hover:bg-primary text-on-primary text-headline-sm font-headline-sm font-bold shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] ring-2 ring-primary-fixed-dim/40">
+<span class="material-symbols-outlined text-[22px]" data-icon="lock_open">lock_open</span>
+<span>Confirm &amp; Authorize Dispatch</span>
+</button>
+<button class="w-full h-8 rounded bg-transparent hover:bg-surface-container text-secondary hover:text-on-surface text-label-md font-label-md transition-colors flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="close">close</span>
+<span>Cancel / Adjust Parameters</span>
+</button>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- ========================================================================= -->
+<!-- 4. SHARED COMPONENT: Footer (Fixed bottom h-8, right aligned, z-30)       -->
+<!-- ========================================================================= -->
+<footer class="fixed bottom-0 right-0 h-8 z-30 w-[calc(100%-16rem)] bg-surface-container-low border-t border-outline-variant flex items-center justify-between px-space-md">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span class="text-code-sm font-code-sm text-on-surface-variant font-medium">
+        VRP Solver v2.4 Active | Operational Telemetry Sync: 12ms
+      </span>
+</div>
+<!-- System Links -->
+<div class="flex items-center gap-space-lg">
+<a class="text-code-sm font-code-sm text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1" href="#hotline">
+<span class="material-symbols-outlined text-[14px]" data-icon="call">call</span>
+<span>EOC Direct Hotline: ext 4401</span>
+</a>
+<span class="text-outline-variant">|</span>
+<a class="text-code-sm font-code-sm text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1" href="#water-center">
+<span class="material-symbols-outlined text-[14px]" data-icon="open_in_new">open_in_new</span>
+<span>National Water Center Link</span>
+</a>
+<span class="text-outline-variant">|</span>
+<a class="text-code-sm font-code-sm text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1" href="#sop">
+<span class="material-symbols-outlined text-[14px]" data-icon="menu_book">menu_book</span>
+<span>Disaster Protocol SOP</span>
+</a>
+</div>
+</footer>
+</body></html>
