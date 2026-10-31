@@ -119,6 +119,9 @@ async function runMilestone3Verification(): Promise<void> {
     );
     assert(dbResult.rows.length === 1, 'Record successfully persisted in PostGIS requests table');
     const dbRow = dbResult.rows[0];
+    if (!dbRow) {
+      throw new Error('Database row unexpectedly undefined');
+    }
     assert(dbRow.urgency === 'CRITICAL', 'Persisted urgency is CRITICAL');
     assert(dbRow.people_count === 5, 'Persisted people_count is 5');
     assert(dbRow.medical_needs === true, 'Persisted medical_needs is true');
@@ -153,7 +156,7 @@ async function runMilestone3Verification(): Promise<void> {
 
     // Anti-caching security headers
     assert(
-      healthRes.headers.get('cache-control')?.includes('no-store'),
+      Boolean(healthRes.headers.get('cache-control')?.includes('no-store')),
       'Cache-Control prevents public/proxy caching (contains no-store)',
     );
 
@@ -250,9 +253,9 @@ async function runMilestone3Verification(): Promise<void> {
     assert(foundRequest.peopleCount === 5, 'People count matches submitted value');
 
     // GET /requests/:id with Cookie
-    const cookieString = sessionCookieHeader!.split(';')[0];
+    const cookieString = sessionCookieHeader ? sessionCookieHeader.split(';')[0] : '';
     const itemWithCookieRes = await fetch(`${apiBase}/requests/${createdRequestId}`, {
-      headers: { Cookie: cookieString },
+      headers: cookieString ? { Cookie: cookieString } : {},
     });
     assert(
       itemWithCookieRes.status === 200,
