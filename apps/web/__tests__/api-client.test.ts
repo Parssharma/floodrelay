@@ -84,7 +84,7 @@ describe('FloodRelayApiClient', () => {
     });
 
     const res = await client.proposeAssignment({
-      algorithm: 'CLARKE_WRIGHT',
+      algorithm: 'savings',
       preserveFrozen: true,
     });
 

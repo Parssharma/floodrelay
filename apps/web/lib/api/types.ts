@@ -56,23 +56,30 @@ export interface AssignmentRecord {
   id: string;
   title?: string;
   description?: string;
-  scenarioId?: string;
+  scenarioId?: string | null;
+  scenario_id?: string | null;
   status: 'PROPOSED' | 'COMMITTED';
-  metrics?: SolverMetrics;
-  unserved?: UnservedRequest[];
+  metrics?: SolverMetrics | null;
+  unserved?: UnservedRequest[] | null;
   routes?: ResourceRoute[];
   stops?: RouteStop[];
   assetsAssigned?: string[];
   committedAt?: string | null;
+  committed_at?: string | null;
   committedBy?: string | null;
+  committed_by?: string | null;
   createdAt: string;
+  created_at?: string;
   updatedAt: string;
+  updated_at?: string;
 }
 
 export interface ProposeAssignmentInput {
-  algorithm?: 'NEAREST_FIRST' | 'CLARKE_WRIGHT' | 'CLUSTER_ALLOCATION' | 'ORTOOLS';
   scenarioId?: string;
+  algorithm?: 'cluster-allocation' | 'nearest-first' | 'savings';
+  includeUnverified?: boolean;
   preserveFrozen?: boolean;
+  maxShiftMinutes?: number;
 }
 
 export interface CommitAssignmentInput {

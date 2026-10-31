@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
-import SimulatedNotice from '@/components/ui/SimulatedNotice';
-import { SIMULATED_ASSIGNMENTS } from '@/lib/fixtures/assignments';
+import { apiClient } from '@/lib/api/client';
+import { ApiClientError } from '@/lib/api/errors';
+import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
+import type { AssignmentRecord } from '@/lib/api/types';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -13,20 +15,100 @@ interface PageProps {
 export default function AssignmentReviewPage({ params }: PageProps) {
   const resolvedParams = React.use(params);
   const planId = resolvedParams.id;
+  const { operator } = useOperatorAuth();
 
-  const plan = SIMULATED_ASSIGNMENTS.find((p) => p.id.toLowerCase() === planId.toLowerCase());
+  const [plan, setPlan] = useState<AssignmentRecord | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Interactive checklist states
   const [checklist, setChecklist] = useState({
-    draftClearance: true,
-    shelterCapacity: true,
-    oxygenProtocol: true,
+    draftClearance: false,
+    shelterCapacity: false,
+    medicalProtocol: false,
   });
 
   const [showCommitModal, setShowCommitModal] = useState(false);
-  const [committedLocally, setCommittedLocally] = useState(false);
+  const [operatorNotes, setOperatorNotes] = useState('');
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [commitSuccessAlert, setCommitSuccessAlert] = useState<string | null>(null);
 
-  if (!plan) {
+  const fetchAssignment = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await apiClient.getAssignment(planId);
+      setPlan(data);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        if (err.statusCode === 404) {
+          setError(`Assignment plan with ID "${planId}" not found in database.`);
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError((err as Error).message || 'Failed to load assignment plan.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [planId]);
+
+  useEffect(() => {
+    fetchAssignment();
+  }, [fetchAssignment]);
+
+  const handleCommitPlan = async () => {
+    if (isCommitting || !plan) return;
+
+    try {
+      setIsCommitting(true);
+      setCommitError(null);
+
+      const opIdentifier = operator?.username || operator?.id || 'OPERATOR';
+      const updated = await apiClient.commitAssignment(plan.id, {
+        operatorId: opIdentifier,
+        notes: operatorNotes.trim() || undefined,
+      });
+
+      setPlan(updated);
+      setShowCommitModal(false);
+      setCommitSuccessAlert(
+        `Assignment plan ${plan.id} successfully committed! All route stops are now frozen and requests marked as ASSIGNED.`,
+      );
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        if (err.code === 'ALREADY_COMMITTED') {
+          setCommitError('This assignment plan has already been committed by an operator.');
+        } else if (err.code === 'REQUEST_ALREADY_ASSIGNED') {
+          setCommitError(
+            'One or more requests in this plan have already been assigned to another plan. Please generate a fresh proposal.',
+          );
+        } else {
+          setCommitError(err.message);
+        }
+      } else {
+        setCommitError((err as Error).message || 'Failed to commit assignment plan.');
+      }
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto p-12 text-center space-y-3">
+        <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        <h2 className="text-base font-bold text-slate-800 font-mono">
+          Loading Assignment Plan {planId}...
+        </h2>
+        <p className="text-xs text-slate-500">Querying PostgreSQL/PostGIS database</p>
+      </div>
+    );
+  }
+
+  if (error || !plan) {
     return (
       <div className="max-w-3xl mx-auto p-8 text-center space-y-4">
         <div className="h-16 w-16 bg-red-100 text-red-700 rounded-full flex items-center justify-center mx-auto">
@@ -34,9 +116,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         </div>
         <h1 className="text-xl font-bold text-slate-900">Assignment Plan Not Found</h1>
         <p className="text-sm text-slate-600">
-          The requested proposal or committed plan ID{' '}
-          <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">{planId}</code> does not
-          exist in the simulated records.
+          {error || `The requested plan ID "${planId}" does not exist in the database.`}
         </p>
         <div className="pt-2">
           <Link
@@ -51,17 +131,69 @@ export default function AssignmentReviewPage({ params }: PageProps) {
     );
   }
 
-  const isProposed = !committedLocally && plan.status === 'PROPOSED';
+  const isProposed = plan.status === 'PROPOSED';
   const allChecked =
-    checklist.draftClearance && checklist.shelterCapacity && checklist.oxygenProtocol;
+    checklist.draftClearance && checklist.shelterCapacity && checklist.medicalProtocol;
+  const routes = plan.routes || [];
+  const unserved = plan.unserved || [];
+
+  const createdDate = new Date(plan.created_at ?? plan.createdAt);
+  const formattedCreated = !isNaN(createdDate.getTime())
+    ? createdDate.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Unknown';
+
+  const committedDate = plan.committed_at ?? plan.committedAt;
+  const formattedCommitted = committedDate
+    ? new Date(committedDate).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   return (
     <div className="max-w-[1440px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
       {/* Top Banner Notice */}
-      <SimulatedNotice
-        variant="banner"
-        message="Simulated Assignment Review — Human-in-the-loop review interface. Live commit mutation (POST /api/v1/assignments/:id/commit) connects in Milestone 5."
-      />
+      <div className="bg-slate-900 text-white rounded-xl p-3.5 sm:p-4 border border-slate-800 flex items-start gap-3 shadow-sm">
+        <span className="material-symbols-outlined text-teal-400 text-xl shrink-0 mt-0.5">
+          gavel
+        </span>
+        <div className="text-xs">
+          <span className="font-bold text-teal-300">
+            Human-Supervised Plan Authorization &amp; Commitment
+          </span>
+          <p className="text-slate-300 mt-0.5 leading-relaxed">
+            Connected to Phase 2 REST API and PostgreSQL backend. Committing records an
+            operator-approved assignment plan in the database.
+            <strong className="text-amber-300">
+              {' '}
+              Committing records the decision; it does not dispatch physical crews or boats.
+            </strong>
+          </p>
+        </div>
+      </div>
+
+      {commitSuccessAlert && (
+        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between gap-3 text-xs text-emerald-950 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-emerald-700 text-lg">task_alt</span>
+            <span className="font-bold">{commitSuccessAlert}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCommitSuccessAlert(null)}
+            className="text-emerald-700 hover:text-emerald-900 font-bold p-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Breadcrumb Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -74,12 +206,13 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             <span>Assignments List</span>
           </Link>
           <span className="text-slate-300">/</span>
-          <span className="text-slate-600">{plan.id}</span>
+          <span className="text-slate-600 font-mono">{plan.id}</span>
           <span className="text-slate-300">/</span>
-          <span className="font-bold text-slate-900">Human Review &amp; Authorization</span>
+          <span className="font-bold text-slate-900">Plan Review &amp; Commitment</span>
         </div>
-        <div className="text-slate-400 font-mono text-[11px]">
-          Harris County EOC • Desk Sector 4-B
+        <div className="text-slate-500 font-mono text-[11px]">
+          Operator Session:{' '}
+          <span className="font-bold text-slate-800">{operator?.username || 'Authenticated'}</span>
         </div>
       </div>
 
@@ -88,40 +221,42 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-1.5">
-              <StatusBadge status={isProposed ? 'PROPOSED' : 'COMMITTED'} />
+              <StatusBadge status={plan.status} />
               <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                Generated:{' '}
-                {new Date(plan.createdAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}{' '}
-                CDT
+                Created: {formattedCreated}
               </span>
               <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                Sector: Harris North / Greenspoint
+                Scenario: {plan.scenario_id ?? plan.scenarioId ?? 'scenario-delhi-yamuna-demo'}
               </span>
+              {plan.committed_by && (
+                <span className="text-xs font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
+                  Committed by: {plan.committed_by} ({formattedCommitted})
+                </span>
+              )}
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              {plan.id}: {plan.title ?? 'Emergency Evacuation Sweep'}
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-mono">
+              {plan.id}
             </h1>
           </div>
 
           {/* Primary Action Buttons */}
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              disabled
-              className="h-9 px-3 rounded bg-slate-50 border border-slate-300 text-slate-400 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed"
-              title="Solver regeneration connects in Milestone 5"
+            <Link
+              href="/operator/assignments"
+              className="h-9 px-3 rounded bg-slate-50 border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1.5 transition-colors"
             >
-              <span className="material-symbols-outlined text-base">replay</span>
-              <span>Regenerate (M5)</span>
-            </button>
+              <span className="material-symbols-outlined text-base">arrow_back</span>
+              <span>All Plans</span>
+            </Link>
+
             {isProposed ? (
               <button
                 type="button"
                 disabled={!allChecked}
-                onClick={() => setShowCommitModal(true)}
+                onClick={() => {
+                  setCommitError(null);
+                  setShowCommitModal(true);
+                }}
                 className={`h-9 px-4 rounded text-xs font-bold transition-all flex items-center gap-2 shadow-sm ${
                   allChecked
                     ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/30'
@@ -129,14 +264,14 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 }`}
               >
                 <span className="material-symbols-outlined text-base">lock_open</span>
-                <span>Commit Assignment &amp; Dispatch</span>
+                <span>Commit Assignment Plan</span>
               </button>
             ) : (
               <div className="h-9 px-4 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-base text-emerald-700">
                   verified
                 </span>
-                <span>Committed &amp; Dispatched</span>
+                <span>Plan Committed &amp; Frozen</span>
               </div>
             )}
           </div>
@@ -145,19 +280,29 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         {/* Human-in-the-Loop Safeguard Notice */}
         <div className="bg-slate-50 border-l-4 border-teal-700 rounded-r-lg p-3 sm:p-4 flex items-start gap-3">
           <span className="material-symbols-outlined text-teal-700 text-2xl shrink-0 mt-0.5">
-            gavel
+            security
           </span>
           <div className="flex-1 text-xs">
             <div className="font-bold text-slate-900 flex items-center gap-2">
-              <span>Human-in-the-Loop Safeguard Active</span>
+              <span>Human-in-the-Loop Supervisory Protocol</span>
               <span className="font-mono text-slate-500 font-normal">
-                (FEMA Incident Command Protocol §4.2)
+                (Standard Incident Command §4.2)
               </span>
             </div>
             <p className="text-slate-600 mt-1 leading-relaxed">
-              This plan is simulated and will <strong>NOT</strong> dispatch field assets until you
-              explicitly verify safety constraints in the checklist and click Commit Assignment.
-              Verify hydraulic drafts and safe drop-off shelter capacities before proceeding.
+              {isProposed ? (
+                <>
+                  This proposed plan is generated by the VRP solver and requires human verification
+                  prior to database commitment. Complete the safety checklist below and click{' '}
+                  <strong>Commit Assignment Plan</strong> to freeze all stops and mark requests as
+                  ASSIGNED.
+                </>
+              ) : (
+                <>
+                  This plan is <strong>COMMITTED</strong>. All stops are frozen against modification
+                  in the PostGIS database. Request records have been locked into ASSIGNED status.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -169,284 +314,203 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         {/* LEFT COLUMN: Vehicle Routes & Manifest (7/12 cols)                   */}
         {/* ===================================================================== */}
         <div className="xl:col-span-7 space-y-6">
-          {/* Vehicle Card 1: Primary Detailed Asset (Boat Alpha-4) */}
-          <article className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            {/* Header Bar */}
-            <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="p-1 rounded bg-teal-700 text-white">
-                  <span className="material-symbols-outlined text-lg">sailing</span>
-                </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-bold text-slate-900">Swift Water Boat Alpha-4</h2>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-teal-100 text-teal-800 font-bold border border-teal-200">
-                      SWB-04
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 font-mono">
-                    Pilot: <span className="font-semibold text-slate-700">Lt. J. Miller</span> •
-                    Medic:{' '}
-                    <span className="font-semibold text-slate-700">
-                      Sgt. C. Tran (Oxygen Rated)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Peak Vessel Load */}
-              <div className="text-right">
-                <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
-                  Peak Load
-                </div>
-                <div className="text-xs font-bold text-slate-900">
-                  7 <span className="text-slate-500 font-normal">/ 8 pax max</span>
-                </div>
-                <div className="w-16 h-1.5 rounded-full bg-slate-200 overflow-hidden mt-1">
-                  <div className="h-full bg-teal-700 rounded-full" style={{ width: '87.5%' }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Ordered Route Stops Timeline */}
-            <div className="p-4 sm:p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <span className="text-xs uppercase font-mono tracking-wider text-slate-500 font-semibold">
-                  Ordered Navigation &amp; Pickup Sequence
-                </span>
-                <span className="text-xs font-mono text-teal-700 font-semibold flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm">route</span>
-                  Sequential VRP Solution: Opt-Path #1
-                </span>
-              </div>
-
-              <div className="relative pl-6 space-y-3 before:absolute before:left-[11px] before:top-2 before:bottom-3 before:w-0.5 before:bg-slate-200">
-                {/* Stop 1: Launch Depot */}
-                <div className="relative flex items-start gap-3">
-                  <div className="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center text-[10px] font-bold ring-4 ring-white">
-                    1
-                  </div>
-                  <div className="flex-1 bg-slate-50 border border-slate-200 rounded p-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-500">[14:15]</span>
-                        <span className="font-bold text-slate-900">
-                          Launch: Buffalo Bayou Staging West
-                        </span>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-200 text-slate-600 font-mono">
-                          Depot
-                        </span>
-                      </div>
-                      <p className="text-slate-500 text-[11px] mt-0.5">
-                        Vessel prepped with O2 respiratory kit
-                      </p>
-                    </div>
-                    <div className="text-right text-[11px] font-mono">
-                      <span className="font-semibold text-slate-700">0 pax onboard</span>
-                      <div className="text-slate-400">Load: 0/8</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stop 2: Pickup FL-8824 */}
-                <div className="relative flex items-start gap-3">
-                  <div className="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-teal-700 text-white flex items-center justify-center text-[10px] font-bold ring-4 ring-white">
-                    2
-                  </div>
-                  <div className="flex-1 bg-white border border-teal-200 rounded p-2.5 shadow-xs flex items-center justify-between text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-teal-700">[14:48]</span>
-                        <span className="font-bold text-slate-900">
-                          Pickup #FL-8824: 1428 Riverbend Dr
-                        </span>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-red-100 text-red-800 font-bold border border-red-200 font-mono">
-                          Critical
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-[11px]">
-                        <span className="text-teal-700 font-bold font-mono">+4 pax</span>
-                        <span className="text-slate-300">•</span>
-                        <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 font-semibold flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[11px]">
-                            medical_services
-                          </span>{' '}
-                          1 O2 Dependent
-                        </span>
-                        <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-900 font-semibold flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[11px]">child_care</span>{' '}
-                          1 infant
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right text-[11px] font-mono">
-                      <span className="font-bold text-teal-700">+4 boarded</span>
-                      <div className="text-slate-700 font-bold">Load: 4/8</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stop 3: Pickup FL-8819 */}
-                <div className="relative flex items-start gap-3">
-                  <div className="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-teal-700 text-white flex items-center justify-center text-[10px] font-bold ring-4 ring-white">
-                    3
-                  </div>
-                  <div className="flex-1 bg-white border border-slate-200 rounded p-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-teal-700">[15:05]</span>
-                        <span className="font-bold text-slate-900">
-                          Pickup #FL-8819: 102 Greens Rd, Bldg C
-                        </span>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-100 text-amber-800 font-semibold font-mono">
-                          High
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-[11px]">
-                        <span className="text-teal-700 font-bold font-mono">+3 pax</span>
-                        <span className="text-slate-300">•</span>
-                        <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-900 font-semibold flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[11px]">accessible</span>{' '}
-                          1 folded wheelchair
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right text-[11px] font-mono">
-                      <span className="font-bold text-teal-700">+3 boarded</span>
-                      <div className="text-slate-700 font-bold">Load: 7/8</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stop 4: Shelter Offload */}
-                <div className="relative flex items-start gap-3">
-                  <div className="absolute -left-6 mt-1 w-5 h-5 rounded-full bg-teal-900 text-white flex items-center justify-center text-[10px] font-bold ring-4 ring-white">
-                    4
-                  </div>
-                  <div className="flex-1 bg-teal-50 border border-teal-200 rounded p-2.5 flex items-center justify-between text-xs">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-teal-800">[15:28]</span>
-                        <span className="font-bold text-slate-900">
-                          Shelter: Westchase High Gymnasium
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-teal-900 mt-0.5">
-                        Intake Triage Red Cross Station B • Paramedic Hand-off ready
-                      </p>
-                    </div>
-                    <div className="text-right text-[11px] font-mono">
-                      <span className="font-bold text-emerald-800">-7 pax safe</span>
-                      <div className="text-slate-500">Load: 0/8</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Travel Metrics Strip */}
-              <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex flex-wrap items-center justify-between text-xs">
-                <div className="flex items-center gap-4 text-slate-600">
-                  <span className="flex items-center gap-1 font-mono">
-                    <span className="material-symbols-outlined text-sm text-slate-500">
-                      straighten
-                    </span>
-                    Est. distance: <strong className="text-slate-800">4.2 nm</strong>
-                  </span>
-                  <span className="flex items-center gap-1 font-mono">
-                    <span className="material-symbols-outlined text-sm text-slate-500">timer</span>
-                    Est. duration: <strong className="text-slate-800">52m</strong>
-                  </span>
-                  <span className="flex items-center gap-1 font-mono">
-                    <span className="material-symbols-outlined text-sm text-slate-500">
-                      local_gas_station
-                    </span>
-                    Fuel reserve: <strong className="text-slate-800">84%</strong>
-                  </span>
-                </div>
-                <div className="text-[11px] font-mono text-emerald-700 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Waterway Depth Safe
-                  (&gt;1.8m)
-                </div>
-              </div>
-            </div>
-          </article>
-
-          {/* Additional Fleet Units (Alpha-7 & HW-02) */}
-          <article className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1 rounded bg-slate-100 text-slate-700">
-                  <span className="material-symbols-outlined text-base">sailing</span>
-                </span>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900">
-                    Swift Water Boat Alpha-7 (SWB-07)
-                  </h3>
-                  <div className="text-[11px] text-slate-500">
-                    Pilot: CPO M. Briggs • Capacity: 6 pax max
-                  </div>
-                </div>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-700 font-mono">
-                3 Pickups (6 pax) • Delmar Fieldhouse
+          {/* Multi-vehicle routes */}
+          {routes.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-2">
+              <span className="material-symbols-outlined text-3xl text-slate-400">
+                directions_boat
               </span>
+              <h3 className="text-sm font-bold text-slate-900">No Vehicle Routes Generated</h3>
+              <p className="text-xs text-slate-500">
+                The solver did not generate any vehicle routes for this plan.
+              </p>
             </div>
-          </article>
+          ) : (
+            routes.map((route, routeIdx) => {
+              const pickupsCount = route.stops.filter((s) => s.type === 'PICKUP').length;
+              const dropoffsCount = route.stops.filter((s) => s.type === 'DROPOFF').length;
 
-          <article className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1 rounded bg-slate-100 text-slate-700">
-                  <span className="material-symbols-outlined text-base">local_shipping</span>
-                </span>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900">
-                    High-Water Truck HW-02 (HWT-02)
-                  </h3>
-                  <div className="text-[11px] text-slate-500">
-                    Operator: Sgt. K. Lopez • Capacity: 12 pax max
+              return (
+                <article
+                  key={route.resourceId || routeIdx}
+                  className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden"
+                >
+                  {/* Header Bar */}
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="p-1 rounded bg-teal-700 text-white">
+                        <span className="material-symbols-outlined text-lg">sailing</span>
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm font-bold text-slate-900">
+                            Craft: {route.resourceId}
+                          </h2>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-teal-100 text-teal-800 font-bold border border-teal-200">
+                            Route #{routeIdx + 1}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          {pickupsCount} Pickups • {dropoffsCount} Drop-offs • {route.stops.length}{' '}
+                          Total Stops
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Duration / Route Metric */}
+                    <div className="text-right">
+                      <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                        Est. Duration
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 font-mono">
+                        ~{Math.round(route.totalDurationMinutes)} min
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-700 font-mono">
-                2 Pickups (8 pax) • Westchase High
-              </span>
-            </div>
-          </article>
+
+                  {/* Ordered Route Stops Timeline */}
+                  <div className="p-4 sm:p-6 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-xs uppercase font-mono tracking-wider text-slate-500 font-semibold">
+                        Ordered Navigation Sequence
+                      </span>
+                      <span className="text-xs font-mono text-teal-700 font-semibold flex items-center gap-1">
+                        <span className="material-symbols-outlined text-sm">route</span>
+                        Sequential Solution
+                      </span>
+                    </div>
+
+                    <div className="relative pl-6 space-y-3 before:absolute before:left-[11px] before:top-2 before:bottom-3 before:w-0.5 before:bg-slate-200">
+                      {route.stops.map((stop) => {
+                        const isDepot = stop.type === 'DEPOT';
+                        const isPickup = stop.type === 'PICKUP';
+                        const isDropoff = stop.type === 'DROPOFF';
+
+                        let badgeColor = 'bg-slate-200 text-slate-700';
+                        if (isPickup) badgeColor = 'bg-teal-100 text-teal-800 border-teal-200';
+                        if (isDropoff)
+                          badgeColor = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+
+                        let ringColor = 'bg-slate-700';
+                        if (isPickup) ringColor = 'bg-teal-700';
+                        if (isDropoff) ringColor = 'bg-emerald-700';
+
+                        return (
+                          <div
+                            key={`${stop.targetId}-${stop.stopNumber}`}
+                            className="relative flex items-start gap-3"
+                          >
+                            <div
+                              className={`absolute -left-6 mt-1 w-5 h-5 rounded-full ${ringColor} text-white flex items-center justify-center text-[10px] font-bold ring-4 ring-white`}
+                            >
+                              {stop.stopNumber}
+                            </div>
+                            <div
+                              className={`flex-1 rounded p-2.5 border text-xs ${
+                                isPickup
+                                  ? 'bg-white border-teal-200 shadow-2xs'
+                                  : isDropoff
+                                    ? 'bg-emerald-50/50 border-emerald-200'
+                                    : 'bg-slate-50 border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-slate-500">
+                                    [+{Math.round(stop.estimatedArrivalMinutes)}m]
+                                  </span>
+                                  <span className="font-bold text-slate-900">
+                                    {isDepot && `Depot: ${stop.targetId || 'Launch Point'}`}
+                                    {isPickup && `Pickup: Request #${stop.targetId}`}
+                                    {isDropoff && `Shelter: ${stop.targetId || 'Safe Shelter'}`}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono border ${badgeColor}`}
+                                  >
+                                    {stop.type}
+                                  </span>
+                                  {stop.isFrozen && (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-blue-100 text-blue-800 font-semibold">
+                                      Frozen
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right text-[11px] font-mono">
+                                  {stop.passengersPickedUp > 0 && (
+                                    <span className="font-bold text-teal-700">
+                                      +{stop.passengersPickedUp} pax
+                                    </span>
+                                  )}
+                                  {stop.passengersDroppedOff > 0 && (
+                                    <span className="font-bold text-emerald-800">
+                                      -{stop.passengersDroppedOff} pax safe
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
 
           {/* Unserved Incidents Warning Box */}
-          <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3 shadow-xs">
-            <span className="material-symbols-outlined text-2xl text-amber-700 shrink-0 mt-0.5">
-              warning
-            </span>
-            <div className="flex-1 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <h4 className="font-bold text-amber-950 text-sm">
-                  2 Incidents Excluded by Solver: Manual Amphibian Assignment Required
-                </h4>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 uppercase font-mono">
-                  Action Needed
-                </span>
-              </div>
-              <p className="text-amber-900 leading-relaxed">
-                The automated VRP algorithm excluded these locations due to safety boundary
-                violations. These cases will remain queued unless assigned to a specialized
-                amphibious unit:
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
-                <div className="bg-white/80 border border-amber-200 rounded p-2 text-slate-800">
-                  <span className="font-bold">#FL-8840</span> (1902 Greenspoint Mall) —{' '}
-                  <span className="text-amber-800 font-semibold">Draft depth &lt; 0.3m</span> (Hull
-                  ground risk). Requires high-water truck.
+          {unserved.length > 0 ? (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3 shadow-xs">
+              <span className="material-symbols-outlined text-2xl text-amber-700 shrink-0 mt-0.5">
+                warning
+              </span>
+              <div className="flex-1 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-amber-950 text-sm">
+                    {unserved.length} Request(s) Excluded by Solver: Resource Scaling Required
+                  </h4>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 uppercase font-mono">
+                    Attention
+                  </span>
                 </div>
-                <div className="bg-white/80 border border-amber-200 rounded p-2 text-slate-800">
-                  <span className="font-bold">#FL-8842</span> (Aldine Bender Rd) —{' '}
-                  <span className="text-amber-800 font-semibold">Downed power lines</span>. Reported
-                  live feeder cable across access bayou.
+                <p className="text-amber-900 leading-relaxed">
+                  The automated VRP algorithm excluded these locations due to craft capacity, shift
+                  limits, or boundary constraints. These cases remain in the pending intake queue
+                  for subsequent waves:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                  {unserved.map((item, idx) => (
+                    <div
+                      key={item.requestId || idx}
+                      className="bg-white/80 border border-amber-200 rounded p-2 text-slate-800"
+                    >
+                      <span className="font-bold font-mono">#{item.requestId}</span> —{' '}
+                      <span className="text-amber-800 font-semibold">{item.reason}</span>
+                      {item.details && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">{item.details}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 flex items-center gap-3 text-xs text-emerald-950">
+              <span className="material-symbols-outlined text-emerald-700 text-2xl shrink-0">
+                check_circle
+              </span>
+              <div>
+                <span className="font-bold text-emerald-900">
+                  Optimal Feasibility: Zero Unserved Requests
+                </span>
+                <p className="text-emerald-800 mt-0.5">
+                  All eligible pending requests were successfully allocated across the fleet within
+                  craft capacity and shift time constraints.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ===================================================================== */}
@@ -458,10 +522,10 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5 font-bold text-slate-800">
                 <span className="material-symbols-outlined text-teal-700 text-base">hub</span>
-                <span>Geospatial Routing Topology</span>
+                <span>Tactical Topology</span>
               </div>
               <span className="text-[11px] font-mono text-emerald-700 font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> USGS Gauge Feed Active
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Plan Solution
               </span>
             </div>
 
@@ -469,7 +533,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             <div className="relative w-full h-64 bg-slate-900 overflow-hidden">
               <svg className="w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
-                  <pattern id="miniGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <pattern id="tacticalGrid" width="20" height="20" patternUnits="userSpaceOnUse">
                     <path
                       d="M 20 0 L 0 0 0 20"
                       fill="none"
@@ -478,9 +542,9 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                     />
                   </pattern>
                 </defs>
-                <rect width="100%" height="100%" fill="url(#miniGrid)" />
+                <rect width="100%" height="100%" fill="url(#tacticalGrid)" />
 
-                {/* Bayous */}
+                {/* Simulated bayou curve */}
                 <path
                   d="M -20,160 C 120,150 220,190 320,170 C 420,150 520,170 600,150"
                   fill="none"
@@ -509,16 +573,20 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <div className="absolute inset-0 p-3 flex flex-col justify-between pointer-events-none text-xs">
                 <div className="flex items-center justify-between">
                   <span className="bg-slate-900/90 text-teal-300 font-mono text-[10px] px-2 py-0.5 rounded border border-slate-700">
-                    Bayou Stage: 38.4 ft (Crest: 16:00)
+                    Plan: {plan.id}
                   </span>
                   <span className="bg-slate-900/90 text-slate-300 font-mono text-[10px] px-2 py-0.5 rounded border border-slate-700">
-                    1:24,000 Tactical
+                    Status: {plan.status}
                   </span>
                 </div>
-                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[260px]">
-                  <div className="font-bold text-teal-300">Alpha-4 Nautical Path Active</div>
+                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[280px]">
+                  <div className="font-bold text-teal-300">
+                    {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0} Requests
+                    Allocated
+                  </div>
                   <div className="text-[10px] text-slate-400">
-                    Depot → Riverbend → Greens Rd → Westchase
+                    Est. Travel: ~{Math.round(plan.metrics?.totalTravelTimeMinutes ?? 0)}m | Wait: ~
+                    {Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
                   </div>
                 </div>
               </div>
@@ -527,16 +595,13 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             {/* Legend */}
             <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-around text-[11px] font-mono text-slate-600">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-slate-700 inline-block" /> 1. Depot
+                <span className="w-2 h-2 rounded-full bg-slate-700 inline-block" /> Depot
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-600 inline-block" /> 2. FL-8824
+                <span className="w-2 h-2 rounded-full bg-teal-600 inline-block" /> Pickups
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-600 inline-block" /> 3. FL-8819
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-teal-700 inline-block" /> 4. Safe Shelter
+                <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" /> Shelters
               </span>
             </div>
           </div>
@@ -553,13 +618,13 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 </h3>
               </div>
               <span className="text-[10px] font-mono text-teal-800 bg-teal-100 px-2 py-0.5 rounded font-bold uppercase">
-                Mandatory Verification
+                Required Verification
               </span>
             </div>
 
             <p className="text-xs text-slate-600">
-              Each operational constraint must be acknowledged by the watch commander before
-              transmitting dispatches to crew field tablets:
+              Each operational constraint must be acknowledged by the operator before committing the
+              assignment plan to the database:
             </p>
 
             <div className="space-y-2 pt-1 text-xs">
@@ -567,7 +632,8 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <label className="flex items-start gap-2.5 p-2 rounded bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
                 <input
                   type="checkbox"
-                  checked={checklist.draftClearance}
+                  disabled={!isProposed}
+                  checked={checklist.draftClearance || !isProposed}
                   onChange={(e) =>
                     setChecklist((prev) => ({ ...prev, draftClearance: e.target.checked }))
                   }
@@ -575,10 +641,10 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 />
                 <div>
                   <span className="font-bold text-slate-900">
-                    [✓] Boat draft clearances verified against USGS gauge sensors
+                    [✓] Craft draft clearances and navigational water depth verified
                   </span>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Greens Bayou sensor #08075900 confirms min channel depth 2.4m along path.
+                    Confirmed safe channel access along allocated pickup and offload paths.
                   </p>
                 </div>
               </label>
@@ -587,7 +653,8 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <label className="flex items-start gap-2.5 p-2 rounded bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
                 <input
                   type="checkbox"
-                  checked={checklist.shelterCapacity}
+                  disabled={!isProposed}
+                  checked={checklist.shelterCapacity || !isProposed}
                   onChange={(e) =>
                     setChecklist((prev) => ({ ...prev, shelterCapacity: e.target.checked }))
                   }
@@ -595,10 +662,10 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 />
                 <div>
                   <span className="font-bold text-slate-900">
-                    [✓] Shelter capacity confirmed (Westchase High: 142 beds remaining)
+                    [✓] Receiving shelter intake capacity and staffing confirmed
                   </span>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Red Cross liaison confirmed ready for intake (+7 pax incoming from Alpha-4).
+                    Shelter liaison verified capacity to receive planned incoming evacuees.
                   </p>
                 </div>
               </label>
@@ -607,36 +674,23 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <label className="flex items-start gap-2.5 p-2 rounded bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
                 <input
                   type="checkbox"
-                  checked={checklist.oxygenProtocol}
+                  disabled={!isProposed}
+                  checked={checklist.medicalProtocol || !isProposed}
                   onChange={(e) =>
-                    setChecklist((prev) => ({ ...prev, oxygenProtocol: e.target.checked }))
+                    setChecklist((prev) => ({ ...prev, medicalProtocol: e.target.checked }))
                   }
                   className="mt-0.5 rounded text-teal-700 focus:ring-teal-700 border-slate-300 cursor-pointer"
                 />
                 <div>
                   <span className="font-bold text-slate-900">
-                    [✓] Oxygen protocol assigned to medic on Boat Alpha-4
+                    [✓] Special medical assistance &amp; oxygen protocols verified
                   </span>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Sgt. Tran confirmed equipped with portable O2 concentrator kit #M-04.
+                    Critical medical needs matched with appropriate craft equipment and paramedic
+                    crews.
                   </p>
                 </div>
               </label>
-
-              {/* Warning Notice */}
-              <div className="flex items-start gap-2 p-2 rounded bg-amber-50 border border-amber-300 text-amber-950">
-                <span className="material-symbols-outlined text-amber-700 text-base shrink-0 mt-0.5">
-                  report_problem
-                </span>
-                <div>
-                  <span className="font-bold">
-                    [!] WARNING: Gusts 22kt in Greenspoint sector may slow transit by 8-12 min
-                  </span>
-                  <p className="text-[11px] text-amber-900 mt-0.5">
-                    VRP solution includes +15% safety buffer for weather contingencies.
-                  </p>
-                </div>
-              </div>
             </div>
           </section>
 
@@ -647,18 +701,31 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 <span className="material-symbols-outlined text-lg">lock</span>
               </span>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Ready to Dispatch?</h3>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {isProposed ? 'Commit Plan to Database' : 'Plan Committed'}
+                </h3>
                 <p className="text-[11px] text-slate-500 font-mono">
-                  Irrevocable operational transmission trigger
+                  {isProposed
+                    ? 'Irrevocable database commit & freeze'
+                    : 'Stored & Frozen in PostGIS'}
                 </p>
               </div>
             </div>
 
             <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200 leading-relaxed">
-              Committing will transmit official operational dispatch tickets to{' '}
-              <strong>3 crew vessel tablets</strong> and initiate{' '}
-              <strong>automated citizen SMS alerts</strong> to affected residents with live tracking
-              links.
+              {isProposed ? (
+                <>
+                  Committing will record this assignment plan in PostgreSQL, freeze all route stops,
+                  lock assigned requests to <strong>ASSIGNED</strong>, and generate an audit log
+                  entry.
+                </>
+              ) : (
+                <>
+                  This plan is officially committed. Recorded by{' '}
+                  <strong className="text-slate-900">{plan.committed_by || 'Operator'}</strong> at{' '}
+                  {formattedCommitted}.
+                </>
+              )}
             </div>
 
             {isProposed ? (
@@ -666,7 +733,10 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 <button
                   type="button"
                   disabled={!allChecked}
-                  onClick={() => setShowCommitModal(true)}
+                  onClick={() => {
+                    setCommitError(null);
+                    setShowCommitModal(true);
+                  }}
                   className={`w-full h-10 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${
                     allChecked
                       ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/30 active:scale-[0.99]'
@@ -674,11 +744,11 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                   }`}
                 >
                   <span className="material-symbols-outlined text-base">lock_open</span>
-                  <span>Confirm &amp; Authorize Dispatch</span>
+                  <span>Confirm &amp; Commit Assignment Plan</span>
                 </button>
                 {!allChecked && (
-                  <p className="text-[11px] text-red-600 text-center font-medium">
-                    Acknowledge all 3 checklist safety items before dispatching.
+                  <p className="text-[11px] text-amber-700 text-center font-medium">
+                    Acknowledge all 3 checklist safety items before committing.
                   </p>
                 )}
               </div>
@@ -688,10 +758,10 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                   <span className="material-symbols-outlined text-emerald-700 text-base">
                     task_alt
                   </span>
-                  <span>Plan Committed &amp; Transmitted</span>
+                  <span>Plan Committed &amp; Frozen</span>
                 </div>
-                <p className="text-[11px] text-emerald-800">
-                  Transmitted to field tablets at {new Date().toLocaleTimeString()} CDT.
+                <p className="text-[11px] text-emerald-800 font-mono">
+                  PostGIS state verified at {formattedCommitted}
                 </p>
               </div>
             )}
@@ -699,54 +769,92 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Simulated Commit Modal */}
+      {/* Real Commit Confirmation Modal */}
       {showCommitModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200">
-            <div className="flex items-center gap-3 text-teal-700">
+            <div className="flex items-center gap-3 text-teal-700 border-b border-slate-200 pb-3">
               <span className="material-symbols-outlined text-3xl">verified_user</span>
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Authorize Dispatch: {plan.id}</h3>
-                <p className="text-xs text-slate-500 font-mono">
-                  Phase 3 Milestone 1 Simulated Preview
-                </p>
+                <h3 className="text-lg font-bold text-slate-900">Commit Assignment Plan</h3>
+                <p className="text-xs text-slate-500 font-mono">Plan ID: {plan.id}</p>
               </div>
             </div>
 
+            {commitError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start gap-2">
+                <span className="material-symbols-outlined text-base shrink-0 mt-0.5">error</span>
+                <div>
+                  <span className="font-bold">Commit Failed: </span>
+                  {commitError}
+                </div>
+              </div>
+            )}
+
             <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-950 space-y-2">
-              <p className="font-bold flex items-center gap-1.5">
+              <p className="font-bold flex items-center gap-1.5 text-amber-900">
                 <span className="material-symbols-outlined text-amber-700 text-base">info</span>
-                Development Mode Notice: No Real Field Dispatches Sent
+                Operational Notice: Decision Record Commitment
               </p>
               <p className="leading-relaxed">
-                In Milestone 1, the frontend UI and client components are verified against simulated
-                fixtures. Clicking &quot;Simulate Authorization&quot; updates this session&apos;s UI
-                badge to demonstrate the committed state without writing to the backend PostgreSQL
-                database or dispatching real SMS.
+                Committing records this assignment as an operator-approved decision plan in
+                PostgreSQL. All {routes.length} vehicle route stops will be permanently frozen and
+                assigned requests will transition to ASSIGNED status.
               </p>
-              <p className="font-mono text-[11px] text-slate-700">
-                Live backend commit mutation (<code>POST /api/v1/assignments/:id/commit</code>)
-                connects in <strong>Milestone 5</strong>.
+              <p className="text-slate-700 font-semibold text-[11px]">
+                * Committing records the administrative allocation decision. It does NOT
+                automatically dispatch physical rescue crews or launch boats.
               </p>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            {/* Operator Notes Input */}
+            <div className="space-y-1">
+              <label
+                htmlFor="operator-notes"
+                className="block text-xs font-bold text-slate-800 font-mono"
+              >
+                Operator Audit Notes (Optional)
+              </label>
+              <textarea
+                id="operator-notes"
+                rows={2}
+                value={operatorNotes}
+                onChange={(e) => setOperatorNotes(e.target.value)}
+                placeholder="e.g. Verified water depths and shelter staffing for Yamuna Sector"
+                className="w-full rounded border border-slate-300 bg-white p-2 text-xs text-slate-800 focus:ring-1 focus:ring-teal-700 focus:border-teal-700"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowCommitModal(false)}
+                disabled={isCommitting}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setCommittedLocally(true);
-                  setShowCommitModal(false);
-                }}
-                className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                onClick={handleCommitPlan}
+                disabled={isCommitting}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                  isCommitting
+                    ? 'bg-teal-400 text-white cursor-not-allowed'
+                    : 'bg-teal-700 hover:bg-teal-800 text-white'
+                }`}
               >
-                Simulate Authorization (UI Preview)
+                {isCommitting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Committing Transaction...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-base">lock</span>
+                    <span>Confirm &amp; Commit Plan</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
