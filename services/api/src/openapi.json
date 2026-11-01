@@ -962,7 +962,8 @@
           "TIME_WINDOW_EXCEEDED",
           "ISOLATED_ZONE",
           "GROUP_LARGER_THAN_ANY_VEHICLE",
-          "SHIFT_LIMIT_REACHED"
+          "SHIFT_LIMIT_REACHED",
+          "UNREACHABLE_DUE_TO_HAZARD"
         ]
       },
       "UnservedRequest": {
@@ -1184,7 +1185,7 @@
               }
             },
             "minItems": 3,
-            "maxItems": 500
+            "maxItems": 200
           }
         }
       },
@@ -1196,7 +1197,8 @@
           "osrmRequests",
           "osrmFailedRequests",
           "lookupsOsrm",
-          "lookupsStraightLine",
+          "lookupsStraightLinePolicy",
+          "lookupsFallback",
           "hazardZoneCount",
           "warnings"
         ],
@@ -1220,7 +1222,11 @@
             "type": "integer",
             "minimum": 0
           },
-          "lookupsStraightLine": {
+          "lookupsStraightLinePolicy": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsFallback": {
             "type": "integer",
             "minimum": 0
           },

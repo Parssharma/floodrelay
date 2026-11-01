@@ -185,8 +185,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
 
     dbStub.resources.set('res_01', {
       id: 'res_01',
-      name: 'Boat Alpha',
-      type: 'BOAT',
+      name: 'Rescue Truck Alpha',
+      type: 'HIGH_WATER_VEHICLE',
       capacity: 6,
       status: 'AVAILABLE',
       speed_km_h: 25,
@@ -230,7 +230,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(travelTime.effectiveSource).toBe('OSRM');
       expect(travelTime.osrmConfigured).toBe(true);
       expect(travelTime.lookupsOsrm).toBeGreaterThan(0);
-      expect(travelTime.lookupsStraightLine).toBe(0);
+      expect(travelTime.lookupsStraightLinePolicy).toBe(0);
+      expect(travelTime.lookupsFallback).toBe(0);
       expect(travelTime.roadCoveragePercent).toBe(100);
 
       // Verify audit event payload includes travelTime
@@ -258,7 +259,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     expect(travelTime.effectiveSource).toBe('STRAIGHT_LINE');
     expect(travelTime.osrmConfigured).toBe(true);
     expect(travelTime.osrmFailedRequests).toBeGreaterThan(0);
-    expect(travelTime.lookupsStraightLine).toBeGreaterThan(0);
+    expect(travelTime.lookupsFallback).toBeGreaterThan(0);
+    expect(travelTime.lookupsStraightLinePolicy).toBe(0);
     expect(travelTime.roadCoveragePercent).toBe(0);
     expect(travelTime.warnings.length).toBeGreaterThan(0);
   });
@@ -308,6 +310,44 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         delete process.env.OSRM_BASE_URL;
       }
     }
+  });
+
+  it('routes BOAT resources via straight-line policy with zero OSRM requests and null road coverage', async () => {
+    dbStub.resources.set('res_boat', {
+      id: 'res_boat',
+      name: 'Boat Charlie',
+      type: 'BOAT',
+      capacity: 6,
+      status: 'AVAILABLE',
+      speed_km_h: 25,
+      source: 'REAL',
+      location: 'POINT(77.220 28.680)',
+      depot_id: null,
+      shift_max_duration_min: 480,
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    // Remove the road vehicle so this scenario has only a boat
+    dbStub.resources.delete('res_01');
+
+    const assignmentService = new AssignmentService(repository, {
+      osrm: { baseUrl: fakeOsrmUrl },
+    });
+    const app = createApp({ repository, assignmentService });
+
+    const res = await request(app)
+      .post('/assignments/propose')
+      .send({ algorithm: 'nearest-first' });
+
+    expect(res.status).toBe(201);
+    const travelTime = res.body.data.travelTime;
+    expect(travelTime.effectiveSource).toBe('STRAIGHT_LINE');
+    expect(travelTime.osrmConfigured).toBe(true);
+    expect(travelTime.osrmRequests).toBe(0); // Zero OSRM requests dispatched for boat-only scenario
+    expect(travelTime.lookupsOsrm).toBe(0);
+    expect(travelTime.lookupsStraightLinePolicy).toBeGreaterThan(0);
+    expect(travelTime.lookupsFallback).toBe(0);
+    expect(travelTime.roadCoveragePercent).toBeNull();
   });
 
   describe('blockedZones request validation', () => {
@@ -380,6 +420,125 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 
+    it('rejects polygon with more than 200 vertices', async () => {
+      const polygon = Array.from({ length: 201 }, (_, i) => ({
+        lat: 28.6 + i * 0.0001,
+        lng: 77.2 + i * 0.0001,
+      }));
+
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_too_many_vertices',
+              severity: 'CAUTION',
+              polygon,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects polygon with fewer than 3 distinct vertices (degenerate ring)', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_degenerate',
+              severity: 'BLOCKED',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.7, lng: 77.24 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects polygon with non-finite coordinates', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_infinite',
+              severity: 'BLOCKED',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: Infinity as unknown as number, lng: 77.24 },
+                { lat: 28.71, lng: 77.25 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects longitude out of range [-180, 180]', async () => {
+      const res = await request(app)
+        .post('/assignments/propose')
+        .send({
+          blockedZones: [
+            {
+              id: 'bz_lng_oob',
+              severity: 'WATER_SURGE',
+              polygon: [
+                { lat: 28.69, lng: 77.23 },
+                { lat: 28.7, lng: 185.0 }, // lng > 180
+                { lat: 28.71, lng: 77.25 },
+              ],
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects request with more than 100 blocked zones', async () => {
+      const blockedZones = Array.from({ length: 101 }, (_, i) => ({
+        id: `zone_${i}`,
+        severity: 'CAUTION' as const,
+        polygon: [
+          { lat: 28.6, lng: 77.2 },
+          { lat: 28.61, lng: 77.2 },
+          { lat: 28.61, lng: 77.21 },
+        ],
+      }));
+
+      const res = await request(app).post('/assignments/propose').send({ blockedZones });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects request exceeding cumulative limit of 2000 total vertices across zones', async () => {
+      // 11 zones with 190 vertices each = 2090 vertices (> 2000)
+      const blockedZones = Array.from({ length: 11 }, (_, z) => ({
+        id: `zone_large_${z}`,
+        severity: 'CAUTION' as const,
+        polygon: Array.from({ length: 190 }, (_, v) => ({
+          lat: 28.6 + z * 0.01 + v * 0.00001,
+          lng: 77.2 + z * 0.01 + v * 0.00001,
+        })),
+      }));
+
+      const res = await request(app).post('/assignments/propose').send({ blockedZones });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('accepts valid blockedZones and reflects them in the travelTime report', async () => {
       const res = await request(app)
         .post('/assignments/propose')
@@ -401,6 +560,41 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.travelTime.hazardZoneCount).toBe(1);
+    });
+    it('stores validated hazardZones and SHA-256 hash in ASSIGNMENT_PROPOSED audit payload matching request input', async () => {
+      const sampleBlockedZones = [
+        {
+          id: 'zone-audit-1',
+          name: 'Audit Test Zone',
+          severity: 'BLOCKED' as const,
+          polygon: [
+            { lat: 28.685, lng: 77.225 },
+            { lat: 28.695, lng: 77.225 },
+            { lat: 28.695, lng: 77.235 },
+          ],
+        },
+      ];
+
+      const res = await request(app).post('/assignments/propose').send({
+        blockedZones: sampleBlockedZones,
+      });
+
+      expect(res.status).toBe(201);
+      const assignmentId = res.body.data.id;
+      expect(assignmentId).toBeDefined();
+
+      const proposedEvent = dbStub.auditEvents.find(
+        (e) => e.eventType === 'ASSIGNMENT_PROPOSED' && e.entityId === assignmentId,
+      );
+      expect(proposedEvent).toBeDefined();
+
+      const payload = proposedEvent!.payload as {
+        hazardZones: unknown;
+        hazardZonesHash: string;
+      };
+      // Stored hazardZones must equal request input
+      expect(payload.hazardZones).toEqual(sampleBlockedZones);
+      expect(payload.hazardZonesHash).toMatch(/^[a-f0-9]{64}$/);
     });
   });
 });

@@ -3,7 +3,10 @@ import type {
   GeoPoint,
   HazardLevel,
   RescueRequest,
+  RescueResource,
   ResourceRoute,
+  ResourceType,
+  Shelter,
   SolverPlan,
 } from '@floodrelay/shared';
 
@@ -33,6 +36,37 @@ export interface PlanHazardReport {
     legIndex: number;
     info: LegHazardInfo;
   }>;
+}
+
+export interface BoundingBox {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+export function computeBoundingBox(points: GeoPoint[]): BoundingBox {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  for (const pt of points) {
+    const { lat, lng } = getPoint(pt);
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+export function boundingBoxesOverlap(b1: BoundingBox, b2: BoundingBox): boolean {
+  return !(
+    b1.maxLat < b2.minLat ||
+    b1.minLat > b2.maxLat ||
+    b1.maxLng < b2.minLng ||
+    b1.minLng > b2.maxLng
+  );
 }
 
 function getPoint(p: GeoPoint): { lat: number; lng: number } {
@@ -204,16 +238,31 @@ export function zonesCrossedBySegment(
   p2: GeoPoint,
   zones: BlockedZone[],
 ): BlockedZone[] {
-  return zones.filter((zone) => segmentIntersectsPolygon(p1, p2, zone.polygon));
+  if (zones.length === 0) return [];
+  const segBox = computeBoundingBox([p1, p2]);
+  return zones.filter((zone) => {
+    const zoneBox = computeBoundingBox(zone.polygon);
+    if (!boundingBoxesOverlap(segBox, zoneBox)) {
+      return false;
+    }
+    return segmentIntersectsPolygon(p1, p2, zone.polygon);
+  });
 }
 
 /**
  * Tests whether a segment crosses any zone with severity 'BLOCKED'.
  */
 export function isSegmentBlocked(p1: GeoPoint, p2: GeoPoint, zones: BlockedZone[]): boolean {
-  return zones.some(
-    (zone) => zone.severity === 'BLOCKED' && segmentIntersectsPolygon(p1, p2, zone.polygon),
-  );
+  if (zones.length === 0) return false;
+  const segBox = computeBoundingBox([p1, p2]);
+  return zones.some((zone) => {
+    if (zone.severity !== 'BLOCKED') return false;
+    const zoneBox = computeBoundingBox(zone.polygon);
+    if (!boundingBoxesOverlap(segBox, zoneBox)) {
+      return false;
+    }
+    return segmentIntersectsPolygon(p1, p2, zone.polygon);
+  });
 }
 
 /**
@@ -333,4 +382,48 @@ export function flagPlanHazards(
     blockedLegs,
     legDetails,
   };
+}
+
+/**
+ * Evaluates whether at least one vehicle has a finite round-trip
+ * shelter -> request -> shelter under active hazard policies.
+ * If no vehicle can reach the request from any shelter and return to any shelter
+ * with finite travel time and without crossing an impassable zone, returns false.
+ */
+export function hasFiniteRoundTrip(
+  req: GeoPoint,
+  resources: RescueResource[],
+  shelters: Shelter[],
+  provider: {
+    getTravelEstimate(
+      from: GeoPoint,
+      to: GeoPoint,
+      speedKmH?: number,
+      isFlooded?: boolean,
+      resourceType?: ResourceType,
+    ): { durationMinutes: number; blocked?: boolean };
+  },
+): boolean {
+  if (shelters.length === 0 || resources.length === 0) {
+    return false;
+  }
+  for (const res of resources) {
+    let canReach = false;
+    for (const sh of shelters) {
+      const est = provider.getTravelEstimate(sh, req, res.speedKmH, undefined, res.type);
+      if (Number.isFinite(est.durationMinutes) && !est.blocked) {
+        canReach = true;
+        break;
+      }
+    }
+    if (!canReach) continue;
+
+    for (const sh of shelters) {
+      const est = provider.getTravelEstimate(req, sh, res.speedKmH, undefined, res.type);
+      if (Number.isFinite(est.durationMinutes) && !est.blocked) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

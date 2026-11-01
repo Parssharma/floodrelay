@@ -1,4 +1,11 @@
-import type { GeoPoint, RescueRequest, RouteStop, Scenario, SolverPlan } from '@floodrelay/shared';
+import type {
+  GeoPoint,
+  RescueRequest,
+  RouteStop,
+  Scenario,
+  SolverPlan,
+  ResourceType,
+} from '@floodrelay/shared';
 import {
   StraightLineTravelTimeProvider,
   type TravelEstimate,
@@ -54,8 +61,9 @@ export class PerturbedTravelTimeProvider implements TravelTimeProvider {
     to: GeoPoint,
     speedKmH?: number,
     isFlooded?: boolean,
+    resourceType?: ResourceType,
   ): TravelEstimate {
-    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded);
+    const base = this.inner.getTravelEstimate(from, to, speedKmH, isFlooded, resourceType);
 
     if (this.magnitude === 0) {
       return base;
@@ -71,9 +79,16 @@ export class PerturbedTravelTimeProvider implements TravelTimeProvider {
     };
   }
 
-  getMatrix(origins: GeoPoint[], destinations: GeoPoint[], speedKmH?: number): TravelEstimate[][] {
+  getMatrix(
+    origins: GeoPoint[],
+    destinations: GeoPoint[],
+    speedKmH?: number,
+    resourceType?: ResourceType,
+  ): TravelEstimate[][] {
     return origins.map((origin) =>
-      destinations.map((dest) => this.getTravelEstimate(origin, dest, speedKmH)),
+      destinations.map((dest) =>
+        this.getTravelEstimate(origin, dest, speedKmH, undefined, resourceType),
+      ),
     );
   }
 }
