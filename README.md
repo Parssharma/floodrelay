@@ -53,6 +53,25 @@ Clone the repository and install dependencies from the root:
 npm ci
 ```
 
+### Running the Application
+
+1. **Start the API backend service (port 3001):**
+   ```bash
+   npm run dev -w @floodrelay/api
+   ```
+2. **Start the Next.js frontend web application (port 3000):**
+   ```bash
+   npm run dev -w @floodrelay/web
+   ```
+3. **Access the Portals in your browser:**
+   - **Citizen Rescue Request Portal:** [http://localhost:3000/citizen/request](http://localhost:3000/citizen/request)
+   - **Operator Command Center Login:** [http://localhost:3000/operator/login](http://localhost:3000/operator/login)
+     - *Development Credentials:* `eoc_operator` / `RescueOps@2026!`
+   - **Operator Dashboard:** [http://localhost:3000/operator](http://localhost:3000/operator)
+   - **GIS Operations Map:** [http://localhost:3000/operator/map](http://localhost:3000/operator/map)
+   - **Rescue Requests Management:** [http://localhost:3000/operator/requests](http://localhost:3000/operator/requests)
+   - **Assignments & Solver Proposals:** [http://localhost:3000/operator/assignments](http://localhost:3000/operator/assignments)
+
 ### Running checks
 
 ```bash

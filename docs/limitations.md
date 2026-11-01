@@ -27,7 +27,10 @@ This file documents honest limitations of the system. Keep it updated as the pro
   - `ASSUMED_DUPLICATE_PEOPLE_DELTA` (±2 people): Permissible group size delta between reports to accommodate citizen estimation uncertainty while matching duplicates (placeholder, not measured).
 
 - **Security, authentication, and authorization:**
-  The platform provides no authentication or authorization; `x-operator-id` is caller-supplied and spoofable, and the API must not be exposed publicly without an authenticating reverse proxy or API gateway enforcing perimeter security.
+  - **Operator Authentication & Role-Based Access:** Operator Command Center routes and privileged API endpoints (`/assignments/*`, `/requests` list and detail, `/auth/me`) require server-enforced operator authentication via `requireOperatorAuth` middleware. Authentication is established via `POST /auth/login` and backed by cryptographically secure session tokens stored in PostgreSQL / in-memory repositories with `HttpOnly`, `SameSite=Lax` cookies and Bearer token support.
+  - **Authoritative Identity & Anti-Impersonation:** Privileged state-changing endpoints (`POST /assignments/:id/commit` and `PATCH /assignments/:id/stops/:stopId`) derive operator attribution authoritatively from the validated server session (`req.operator`). Explicit client attempts to submit differing identities via payload (`operatorId`) or headers (`X-Operator-Id`) are rejected with HTTP 403 `IMPERSONATION_FORBIDDEN`.
+  - **Citizen Intake Perimeter:** Public intake (`POST /requests`) remains unauthenticated by design to ensure citizens in active flood distress face zero login barriers. Rate-limiting and duplicate detection heuristics are enforced to protect platform intake.
+  - **Decision-Support Constraint:** Assignment commitment (`POST /assignments/:id/commit`) is strictly an administrative decision record. It updates database status to `COMMITTED`, freezes stops, and assigns requests; it does not represent or trigger autonomous vehicle dispatch or physical boat departure.
 
 - **Privacy, communications, and data retention:**
   - **No citizen contact details collected:** The intake schema collects coordinates, group size, urgency, and medical needs, but no contact details are collected so operators cannot call a requester.
