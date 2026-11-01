@@ -154,23 +154,23 @@ Incoming rescue requests
 
 ### Phase 3 — Frontend
 
-| Task | Owner | Status | Proving test(s) |
-| :--- | :--- | :--- | :--- |
-| Next.js App Router UI Foundation & Stitch Screens | — | ✅ | All 8 Google Stitch routes, `apps/web/__tests__/portal-routing.test.ts`, `apps/web/__tests__/fixtures.test.ts` |
-| Citizen request intake & PostGIS integration | — | ✅ | `apps/web/__tests__/citizen-api.test.ts`, browser geolocation, idempotency replay & conflict safety, `verifyMilestone2Live.ts` |
-| Operator Command Center Auth & Dashboard | — | ✅ | `apps/web/__tests__/interactions.test.ts`, HttpOnly cookies, session logout revocation, `verifyMilestone3Live.ts` |
-| Interactive GIS Operations Map | — | ✅ | `apps/web/__tests__/operator-map.test.ts`, React Leaflet, CartoDB Dark Matter tiles, layer toggles, incident & craft inspectors |
-| Solver proposal generation & human-supervised commit | — | ✅ | `apps/web/__tests__/assignment-workflow.test.ts`, `verifyMilestone5Live.ts`, ACID row-level locking, stop freezing |
-| Master end-to-end integration & acceptance | — | ✅ | `verifyPhase3E2E.ts`, Next.js production build (`next build`), zero type errors, zero lint errors |
+| Task                                                 | Owner | Status | Proving test(s)                                                                                                                 |
+| :--------------------------------------------------- | :---- | :----- | :------------------------------------------------------------------------------------------------------------------------------ |
+| Next.js App Router UI Foundation & Stitch Screens    | —     | ✅     | All 8 Google Stitch routes, `apps/web/__tests__/portal-routing.test.ts`, `apps/web/__tests__/fixtures.test.ts`                  |
+| Citizen request intake & PostGIS integration         | —     | ✅     | `apps/web/__tests__/citizen-api.test.ts`, browser geolocation, idempotency replay & conflict safety, `verifyMilestone2Live.ts`  |
+| Operator Command Center Auth & Dashboard             | —     | ✅     | `apps/web/__tests__/interactions.test.ts`, HttpOnly cookies, session logout revocation, `verifyMilestone3Live.ts`               |
+| Interactive GIS Operations Map                       | —     | ✅     | `apps/web/__tests__/operator-map.test.ts`, React Leaflet, CartoDB Dark Matter tiles, layer toggles, incident & craft inspectors |
+| Solver proposal generation & human-supervised commit | —     | ✅     | `apps/web/__tests__/assignment-workflow.test.ts`, `verifyMilestone5Live.ts`, ACID row-level locking, stop freezing              |
+| Master end-to-end integration & acceptance           | —     | ✅     | `verifyPhase3E2E.ts`, Next.js production build (`next build`), zero type errors, zero lint errors                               |
 
 ### Phase 4 — Road network and uncertainty
 
-| Task                                                                     | Owner | Status |
-| ------------------------------------------------------------------------ | ----- | ------ |
-| OSRM travel times (check the OSRM docs for the table request size limit) | —     | ⬜     |
-| Operator-marked blocked areas                                            | —     | ⬜     |
-| Uncertainty features                                                     | —     | ⬜     |
-| Perturbation re-runs to report how often assignments change              | —     | ⬜     |
+| Task                                                                     | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------ | ----- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OSRM travel times (check the OSRM docs for the table request size limit) | —     | ✅     | Real road travel times via OSRM MLD backend (`ghcr.io/project-osrm/osrm-backend:v5.27.1`) verified with BBBike New Delhi OSM PBF extract on Docker Compose (`infra/docker-compose.yml --profile osrm`). Verified via `scenarios/osrm-check.ts` (100% road coverage on road vehicles, 0 failed requests) and `packages/solver/src/routing/osrmTravelTime.live.test.ts` (1 passing live integration test, chunking 120 coordinates across 4 table requests). Unit tests and fallback paths verified in `osrmTravelTime.test.ts`, `osrmHttp.test.ts`, `travelTimeFactory.test.ts`, and `assignmentsOsrm.test.ts`. |
+| Operator-marked blocked areas                                            | —     | ✅     | `packages/solver/src/routing/blockedZones.test.ts` (34 passing tests: ray-casting point-in-polygon, segment intersection, `HazardAwareTravelTimeProvider` with INFINITE and PENALTY policies, impedance cost scaling table, bounding-box prefilter, 2000-vertex worst case, and `UNREACHABLE_DUE_TO_HAZARD` across all 3 solvers)                                                                                                                                                                                                                                                                              |
+| Uncertainty features                                                     | —     | ✅     | `packages/solver/src/routing/uncertainty.test.ts` (14 passing tests: lognormal travel time modeling with CV quadrature, Acklam rational quantile approximation verified within 1e-6 tolerance and symmetry z(1-p) = -z(p), median = exp(mu), `RiskAwareTravelTimeProvider`, correlated-leg Monte Carlo route risk assessment)                                                                                                                                                                                                                                                                                  |
+| Perturbation re-runs to report how often assignments change              | —     | ✅     | `packages/solver/src/evaluation/perturbation.test.ts` (7 passing tests: `PerturbedTravelTimeProvider`, timestamp perturbation, plan churn metric computation, verified via `scenarios/perturb.ts` study script)                                                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Phase 5 — Incremental updates and live operations
 
@@ -199,13 +199,16 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 3: Frontend & Full-Stack Integration (All 6 milestones complete ✅: Next.js App Router UI foundation, Citizen Portal with browser geolocation & idempotency, Operator Command Center authentication & live dashboard, React Leaflet GIS Operations Map, VRP solver proposal generation & human-supervised commitment with PostgreSQL row-level locks, and master end-to-end acceptance verification).
-- **Next up:** Phase 4 — Road network and uncertainty (OSRM routing, dynamic road closures, perturbation re-runs).
+- **Last completed:** Phase 3: Frontend & Full-Stack Integration (All 6 milestones complete ✅: Next.js App Router UI foundation, Citizen Portal with browser geolocation & idempotency, Operator Command Center authentication & live dashboard, React Leaflet GIS Operations Map, VRP solver proposal generation & human-supervised commitment with PostgreSQL row-level locks, and master end-to-end acceptance verification) and Phase 4: Road network and uncertainty (Live OSRM integration, hazard zones, calibrated lognormal uncertainty model, perturbation evaluation, 7 ADRs, and 106 Phase 4 tests passing).
+- **Next up:** Phase 5 — Incremental updates and live operations (Event handlers, local repair, live dashboard updates).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
-- Everything in Phase 4 and beyond: not started.
+- **Phase 4:** Complete ✅. Follow-up fixes and live OSRM Docker verification completed on `fix/phase-4-review-followup` (per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, 7 ADRs, and live OSRM verification on Docker Compose with BBBike New Delhi extract, with 106 tests passing across Phase 4 test suites including live integration test).
+- Everything in Phase 5 and beyond: not started.
+
+---
 
 ## 10. Team
 
@@ -238,6 +241,13 @@ Incoming rescue requests
 | Operator-committed assignments and stop-freezing lifecycle | Solver only proposes; operator action commits, freezes stops, marks requests ASSIGNED, subsequent replans preserve frozen stops (ADR-15)                                                                                                   |
 | OpenAPI 3.1 specification and anti-drift testing           | OpenAPI 3.1 spec served at /openapi.json and validated via automated route-introspection tests against Express handlers (ADR-16)                                                                                                           |
 | Deterministic resource locking and rollback verification   | Row-level SELECT FOR UPDATE in ascending order on resources, late statement rollback verification, explicit provenance (ADR-19)                                                                                                            |
+| Two-phase async prefetch with sync solvers                 | Decouple async HTTP I/O from tight synchronous solver loops via memory cache (ADR-20)                                                                                                                                                      |
+| Per-resource-type routing policy                           | Road vehicles follow OSRM road graph; boats and helicopters use straight-line geodesic calculations by design (ADR-21)                                                                                                                     |
+| Dual hazard policies (INFINITE vs PENALTY)                 | Strict safety exclusion under INFINITE (default); optional heavy impedance (10.0x) under PENALTY for triage overrides (ADR-22)                                                                                                             |
+| Lognormal risk model with quadrature                       | Multiplicative non-negative transit delays modeled via lognormal distribution and Acklam rational approximation (ADR-23)                                                                                                                   |
+| Request-scoped hazard zones & audit hashing                | Polygon zones provided per-proposal; SHA-256 canonical JSON hash logged in ASSIGNMENT_PROPOSED audit payload; frozen stops preserved (ADR-24)                                                                                              |
+| 500-point prefetch ceiling                                 | Bound OSRM table prefetch coordinates to prevent excessive API latency; Large scenario falls back to straight-line (ADR-25)                                                                                                                |
+| Deterministic perturbation noise model                     | Uniform noise in [1-m, 1+m] deterministic per (seed, from, to) pair to benchmark route and sequence churn reproducibly (ADR-26)                                                                                                            |
 
 ---
 
@@ -246,7 +256,7 @@ Incoming rescue requests
 - [ ] Confirm with faculty that a separate Node backend is acceptable alongside the mandatory Next.js and React.
 - [ ] Which district or river basin do we use for scenarios?
 - [ ] Who owns each role above?
-- [ ] How will boats be modelled, given OSRM has no boat profile?
+- [x] How will boats be modelled, given OSRM has no boat profile? Resolved in ADR-21: boats and helicopters use StraightLineTravelTimeProvider by design; only road vehicles query OSRM road distance.
 
 ---
 

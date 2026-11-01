@@ -1,5 +1,6 @@
 import {
   validateScenario,
+  type BlockedZone,
   type BoundingBox,
   type GeoPoint,
   type RescueRequest,
@@ -12,10 +13,16 @@ import {
   type SolverPlan,
   type UnservedRequest,
 } from '@floodrelay/shared';
+import { createHash } from 'node:crypto';
 import {
+  zonesCrossedBySegment,
   solveClusterAllocation,
   solveNearestFirst,
   solveClarkeWrightBaseline,
+  prepareTravelTimeProvider,
+  osrmConfigFromEnv,
+  type OsrmProviderOptions,
+  type TravelTimeReport,
 } from '@floodrelay/solver';
 import { PostgisRepository } from '../db/repository.js';
 import {
@@ -43,6 +50,11 @@ export interface AssignmentDetailResponse {
   routes: ResourceRoute[];
   createdAt: string;
   updatedAt: string;
+  travelTime?: TravelTimeReport;
+}
+
+export interface AssignmentServiceOptions {
+  osrm?: OsrmProviderOptions | null;
 }
 
 export interface ProvenanceClassification {
@@ -160,8 +172,22 @@ export function deriveRegionFromCoordinates(points: GeoPoint[]): string {
   return `Operational Area (${latStr}, ${lngStr})`;
 }
 
+function canonicalizeJson(obj: unknown): string {
+  if (obj === null || typeof obj !== 'object') {
+    return JSON.stringify(obj);
+  }
+  if (Array.isArray(obj)) {
+    return `[${obj.map(canonicalizeJson).join(',')}]`;
+  }
+  const keys = Object.keys(obj as object).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJson((obj as Record<string, unknown>)[k])}`).join(',')}}`;
+}
+
 export class AssignmentService {
-  constructor(private readonly repository: PostgisRepository) {}
+  constructor(
+    private readonly repository: PostgisRepository,
+    private readonly options?: AssignmentServiceOptions,
+  ) {}
 
   /**
    * Runs the solver on stored database data and proposes an assignment plan.
@@ -216,7 +242,14 @@ export class AssignmentService {
       requests,
       availableResources,
       shelters,
+      input.blockedZones,
     );
+
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    const { provider: travelTimeProvider, report: getTravelTimeReport } =
+      await prepareTravelTimeProvider(scenario, { osrm: osrmOptions });
 
     const validation = validateScenario(scenario);
     if (!validation.valid) {
@@ -229,14 +262,42 @@ export class AssignmentService {
     // 6. Execute selected solver algorithm
     let plan: SolverPlan;
     if (input.algorithm === 'nearest-first') {
-      plan = solveNearestFirst(scenario);
+      plan = solveNearestFirst(scenario, {
+        travelTimeProvider,
+        maxShiftDurationMinutes: input.maxShiftMinutes,
+      });
     } else if (input.algorithm === 'savings') {
-      plan = solveClarkeWrightBaseline(scenario);
+      plan = solveClarkeWrightBaseline(scenario, {
+        travelTimeProvider,
+        maxShiftMinutes: input.maxShiftMinutes,
+      });
     } else {
       plan = solveClusterAllocation(scenario, {
         existingFrozenRoutes,
         maxShiftMinutes: input.maxShiftMinutes,
+        travelTimeProvider,
       });
+    }
+
+    const travelTimeReport = getTravelTimeReport();
+    for (const warning of travelTimeReport.warnings) {
+      console.warn(`[AssignmentService] ${warning}`);
+    }
+
+    if (existingFrozenRoutes && input.blockedZones && input.blockedZones.length > 0) {
+      for (const route of existingFrozenRoutes) {
+        let prevLoc: GeoPoint | null = null;
+        for (const stop of route.stops) {
+          if (prevLoc) {
+            const crossed = zonesCrossedBySegment(prevLoc, stop, input.blockedZones);
+            if (crossed.length > 0) {
+              const warningMsg = `Frozen committed stop ${stop.stopNumber} for resource '${route.resourceId}' intersects active hazard zone(s) [${crossed.map((z) => z.id).join(', ')}], but frozen committed stops are never rerouted`;
+              travelTimeReport.warnings.push(warningMsg);
+            }
+          }
+          prevLoc = stop;
+        }
+      }
     }
 
     // 7. Store proposed assignment and stops in the database
@@ -269,6 +330,11 @@ export class AssignmentService {
     await this.repository.insertAssignmentWithStops(dbAssignment, dbStops);
 
     // 8. Log audit event
+    const hazardZones = input.blockedZones ?? null;
+    const hazardZonesHash = hazardZones
+      ? createHash('sha256').update(canonicalizeJson(hazardZones)).digest('hex')
+      : null;
+
     await this.repository.insertAuditEvent({
       entityType: 'ASSIGNMENT',
       entityId: assignmentId,
@@ -280,6 +346,10 @@ export class AssignmentService {
         metrics: plan.metrics,
         routesCount: plan.routes.length,
         unservedCount: plan.unserved.length,
+        travelTime: travelTimeReport,
+        hazardZones,
+        hazardZonesHash,
+        blockedZones: hazardZones,
       },
     });
 
@@ -294,6 +364,7 @@ export class AssignmentService {
       routes: plan.routes,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      travelTime: travelTimeReport,
     };
   }
 
@@ -469,6 +540,7 @@ export class AssignmentService {
     requests: RescueRequest[],
     resources: RescueResource[],
     shelters: Shelter[],
+    blockedZones?: BlockedZone[],
   ): Scenario {
     const bounds = this.computeBoundingBox(requests, resources, shelters);
     const allPoints = [
@@ -498,6 +570,7 @@ export class AssignmentService {
       requests,
       resources,
       shelters,
+      blockedZones: blockedZones && blockedZones.length > 0 ? blockedZones : undefined,
     };
   }
 }

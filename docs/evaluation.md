@@ -56,3 +56,84 @@ It is critical to distinguish what each algorithm is intended to do from what be
 - **Google OR-Tools:**
   - _Algorithm intent:_ Formulate flood rescue allocation as a combinatorial multi-vehicle Pickup and Delivery Problem (PDP) with capacity dimensions, shift-duration limits enforcing the return leg to safe shelters, and prioritized disjunction penalties. It employs constraint programming and guided local search metaheuristics to find feasible, high-quality dispatch plans under configurable search time limits. Because multi-vehicle PDP is NP-hard, it is a metaheuristic baseline that does not prove global optimality on general instances under practical search timeouts; exact optimality verification (such as matching brute-force optimum travel time) is tested strictly on the tiny 5-request exhaustive sanity scenario.
   - _Findings in evaluated scenarios:_ In benchmark runs of `npx tsx scenarios/evaluate.ts`, Google OR-Tools produces feasible multi-trip routing plans that satisfy all vehicle capacity and return-leg shift limits, prioritizing critical and high-urgency incidents. As an optimization baseline executing branch-and-bound and local search metaheuristics via Python child process, its execution duration is bounded by the user-specified search time limit parameter rather than executing in sub-second heuristic time.
+
+## Phase 4 — Perturbation Study & Plan Churn
+
+To evaluate algorithmic stability under travel-time estimation uncertainty, FloodRelay benchmarks solvers against perturbed travel-time matrices using `scenarios/perturb.ts` (`runPerturbationStudy`).
+
+### Perturbation Methodology
+
+1. **Travel Time Noise:** Travel times between each pair of locations are scaled by a multiplicative factor drawn uniformly from [1 - m, 1 + m] for perturbation magnitude m in {0, 0.10, 0.25, 0.50}. Noise is independent per travel-time pair and deterministic per `(seed, from, to)` coordinate pair, generated via a 32-bit FNV-1a hash over the seed and coordinates.
+2. **Timestamp Jitter:** While `perturbRequestTimestamps` is provided to jitter request timestamps by ±m × 15 minutes, no current solver reads `createdAt`, so timestamp jitter cannot change plans. All observed churn is driven entirely by travel time perturbations.
+3. **Plan Churn Metrics:**
+   - **Assignment Churn (%):** Percentage of requests assigned to a different vehicle resource (or left unserved) compared to the unperturbed baseline plan.
+   - **Route Churn (%):** Percentage of vehicles whose ordered pickup list changed compared to the baseline plan.
+   - **Sequence Churn (%):** Percentage of requests whose immediate predecessor on the same vehicle changed compared to the baseline plan.
+   - **Coverage Delta:** Change in the total number of served requests under perturbation (perturbed served count minus baseline served count).
+
+### Perturbation Study Results (Generated Scenarios)
+
+> [!NOTE]
+> **SIMULATED**: All perturbation results are synthetic simulations generated under placeholder assumptions. Results vary with scenario seeds and noise draws. To regenerate these numbers, run:
+>
+> ```bash
+> npx tsx scenarios/perturb.ts
+> ```
+
+The primary evaluation runs across 20 distinct synthetic scenario seeds (seeds 2026–2045; 40 requests, 6 vehicles, 3 shelters) with 5 independent noise draws per seed (`seeds: [42, 1337, 2026, 7777, 9999]`), totaling 100 evaluation runs per cell:
+
+| Solver                          |  Magnitude   | Assignment Churn (%) | Route Churn (%) | Sequence Churn (%) | Coverage Delta |
+| :------------------------------ | :----------: | :------------------: | :-------------: | :----------------: | :------------: |
+| Nearest-First (Greedy)          | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |     +0.00      |
+| Nearest-First (Greedy)          |     10%      |        13.9%         |      97.8%      |       63.8%        |     +0.00      |
+| Nearest-First (Greedy)          |     25%      |        20.3%         |      99.7%      |       79.4%        |     +0.00      |
+| Nearest-First (Greedy)          |     50%      |        25.9%         |     100.0%      |       87.9%        |     +0.00      |
+| Cluster-Allocation              | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |     +0.00      |
+| Cluster-Allocation              |     10%      |        45.5%         |      86.0%      |       58.9%        |     +0.00      |
+| Cluster-Allocation              |     25%      |        58.9%         |      97.7%      |       75.0%        |     +0.00      |
+| Cluster-Allocation              |     50%      |        68.8%         |      98.7%      |       85.1%        |     +0.00      |
+| Urgency-batched savings + 2-opt | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |     +0.00      |
+| Urgency-batched savings + 2-opt |     10%      |         3.8%         |      93.7%      |       52.2%        |     +0.00      |
+| Urgency-batched savings + 2-opt |     25%      |         4.7%         |      98.0%      |       64.7%        |     +0.00      |
+| Urgency-batched savings + 2-opt |     50%      |         9.4%         |      99.5%      |       72.9%        |     +0.00      |
+
+### Smoke Test (5-Request Sample Scenario)
+
+A 5-request run on `scenarios/sample-scenario.json` (`scenario-delhi-yamuna-demo`) serves solely as an automated smoke test to verify execution of the evaluation pipeline (`npx tsx scenarios/perturb.ts --smoke`). Because of its tiny scale (5 requests, 3 vehicles), it exhibits artificial step-function behaviors (such as Cluster-Allocation showing 0% churn) that do not reflect performance at realistic operational scale:
+
+| Scenario                   | Solver                          |  Magnitude   | Assignment Churn (%) | Route Churn (%) | Sequence Churn (%) | Coverage Delta |
+| :------------------------- | :------------------------------ | :----------: | :------------------: | :-------------: | :----------------: | :------------: |
+| scenario-delhi-yamuna-demo | Nearest-First (Greedy)          | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Nearest-First (Greedy)          |     10%      |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Nearest-First (Greedy)          |     25%      |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Nearest-First (Greedy)          |     50%      |         0.0%         |      66.7%      |       46.7%        |       +0       |
+| scenario-delhi-yamuna-demo | Cluster-Allocation              | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Cluster-Allocation              |     10%      |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Cluster-Allocation              |     25%      |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Cluster-Allocation              |     50%      |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Urgency-batched savings + 2-opt | 0% (Control) |         0.0%         |      0.0%       |        0.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Urgency-batched savings + 2-opt |     10%      |         0.0%         |      66.7%      |       40.0%        |       +0       |
+| scenario-delhi-yamuna-demo | Urgency-batched savings + 2-opt |     25%      |         0.0%         |      66.7%      |       46.7%        |       +0       |
+| scenario-delhi-yamuna-demo | Urgency-batched savings + 2-opt |     50%      |         0.0%         |      66.7%      |       53.3%        |       +0       |
+
+### Key Observations & Findings
+
+1. **Assignment Churn Differences Across Solvers:**
+   - **Urgency-batched savings + 2-opt** showed the lowest assignment churn across all evaluated noise levels (3.8% at 10% magnitude, 4.7% at 25%, and 9.4% at 50%), preserving which vehicle is assigned to each request in over 90% of cases.
+   - **Nearest-First (Greedy)** exhibited moderate assignment churn (13.9% at 10% magnitude, 20.3% at 25%, and 25.9% at 50%).
+   - **Cluster-Allocation** exhibited the highest assignment churn (45.5% at 10% magnitude, 58.9% at 25%, and 68.8% at 50%). While the 5-request smoke test showed 0% churn, on the 40-request scenarios travel-time noise frequently altered vehicle-to-cluster assignment pairings.
+2. **High Route and Sequence Churn Across All Algorithms:**
+   - Across all three solvers, route churn exceeded 86% even at 10% noise and approached 98%–100% at 50% noise, indicating that the ordered pickup list of a vehicle almost always altered under perturbation.
+   - Sequence churn (changes in immediate pickup predecessor) rose steadily from 52%–64% at 10% noise to 72%–88% at 50% noise across all solvers.
+   - Even when Urgency-batched savings + 2-opt preserved vehicle-level request assignments (low assignment churn), the sequence of pickups within those routes still shifted under travel-time perturbations.
+3. **Coverage Invariance:**
+   - Coverage Delta remained +0.00 across all solvers and all perturbation magnitudes on the 40-request benchmark suite, showing that in these specific 40-request scenarios with generous shift budgets (480 minutes), total served count did not change despite route and sequence reorderings (this indicates that total requests served did not change on these evaluated runs, rather than proving that shift limits can never be breached under noise).
+4. **Google OR-Tools Exclusion:**
+   - Google OR-Tools operates in an external Python child process (`tools/ortools-baseline/solver.py`) using its own internal distance calculations and cannot accept custom TypeScript `TravelTimeProvider` implementations. As a result, OR-Tools is excluded from the automated TypeScript perturbation study harness.
+
+## Road Network & Travel Time Evaluation Realities
+
+1. **500-Point Prefetch Limit & Large Scenario Fallback:**
+   The travel time provider factory (`prepareTravelTimeProvider`) enforces a safety ceiling of 500 total coordinates (`maxTableCoordinates = 500`). In the Large benchmark suite (500 requests + 30 resources + shelters = 530+ points), the coordinate count exceeds this ceiling, causing the factory to log a warning and fall back entirely to `StraightLineTravelTimeProvider`.
+2. **Road Snapping Artifacts for Off-Road Demands:**
+   OSRM table lookups snap all coordinates to the nearest navigable road segment in the OpenStreetMap road graph. In flood inundation zones where victims are stranded in open water, agricultural fields, or rooftop elevations far from navigable streets, snapping to the nearest road produces misleading road travel times that do not account for off-road access or water navigation.
