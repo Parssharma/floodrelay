@@ -56,12 +56,12 @@ export async function runOsrmCheck(): Promise<void> {
         solveNearestFirst(scenario, { travelTimeProvider: p }),
     },
     {
-      name: 'Clarke-Wright Savings + 2-opt',
+      name: 'Urgency-batched savings + 2-opt',
       run: (p: TravelTimeProvider): SolverPlan =>
         solveClarkeWrightBaseline(scenario, { travelTimeProvider: p }),
     },
     {
-      name: 'Cluster-Allocation (Urgency-batched)',
+      name: 'Cluster-Allocation',
       run: (p: TravelTimeProvider): SolverPlan =>
         solveClusterAllocation(scenario, { travelTimeProvider: p }),
     },
