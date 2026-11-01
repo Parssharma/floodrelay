@@ -15,12 +15,12 @@ This document describes how to configure, run, and verify the Open Source Routin
 > - **Commands Executed:**
 >   1. `docker compose -f infra/docker-compose.yml --profile osrm up -d`
 >   2. `curl -s "http://127.0.0.1:5000/table/v1/driving/77.22,28.67;77.23,28.68?annotations=duration,distance"`
->   3. `curl -s "http://127.0.0.1:5000/route/v1/driving/77.22,28.67;77.23,28.68?overview=false"`
+>   3. `curl.exe -sS "http://127.0.0.1:5000/route/v1/driving/77.21,28.65;77.228,28.665?overview=false"` (result: `"code":"Ok"`, distance 3460.3 m, duration 339.4 s)
 >   4. `OSRM_BASE_URL=http://127.0.0.1:5000 npx tsx scenarios/osrm-check.ts`
 >   5. `OSRM_BASE_URL=http://127.0.0.1:5000 npx vitest run packages/solver/src/routing/osrmTravelTime.live.test.ts`
 >   6. `npx vitest run packages/solver/src/routing/osrmTravelTime.live.test.ts` (without `OSRM_BASE_URL` to verify skip behavior)
 > - **Verification Results:**
->   - **OSRM Table and Route API:** Both returned HTTP 200 with `"code":"Ok"`.
+>   - **OSRM Table and Route API:** Both responses contained `"code":"Ok"`. The table response was 2x2: distances 0 / 4405.9 m and 3465.4 m / 0, durations 0 / 341.8 s and 257 s / 0 (asymmetric, consistent with one-way streets).
 >   - **Scenario Check (`osrm-check.ts`):** 1 HTTP table request dispatched, 0 failed requests, 84 road lookups served from OSRM cache, 63 straight-line-policy lookups (for `BOAT` and `HELICOPTER`), 0 fallback lookups, achieving 100.0% road coverage.
 >   - **Live Integration Test (`osrmTravelTime.live.test.ts`):** 1 test passed when `OSRM_BASE_URL` was set (verifying 120-coordinate chunking over 4 table requests and finite positive travel estimates); 1 test skipped when `OSRM_BASE_URL` was unset.
 > - **Scope & Nature of Verification:**
