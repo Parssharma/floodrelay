@@ -150,8 +150,34 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
           return;
         }
 
+        // Authoritative operator identity from authenticated session
+        const sessionOperator = req.operator;
+        const authoritativeOperatorId = sessionOperator?.username || sessionOperator?.id;
+
+        // Prevent operator impersonation: If client explicitly provides an operatorId that does not match authenticated session
+        if (
+          parsed.data.operatorId &&
+          sessionOperator &&
+          parsed.data.operatorId !== sessionOperator.username &&
+          parsed.data.operatorId !== sessionOperator.id
+        ) {
+          res.status(403).json({
+            error: {
+              code: 'IMPERSONATION_FORBIDDEN',
+              message: `Cannot commit assignment on behalf of "${parsed.data.operatorId}". Authenticated as "${sessionOperator.username}".`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const effectiveOperatorId = authoritativeOperatorId || parsed.data.operatorId || 'OPERATOR';
+
         try {
-          const committed = await assignmentService.commitAssignment(id, parsed.data);
+          const committed = await assignmentService.commitAssignment(id, {
+            operatorId: effectiveOperatorId,
+            notes: parsed.data.notes,
+          });
           if (!committed) {
             res.status(409).json({
               error: {
@@ -223,7 +249,27 @@ export function createAssignmentsRouter(assignmentService: AssignmentService): R
           return;
         }
 
-        const operatorId = (req.headers['x-operator-id'] as string) || 'OPERATOR';
+        const sessionOperator = req.operator;
+        const authoritativeOperatorId = sessionOperator?.username || sessionOperator?.id;
+        const headerOperatorId = req.headers['x-operator-id'] as string | undefined;
+
+        if (
+          headerOperatorId &&
+          sessionOperator &&
+          headerOperatorId !== sessionOperator.username &&
+          headerOperatorId !== sessionOperator.id
+        ) {
+          res.status(403).json({
+            error: {
+              code: 'IMPERSONATION_FORBIDDEN',
+              message: `Cannot modify stop on behalf of "${headerOperatorId}". Authenticated as "${sessionOperator.username}".`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const operatorId = authoritativeOperatorId || headerOperatorId || 'OPERATOR';
 
         try {
           const updatedStop = await assignmentService.modifyStop(

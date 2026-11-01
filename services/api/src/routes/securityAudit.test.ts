@@ -3,11 +3,13 @@ import request from 'supertest';
 import { createApp } from '../app.js';
 import { InMemoryAuthRepository, AuthService } from '../services/authService.js';
 import type { RequestService } from '../services/requestService.js';
+import type { AssignmentService } from '../services/assignmentService.js';
 
 describe('Milestone 3 Security Acceptance Gate & CSRF Defense', () => {
   let app: ReturnType<typeof createApp>;
   let authService: AuthService;
   let inMemoryRepo: InMemoryAuthRepository;
+  let mockAssignmentService: AssignmentService;
 
   beforeEach(async () => {
     inMemoryRepo = new InMemoryAuthRepository();
@@ -31,7 +33,19 @@ describe('Milestone 3 Security Acceptance Gate & CSRF Defense', () => {
       listRequests: vi.fn().mockResolvedValue([]),
     } as unknown as RequestService;
 
-    app = createApp({ authService, requestService: mockRequestService });
+    mockAssignmentService = {
+      commitAssignment: vi.fn().mockResolvedValue(true),
+      modifyStop: vi.fn().mockResolvedValue({ id: 'stop-1', stop_number: 1, is_frozen: true }),
+      getAssignment: vi
+        .fn()
+        .mockResolvedValue({ id: 'assign-1', status: 'COMMITTED', committedBy: 'sec_operator' }),
+    } as unknown as AssignmentService;
+
+    app = createApp({
+      authService,
+      requestService: mockRequestService,
+      assignmentService: mockAssignmentService,
+    });
 
     // Seed test operator
     await inMemoryRepo.insertOperator({
@@ -155,6 +169,51 @@ describe('Milestone 3 Security Acceptance Gate & CSRF Defense', () => {
 
       expect(meRes.status).toBe(401);
       expect(meRes.body.error?.code).toBe('SESSION_EXPIRED');
+    });
+  });
+  describe('Operator Authorization & Impersonation Prevention', () => {
+    const token = 'test-token-sec-impersonation-32-chars-long';
+    const expiresAt = new Date(Date.now() + 3600 * 1000);
+
+    beforeEach(async () => {
+      await inMemoryRepo.insertSession(token, 'op-sec-01', expiresAt);
+    });
+
+    it('rejects commit request when operatorId does not match authenticated session with 403 IMPERSONATION_FORBIDDEN', async () => {
+      const res = await request(app)
+        .post('/assignments/assign-1/commit')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ operatorId: 'impersonated_officer', notes: 'Unauthorized commit attempt' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error?.code).toBe('IMPERSONATION_FORBIDDEN');
+      expect(res.body.error?.message).toContain('impersonated_officer');
+    });
+
+    it('rejects stop modification when X-Operator-Id header does not match authenticated session with 403 IMPERSONATION_FORBIDDEN', async () => {
+      const res = await request(app)
+        .patch('/assignments/assign-1/stops/stop-1')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-operator-id', 'spoofed_operator_id')
+        .send({ isFrozen: true });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error?.code).toBe('IMPERSONATION_FORBIDDEN');
+      expect(res.body.error?.message).toContain('spoofed_operator_id');
+    });
+
+    it('permits commit request when operatorId matches authenticated session', async () => {
+      const res = await request(app)
+        .post('/assignments/assign-1/commit')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ operatorId: 'sec_operator', notes: 'Legitimate authorized commit' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockAssignmentService.commitAssignment).toHaveBeenCalledWith(
+        'assign-1',
+        expect.objectContaining({ operatorId: 'sec_operator' }),
+      );
     });
   });
 });

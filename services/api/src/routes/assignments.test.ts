@@ -649,7 +649,7 @@ describe('Assignment Endpoints Integration Tests', () => {
         scenarioId: 'test-frozen-check',
       });
       const firstId = firstPropose.body.data.id;
-      await agent.post(`/assignments/${firstId}/commit`).send({ operatorId: 'op_1' });
+      await agent.post(`/assignments/${firstId}/commit`).send({ operatorId: 'test_operator' });
 
       // 2. Attempt to propose with nearest-first while frozen stops exist -> 400
       const nfRes = await agent.post('/assignments/propose').send({
@@ -753,14 +753,14 @@ describe('Assignment Endpoints Integration Tests', () => {
       const assignId = proposeRes.body.data.id;
 
       const commitRes = await agent.post(`/assignments/${assignId}/commit`).send({
-        operatorId: 'operator_karan',
+        operatorId: 'test_operator',
         notes: 'Approved primary river dispatch plan',
       });
 
       expect(commitRes.status).toBe(200);
       expect(commitRes.body.success).toBe(true);
       expect(commitRes.body.data.status).toBe('COMMITTED');
-      expect(commitRes.body.data.committedBy).toBe('operator_karan');
+      expect(commitRes.body.data.committedBy).toBe('test_operator');
       expect(commitRes.body.data.committedAt).toBeDefined();
 
       // Verify all stops in DB are frozen
@@ -779,15 +779,28 @@ describe('Assignment Endpoints Integration Tests', () => {
       const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;
 
-      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'operator_karan' });
+      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'test_operator' });
 
       // Second commit attempt
       const secondCommit = await agent
         .post(`/assignments/${assignId}/commit`)
-        .send({ operatorId: 'operator_another' });
+        .send({ operatorId: 'test_operator' });
 
       expect(secondCommit.status).toBe(409);
       expect(secondCommit.body.error.code).toBe('ALREADY_COMMITTED');
+    });
+
+    it('rejects commit attempt with 403 IMPERSONATION_FORBIDDEN when operatorId does not match authenticated session', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      const res = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'malicious_impersonator' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('IMPERSONATION_FORBIDDEN');
+      expect(res.body.error.message).toContain('malicious_impersonator');
     });
 
     it('rejects commit without operatorId with 400 Bad Request', async () => {
@@ -803,7 +816,7 @@ describe('Assignment Endpoints Integration Tests', () => {
     it('returns 404 when attempting to commit a non-existent assignment', async () => {
       const res = await agent
         .post('/assignments/assign_missing/commit')
-        .send({ operatorId: 'op_1' });
+        .send({ operatorId: 'test_operator' });
 
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');
@@ -835,7 +848,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       const firstStop = Array.from(dbMock.stops.values()).find((s) => s.assignment_id === assignId);
 
       // Commit assignment
-      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'operator_karan' });
+      await agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'test_operator' });
 
       // Attempt to modify after commit
       const patchRes = await agent
@@ -871,7 +884,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       const firstAssignId = proposeRes.body.data.id;
       await agent
         .post(`/assignments/${firstAssignId}/commit`)
-        .send({ operatorId: 'operator_karan' });
+        .send({ operatorId: 'test_operator' });
 
       // 2. Add a new rescue request
       const newReq: DbRequest = {
@@ -916,7 +929,7 @@ describe('Assignment Endpoints Integration Tests', () => {
 
       const resFail1 = await agent
         .post(`/assignments/${assignId1}/commit`)
-        .send({ operatorId: 'op_test' });
+        .send({ operatorId: 'test_operator' });
 
       expect(resFail1.status).toBe(409);
       expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
@@ -929,7 +942,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       dbMock.failOnStatement = "UPDATE requests SET status = 'ASSIGNED'";
       const resFail2 = await agent
         .post(`/assignments/${assignId1}/commit`)
-        .send({ operatorId: 'op_test' });
+        .send({ operatorId: 'test_operator' });
 
       expect(resFail2.status).toBe(409);
       expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
@@ -939,7 +952,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       dbMock.failOnStatement = 'INSERT INTO audit_events';
       const resFail3 = await agent
         .post(`/assignments/${assignId1}/commit`)
-        .send({ operatorId: 'op_test' });
+        .send({ operatorId: 'test_operator' });
 
       expect(resFail3.status).toBe(409);
       expect(dbMock.assignments.get(assignId1)?.status).toBe('PROPOSED');
@@ -949,7 +962,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       // Now commit should succeed completely
       const successRes = await agent
         .post(`/assignments/${assignId1}/commit`)
-        .send({ operatorId: 'op_test' });
+        .send({ operatorId: 'test_operator' });
       expect(successRes.status).toBe(200);
       expect(dbMock.assignments.get(assignId1)?.status).toBe('COMMITTED');
       expect(dbMock.requests.get('req_01')?.status).toBe('ASSIGNED');
@@ -960,8 +973,8 @@ describe('Assignment Endpoints Integration Tests', () => {
       const assignId = proposeRes.body.data.id;
 
       const [res1, res2] = await Promise.all([
-        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_1' }),
-        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'op_2' }),
+        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'test_operator' }),
+        agent.post(`/assignments/${assignId}/commit`).send({ operatorId: 'test_operator' }),
       ]);
 
       const statuses = [res1.status, res2.status].sort();
@@ -981,11 +994,15 @@ describe('Assignment Endpoints Integration Tests', () => {
       expect(id1).not.toBe(id2);
 
       // Commit first proposal -> succeeds
-      const commit1 = await agent.post(`/assignments/${id1}/commit`).send({ operatorId: 'op_1' });
+      const commit1 = await agent
+        .post(`/assignments/${id1}/commit`)
+        .send({ operatorId: 'test_operator' });
       expect(commit1.status).toBe(200);
 
       // Attempt to commit second proposal containing the now-ASSIGNED requests -> must fail with 409
-      const commit2 = await agent.post(`/assignments/${id2}/commit`).send({ operatorId: 'op_2' });
+      const commit2 = await agent
+        .post(`/assignments/${id2}/commit`)
+        .send({ operatorId: 'test_operator' });
       expect(commit2.status).toBe(409);
       expect(commit2.body.error.code).toBe('REQUEST_ALREADY_ASSIGNED');
     });
@@ -1050,13 +1067,13 @@ describe('Assignment Endpoints Integration Tests', () => {
       // Commit first proposal -> succeeds
       const commit1 = await agent
         .post(`/assignments/${plan1Id}/commit`)
-        .send({ operatorId: 'op_1' });
+        .send({ operatorId: 'test_operator' });
       expect(commit1.status).toBe(200);
 
       // Commit second proposal using same resource boat_01 -> must fail with 409 RESOURCE_ALREADY_COMMITTED
       const commit2 = await agent
         .post(`/assignments/${plan2Id}/commit`)
-        .send({ operatorId: 'op_2' });
+        .send({ operatorId: 'test_operator' });
       expect(commit2.status).toBe(409);
       expect(commit2.body.error.code).toBe('RESOURCE_ALREADY_COMMITTED');
     });

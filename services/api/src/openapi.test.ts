@@ -753,7 +753,7 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
         .post('/assignments/assign_456/commit')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          operatorId: 'operator_karan',
+          operatorId: 'eoc_test_operator',
         });
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 200, res.body);
@@ -773,7 +773,7 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
         .post('/assignments/assign_not_found/commit')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          operatorId: 'operator_karan',
+          operatorId: 'eoc_test_operator',
         });
       expect(res.status).toBe(404);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 404, res.body);
@@ -784,7 +784,7 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
         .post('/assignments/assign_committed/commit')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          operatorId: 'operator_karan',
+          operatorId: 'eoc_test_operator',
         });
       expect(res.status).toBe(409);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 409, res.body);
