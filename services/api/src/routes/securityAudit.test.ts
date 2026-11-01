@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../app.js';
 import { InMemoryAuthRepository, AuthService } from '../services/authService.js';
+import type { RequestService } from '../services/requestService.js';
 
 describe('Milestone 3 Security Acceptance Gate & CSRF Defense', () => {
   let app: ReturnType<typeof createApp>;
@@ -11,7 +12,26 @@ describe('Milestone 3 Security Acceptance Gate & CSRF Defense', () => {
   beforeEach(async () => {
     inMemoryRepo = new InMemoryAuthRepository();
     authService = new AuthService(inMemoryRepo);
-    app = createApp({ authService });
+    const mockRequestService = {
+      submitRequest: vi.fn().mockResolvedValue({
+        request: {
+          id: 'req-sec-mock-1',
+          lat: 29.76,
+          lng: -95.36,
+          peopleCount: 2,
+          urgency: 'HIGH',
+          createdAt: new Date().toISOString(),
+          source: 'REPORTED',
+          verificationStatus: 'UNVERIFIED',
+        },
+        isFlaggedDuplicate: false,
+        duplicateOfId: null,
+      }),
+      getRequestById: vi.fn().mockResolvedValue(null),
+      listRequests: vi.fn().mockResolvedValue([]),
+    } as unknown as RequestService;
+
+    app = createApp({ authService, requestService: mockRequestService });
 
     // Seed test operator
     await inMemoryRepo.insertOperator({

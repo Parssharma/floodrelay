@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-10-30
+**Last updated:** 2026-11-01
 
-**Current focus:** Phase 2 Review Fixes Implemented & Under Review 🟡 — Concurrency Locking, Rollback Verification, Provenance Classification (Pending PR Review)
+**Current focus:** Phase 3 Complete & Ready for PR Review ✅ — Full Next.js Stitch Frontend, Citizen Intake, Operator Command Center, React Leaflet GIS Map, Solver Proposals & Human-Supervised ACID Commit
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -154,11 +154,14 @@ Incoming rescue requests
 
 ### Phase 3 — Frontend
 
-| Task                                               | Owner | Status |
-| -------------------------------------------------- | ----- | ------ |
-| Citizen request form                               | —     | ⬜     |
-| Operator map and assignment view                   | —     | ⬜     |
-| Built against saved solver output (fixtures) first | —     | ⬜     |
+| Task | Owner | Status | Proving test(s) |
+| :--- | :--- | :--- | :--- |
+| Next.js App Router UI Foundation & Stitch Screens | — | ✅ | All 8 Google Stitch routes, `apps/web/__tests__/portal-routing.test.ts`, `apps/web/__tests__/fixtures.test.ts` |
+| Citizen request intake & PostGIS integration | — | ✅ | `apps/web/__tests__/citizen-api.test.ts`, browser geolocation, idempotency replay & conflict safety, `verifyMilestone2Live.ts` |
+| Operator Command Center Auth & Dashboard | — | ✅ | `apps/web/__tests__/interactions.test.ts`, HttpOnly cookies, session logout revocation, `verifyMilestone3Live.ts` |
+| Interactive GIS Operations Map | — | ✅ | `apps/web/__tests__/operator-map.test.ts`, React Leaflet, CartoDB Dark Matter tiles, layer toggles, incident & craft inspectors |
+| Solver proposal generation & human-supervised commit | — | ✅ | `apps/web/__tests__/assignment-workflow.test.ts`, `verifyMilestone5Live.ts`, ACID row-level locking, stop freezing |
+| Master end-to-end integration & acceptance | — | ✅ | `verifyPhase3E2E.ts`, Next.js production build (`next build`), zero type errors, zero lint errors |
 
 ### Phase 4 — Road network and uncertainty
 
@@ -196,14 +199,13 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Google OR-Tools Python baseline implementation, child-process TypeScript integration, comprehensive test suite, benchmark harness integration, and Phase 2 review fixes (deterministic resource row-level locking, scoped transaction rollback verification with PostgreSQL triggers, explicit provenance classification, dynamic coordinate-derived regional metadata).
-- **Next up:** Phase 3: Frontend (Next.js App Router, React Leaflet operator map and citizen intake UI).
-- **Phase 0:** Complete.
+- **Last completed:** Phase 3: Frontend & Full-Stack Integration (All 6 milestones complete ✅: Next.js App Router UI foundation, Citizen Portal with browser geolocation & idempotency, Operator Command Center authentication & live dashboard, React Leaflet GIS Operations Map, VRP solver proposal generation & human-supervised commitment with PostgreSQL row-level locks, and master end-to-end acceptance verification).
+- **Next up:** Phase 4 — Road network and uncertainty (OSRM routing, dynamic road closures, perturbation re-runs).
+- **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
-- **Phase 2:** Under Review 🟡 (Pending PR review — review fixes implemented: deterministic resource row-level locking, late-stage transaction rollback verification with PostgreSQL triggers, explicit provenance classification for real/simulated/mixed scenarios, coordinate-derived regional metadata, and CI integration test enforcement with REQUIRE_DB=1; CI verification is pending final push).
-- Everything in Phase 3 and beyond: not started.
-
----
+- **Phase 2:** Complete (PR #17 review fixes merged ✅).
+- **Phase 3:** Complete (All 6 tasks complete ✅).
+- Everything in Phase 4 and beyond: not started.
 
 ## 10. Team
 
