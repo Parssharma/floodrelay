@@ -1520,7 +1520,7 @@
           "password": {
             "type": "string",
             "format": "password",
-            "example": "RescueOps@2026!"
+            "example": "YourSecurePassword123!"
           }
         }
       },

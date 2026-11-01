@@ -41,7 +41,7 @@ spec.components.schemas.LoginInput = {
   required: ['username', 'password'],
   properties: {
     username: { type: 'string', example: 'eoc_operator' },
-    password: { type: 'string', format: 'password', example: 'RescueOps@2026!' },
+    password: { type: 'string', format: 'password', example: 'YourSecurePassword123!' },
   },
 };
 

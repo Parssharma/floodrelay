@@ -151,7 +151,7 @@ export function OperatorSidebar() {
                   {operator?.name || 'Capt. R. Vance'}
                 </span>
                 <span className="text-[10px] text-surface-dim font-mono truncate">
-                  {operator?.role || 'OPERATOR'} • {operator?.username || 'eoc_operator'}
+                  {operator?.role || 'OPERATOR'} • {operator?.username || 'operator'}
                 </span>
               </div>
             </div>

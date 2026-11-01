@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../app.js';
 import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
@@ -286,6 +286,82 @@ describe('Operator Authentication & API Protection Suite', () => {
       const res = await request(app).get('/openapi.json');
       expect(res.status).toBe(200);
       expect(res.body.openapi).toBeDefined();
+    });
+  });
+
+  describe('Operator Provisioning & Production Security Invariants', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('strictly forbids login with default development password in production environment', async () => {
+      process.env.NODE_ENV = 'production';
+      const res = await request(app)
+        .post('/auth/login')
+        .send({ username: 'test_operator', password: 'RescueOps@2026!' });
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('DEFAULT_CREDENTIALS_PROHIBITED');
+    });
+
+    it('provisions development operator in non-production when database is empty', async () => {
+      delete process.env.NODE_ENV;
+      delete process.env.INITIAL_OPERATOR_USERNAME;
+      delete process.env.INITIAL_OPERATOR_PASSWORD;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+      await freshAuth.ensureInitialOperator();
+
+      const count = await freshRepo.countOperators();
+      expect(count).toBe(1);
+      const op = await freshRepo.getOperatorByUsername('eoc_operator');
+      expect(op).toBeDefined();
+      expect(op?.role).toBe('ADMIN');
+    });
+
+    it('does not provision default operator in production when credentials are not configured', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.INITIAL_OPERATOR_USERNAME;
+      delete process.env.INITIAL_OPERATOR_PASSWORD;
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+      await freshAuth.ensureInitialOperator();
+
+      const count = await freshRepo.countOperators();
+      expect(count).toBe(0);
+    });
+
+    it('throws security violation error if default password is configured as INITIAL_OPERATOR_PASSWORD in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.INITIAL_OPERATOR_USERNAME = 'prod_operator';
+      process.env.INITIAL_OPERATOR_PASSWORD = 'RescueOps@2026!';
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+
+      await expect(freshAuth.ensureInitialOperator()).rejects.toThrow(
+        /Default development password "RescueOps@2026!" cannot be used as INITIAL_OPERATOR_PASSWORD in production/,
+      );
+    });
+
+    it('successfully provisions operator in production when secure custom credentials are provided', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.INITIAL_OPERATOR_USERNAME = 'secure_admin';
+      process.env.INITIAL_OPERATOR_PASSWORD = 'CustomProdPassword2026!#';
+      process.env.INITIAL_OPERATOR_NAME = 'Duty Director';
+      const freshRepo = new InMemoryAuthRepository();
+      const freshAuth = new AuthService(freshRepo);
+      await freshAuth.ensureInitialOperator();
+
+      const count = await freshRepo.countOperators();
+      expect(count).toBe(1);
+      const op = await freshRepo.getOperatorByUsername('secure_admin');
+      expect(op).toBeDefined();
+      expect(op?.name).toBe('Duty Director');
+
+      // Operator can authenticate with custom credentials
+      const session = await freshAuth.authenticate('secure_admin', 'CustomProdPassword2026!#');
+      expect(session.operator.username).toBe('secure_admin');
     });
   });
 });

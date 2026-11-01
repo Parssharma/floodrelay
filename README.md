@@ -67,11 +67,39 @@ npm ci
 3. **Access the Portals in your browser:**
    - **Citizen Rescue Request Portal:** [http://localhost:3000/citizen/request](http://localhost:3000/citizen/request)
    - **Operator Command Center Login:** [http://localhost:3000/operator/login](http://localhost:3000/operator/login)
-     - _Development Credentials:_ `eoc_operator` / `RescueOps@2026!`
    - **Operator Dashboard:** [http://localhost:3000/operator](http://localhost:3000/operator)
    - **GIS Operations Map:** [http://localhost:3000/operator/map](http://localhost:3000/operator/map)
    - **Rescue Requests Management:** [http://localhost:3000/operator/requests](http://localhost:3000/operator/requests)
    - **Assignments & Solver Proposals:** [http://localhost:3000/operator/assignments](http://localhost:3000/operator/assignments)
+
+### Operator Account Provisioning & Security
+
+To access the Operator Command Center, an operator account must be provisioned.
+
+#### Local Development
+
+In non-production environments with an unseeded database, the backend automatically initializes an initial operator account upon first startup. You can customize the credentials by setting environment variables in `.env`:
+
+```bash
+INITIAL_OPERATOR_USERNAME=eoc_operator
+INITIAL_OPERATOR_PASSWORD="<choose-a-local-password>"
+INITIAL_OPERATOR_NAME="Capt. R. Vance"
+```
+
+Additional operator accounts can be provisioned at any time using the administrative CLI:
+
+```bash
+npm --workspace=@floodrelay/api run create-operator <username> <password> [name] [role]
+```
+
+#### Production Security & Credential Rotation
+
+In production (`NODE_ENV=production`), automatic seeding with default development credentials is **disabled by design**. Any attempt to authenticate with or configure known default development credentials in production is strictly rejected with a security violation.
+
+Production operator accounts must be provisioned with unique, high-entropy credentials via `INITIAL_OPERATOR_USERNAME` and `INITIAL_OPERATOR_PASSWORD` during deployment, or via the `create-operator` CLI script.
+
+> [!WARNING]
+> **Credential Rotation Notice**: If development credentials or temporary passwords were deployed or used in any environment, rotate them immediately following your organization's credential rotation procedure.
 
 ### Running checks
 

@@ -178,6 +178,16 @@ export class AuthService {
       throw new AuthError('Username and password are required', 'INVALID_CREDENTIALS', 401);
     }
 
+    // Security guard: Ensure default development credentials cannot be used in production
+    if (process.env.NODE_ENV === 'production' && password === 'RescueOps@2026!') {
+      this.recordFailedAttempt(rateLimitKey);
+      throw new AuthError(
+        'Default development credentials are strictly prohibited in production environments',
+        'DEFAULT_CREDENTIALS_PROHIBITED',
+        403,
+      );
+    }
+
     const operator = await this.repo.getOperatorByUsername(trimmedUser);
 
     if (!operator || !operator.is_active) {
@@ -250,14 +260,20 @@ export class AuthService {
     }
 
     const isProd = process.env.NODE_ENV === 'production';
-    const initialUser = process.env.INITIAL_OPERATOR_USERNAME || 'eoc_operator';
+    const initialUser = process.env.INITIAL_OPERATOR_USERNAME || (isProd ? null : 'eoc_operator');
     const initialPass =
       process.env.INITIAL_OPERATOR_PASSWORD || (isProd ? null : 'RescueOps@2026!');
     const initialName = process.env.INITIAL_OPERATOR_NAME || 'Capt. R. Vance';
 
-    if (!initialPass) {
+    if (isProd && initialPass === 'RescueOps@2026!') {
+      throw new Error(
+        '[Security Violation] Default development password "RescueOps@2026!" cannot be used as INITIAL_OPERATOR_PASSWORD in production environments. Set a unique, secure password.',
+      );
+    }
+
+    if (!initialPass || !initialUser) {
       console.warn(
-        '[Security Warning] No operators found in database. In production, define INITIAL_OPERATOR_PASSWORD or run createOperator CLI.',
+        '[Security Warning] No operators found in database. In production, define INITIAL_OPERATOR_USERNAME and INITIAL_OPERATOR_PASSWORD environment variables, or run create-operator CLI.',
       );
       return;
     }
