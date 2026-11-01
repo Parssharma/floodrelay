@@ -3,8 +3,30 @@
 This document describes how to configure, run, and verify the Open Source Routing Machine (OSRM) integration for FloodRelay.
 
 > [!NOTE]
-> **Environment Verification Notice:**
-> The OSRM Docker services (`infra/docker-compose.yml`), PBF extract download, and LIVE integration tests have been verified against an active local OSRM Docker container (`ghcr.io/project-osrm/osrm-backend:v5.27.1`) using the verified BBBike New Delhi extract (`https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`, ~37.3 MB, bounding box: lat 28.44–28.738, lon 76.978–77.497). Unit tests and fallback paths are additionally verified against the local mock HTTP test suite.
+> **Live Environment Verification Record (2026-11-01):**
+>
+> - **Test Date:** 2026-11-01
+> - **Extract Source:** `https://download.bbbike.org/osm/bbbike/NewDelhi/NewDelhi.osm.pbf`
+> - **Downloaded:** 2026-11-01 09:31:40 UTC
+> - **Extract Size:** 35.6 MiB (about 37.3 MB)
+> - **Extract Timestamp:** 2026-10-24
+> - **Docker Image:** `ghcr.io/project-osrm/osrm-backend:v5.27.1`
+> - **Docker Environment:** Docker Engine 29.9.2, Docker Compose v5.6.1
+> - **Commands Executed:**
+>   1. `docker compose -f infra/docker-compose.yml --profile osrm up -d`
+>   2. `curl -s "http://127.0.0.1:5000/table/v1/driving/77.22,28.67;77.23,28.68?annotations=duration,distance"`
+>   3. `curl -s "http://127.0.0.1:5000/route/v1/driving/77.22,28.67;77.23,28.68?overview=false"`
+>   4. `OSRM_BASE_URL=http://127.0.0.1:5000 npx tsx scenarios/osrm-check.ts`
+>   5. `OSRM_BASE_URL=http://127.0.0.1:5000 npx vitest run packages/solver/src/routing/osrmTravelTime.live.test.ts`
+>   6. `npx vitest run packages/solver/src/routing/osrmTravelTime.live.test.ts` (without `OSRM_BASE_URL` to verify skip behavior)
+> - **Verification Results:**
+>   - **OSRM Table and Route API:** Both returned HTTP 200 with `"code":"Ok"`.
+>   - **Scenario Check (`osrm-check.ts`):** 1 HTTP table request dispatched, 0 failed requests, 84 road lookups served from OSRM cache, 63 straight-line-policy lookups (for `BOAT` and `HELICOPTER`), 0 fallback lookups, achieving 100.0% road coverage.
+>   - **Live Integration Test (`osrmTravelTime.live.test.ts`):** 1 test passed when `OSRM_BASE_URL` was set (verifying 120-coordinate chunking over 4 table requests and finite positive travel estimates); 1 test skipped when `OSRM_BASE_URL` was unset.
+> - **Scope & Nature of Verification:**
+>   - This verification evaluated a 5-request flood dispatch scenario on a city-scale extract; it serves as a **functional verification**, not an exhaustive performance benchmark or routing accuracy study.
+>   - **Effective Source: MIXED Semantics:** In scenarios containing both road vehicles and non-road craft (boats or helicopters), `effectiveSource` reports `MIXED` because road vehicles query OSRM road graph data while marine/air craft follow straight-line estimation by policy. `MIXED` does **not** indicate a failure. The true failure signal is `lookupsFallback > 0` or `osrmFailedRequests > 0`.
+>   - **Nearest-First Relative Duration (1.00x):** Nearest-First can show a ratio of `1.00x` when its heuristic happens to allocate all requests to boats or helicopters, which use straight-line travel times identically under both Straight-Line and OSRM providers.
 
 ---
 
