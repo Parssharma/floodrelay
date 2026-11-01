@@ -67,7 +67,7 @@ npm ci
 3. **Access the Portals in your browser:**
    - **Citizen Rescue Request Portal:** [http://localhost:3000/citizen/request](http://localhost:3000/citizen/request)
    - **Operator Command Center Login:** [http://localhost:3000/operator/login](http://localhost:3000/operator/login)
-     - *Development Credentials:* `eoc_operator` / `RescueOps@2026!`
+     - _Development Credentials:_ `eoc_operator` / `RescueOps@2026!`
    - **Operator Dashboard:** [http://localhost:3000/operator](http://localhost:3000/operator)
    - **GIS Operations Map:** [http://localhost:3000/operator/map](http://localhost:3000/operator/map)
    - **Rescue Requests Management:** [http://localhost:3000/operator/requests](http://localhost:3000/operator/requests)
