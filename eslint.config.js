@@ -13,6 +13,8 @@ export default tseslint.config(
       '**/build/**',
       '**/.next/**',
       '**/coverage/**',
+      '**/next-env.d.ts',
+      '**/scripts/**',
       'package-lock.json',
     ],
   },

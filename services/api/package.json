@@ -6,13 +6,15 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrator.ts up",
     "migrate:down": "tsx src/db/migrator.ts down",
-    "seed": "tsx src/scripts/seedScenario.ts"
+    "seed": "tsx src/scripts/seedScenario.ts",
+    "create-operator": "tsx src/scripts/createOperator.ts"
   },
   "dependencies": {
     "@floodrelay/shared": "*",

@@ -12,6 +12,551 @@
     }
   ],
   "paths": {
+    "/assignments": {
+      "get": {
+        "summary": "List assignment plans",
+        "description": "Retrieves assignment plans filtered by status or scenario ID.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["PROPOSED", "COMMITTED"]
+            }
+          },
+          {
+            "name": "scenarioId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of assignment plans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "count", "data"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "count": {
+                      "type": "integer",
+                      "example": 2
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DbAssignmentSummary"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/propose": {
+      "post": {
+        "summary": "Propose resource allocation plan",
+        "description": "Runs deterministic allocation solver on stored platform data (unassigned requests, available resources, safe shelters) to produce an assignment proposal. Preserves frozen committed stops if requested. The proposal is strictly PROPOSED and is never committed or dispatched autonomously.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Allocation proposal generated successfully with status PROPOSED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid proposal options",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/{id}": {
+      "get": {
+        "summary": "Get assignment plan details",
+        "description": "Retrieves complete assignment plan including reconstructed vehicle routes, individual route stops, unserved requests with explicit reasons, and performance metrics.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assignment plan details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/{id}/commit": {
+      "post": {
+        "summary": "Operator commit assignment plan",
+        "description": "Human operator commits a PROPOSED assignment plan. Transitions status to COMMITTED, permanently freezes all route stops (is_frozen = true), and marks all served requests as ASSIGNED. Already committed plans cannot be re-committed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan committed successfully and stops frozen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "message", "data"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AssignmentDetailResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing operatorId or invalid body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment plan not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Plan is already committed or resource/request conflict detected (ALREADY_COMMITTED, REQUEST_ALREADY_ASSIGNED, RESOURCE_ALREADY_COMMITTED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
+    "/assignments/{id}/stops/{stopId}": {
+      "patch": {
+        "summary": "Operator modify stop",
+        "description": "Allows an operator to modify a route stop (toggle freeze status, change stop sequence number, or reassign resource) on a PROPOSED plan. Modifications on COMMITTED plans are rejected.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModifyStopRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stop modified successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "data"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RouteStop"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid stop modification parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Assignment or stop not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Cannot modify stops on a committed assignment plan (CANNOT_MODIFY_COMMITTED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate operator",
+        "description": "Verifies operator credentials, enforces rate limiting, and issues a cryptographic session token and HTTP-only cookie.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Log out operator",
+        "description": "Revokes active operator session and clears the session cookie.",
+        "responses": {
+          "200": {
+            "description": "Logged out successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Get current operator session profile",
+        "description": "Returns profile of currently authenticated operator.",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active operator session profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Service health check",
@@ -268,8 +813,26 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "CookieAuth": []
+          }
+        ]
       }
     },
     "/requests/{id}": {
@@ -307,6 +870,16 @@
               }
             }
           },
+          "401": {
+            "description": "Operator authentication required or session expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Rescue request not found",
             "content": {
@@ -317,350 +890,15 @@
               }
             }
           }
-        }
-      }
-    },
-    "/assignments/propose": {
-      "post": {
-        "summary": "Propose resource allocation plan",
-        "description": "Runs deterministic allocation solver on stored platform data (unassigned requests, available resources, safe shelters) to produce an assignment proposal. Preserves frozen committed stops if requested. The proposal is strictly PROPOSED and is never committed or dispatched autonomously.",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProposeAssignmentRequest"
-              }
-            }
-          }
         },
-        "responses": {
-          "201": {
-            "description": "Allocation proposal generated successfully with status PROPOSED",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/AssignmentDetailResponse"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid proposal options",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/assignments": {
-      "get": {
-        "summary": "List assignment plans",
-        "description": "Retrieves assignment plans filtered by status or scenario ID.",
-        "parameters": [
+        "security": [
           {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": ["PROPOSED", "COMMITTED"]
-            }
+            "BearerAuth": []
           },
           {
-            "name": "scenarioId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 20,
-              "maximum": 100
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "minimum": 0
-            }
+            "CookieAuth": []
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of assignment plans",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "count", "data"],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "count": {
-                      "type": "integer",
-                      "example": 2
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/DbAssignmentSummary"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid query parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/assignments/{id}": {
-      "get": {
-        "summary": "Get assignment plan details",
-        "description": "Retrieves complete assignment plan including reconstructed vehicle routes, individual route stops, unserved requests with explicit reasons, and performance metrics.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Assignment plan details",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/AssignmentDetailResponse"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Assignment plan not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/assignments/{id}/commit": {
-      "post": {
-        "summary": "Operator commit assignment plan",
-        "description": "Human operator commits a PROPOSED assignment plan. Transitions status to COMMITTED, permanently freezes all route stops (is_frozen = true), and marks all served requests as ASSIGNED. Already committed plans cannot be re-committed.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CommitAssignmentRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Plan committed successfully and stops frozen",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "message", "data"],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/AssignmentDetailResponse"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing operatorId or invalid body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Assignment plan not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Plan is already committed or resource/request conflict detected (ALREADY_COMMITTED, REQUEST_ALREADY_ASSIGNED, RESOURCE_ALREADY_COMMITTED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/assignments/{id}/stops/{stopId}": {
-      "patch": {
-        "summary": "Operator modify stop",
-        "description": "Allows an operator to modify a route stop (toggle freeze status, change stop sequence number, or reassign resource) on a PROPOSED plan. Modifications on COMMITTED plans are rejected.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "stopId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModifyStopRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Stop modified successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "$ref": "#/components/schemas/RouteStop"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid stop modification parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Assignment or stop not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Cannot modify stops on a committed assignment plan (CANNOT_MODIFY_COMMITTED)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     }
   },
@@ -1247,6 +1485,121 @@
             }
           }
         }
+      },
+      "OperatorProfile": {
+        "type": "object",
+        "required": ["id", "username", "name", "role"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "op-8a7f9b1c"
+          },
+          "username": {
+            "type": "string",
+            "example": "eoc_operator"
+          },
+          "name": {
+            "type": "string",
+            "example": "Capt. R. Vance"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["OPERATOR", "ADMIN", "DISPATCHER"],
+            "example": "OPERATOR"
+          }
+        }
+      },
+      "LoginInput": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "eoc_operator"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "YourSecurePassword123!"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "required": ["token", "operator", "expiresAt"],
+            "properties": {
+              "token": {
+                "type": "string",
+                "example": "8f4c2e687a19c5b290df62e8412bc481"
+              },
+              "operator": {
+                "$ref": "#/components/schemas/OperatorProfile"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "LogoutResponse": {
+        "type": "object",
+        "required": ["success", "message", "timestamp"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Logged out successfully"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "required": ["operator"],
+            "properties": {
+              "operator": {
+                "$ref": "#/components/schemas/OperatorProfile"
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Operator cryptographic session token issued by POST /auth/login"
+      },
+      "CookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "floodrelay_session",
+        "description": "HTTP-only session cookie set by POST /auth/login"
       }
     }
   }

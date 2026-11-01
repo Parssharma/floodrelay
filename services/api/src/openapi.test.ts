@@ -1,10 +1,11 @@
 import request from 'supertest';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { Express } from 'express';
 import { createApp } from './app.js';
+import { AuthService, InMemoryAuthRepository } from './services/authService.js';
 import type { RequestService } from './services/requestService.js';
 import type { AssignmentService, AssignmentDetailResponse } from './services/assignmentService.js';
 import type { DbAssignment } from './db/schema.js';
@@ -589,9 +590,29 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
       },
     } as unknown as AssignmentService;
 
-    const app = createApp({
-      requestService: mockRequestService,
-      assignmentService: mockAssignmentService,
+    let authToken = '';
+    let app: ReturnType<typeof createApp>;
+
+    beforeAll(async () => {
+      const inMemAuth = new InMemoryAuthRepository();
+      const authService = new AuthService(inMemAuth);
+      await authService.createOperator({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+        name: 'Capt. R. Vance',
+        role: 'OPERATOR',
+      });
+      const session = await authService.authenticate(
+        'eoc_test_operator',
+        'SecureOperatorPassword123!',
+      );
+      authToken = session.token;
+
+      app = createApp({
+        requestService: mockRequestService,
+        assignmentService: mockAssignmentService,
+        authService,
+      });
     });
 
     it('validates GET /health (200 OK)', async () => {
@@ -647,127 +668,220 @@ describe('OpenAPI Specification Integrity & Anti-Drift Tests', () => {
     });
 
     it('validates GET /requests (200 OK)', async () => {
-      const res = await request(app).get('/requests');
+      const res = await request(app).get('/requests').set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('GET', '/requests', 200, res.body);
     });
 
     it('validates GET /requests (400 Bad Request on invalid query filter)', async () => {
-      const res = await request(app).get('/requests?urgency=INVALID_URGENCY');
+      const res = await request(app)
+        .get('/requests?urgency=INVALID_URGENCY')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(400);
       validateResponseAgainstSpec('GET', '/requests', 400, res.body);
     });
 
     it('validates GET /requests/{id} (200 OK)', async () => {
-      const res = await request(app).get('/requests/req_123');
+      const res = await request(app)
+        .get('/requests/req_123')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('GET', '/requests/{id}', 200, res.body);
     });
 
     it('validates GET /requests/{id} (404 Not Found)', async () => {
-      const res = await request(app).get('/requests/req_unknown');
+      const res = await request(app)
+        .get('/requests/req_unknown')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
       validateResponseAgainstSpec('GET', '/requests/{id}', 404, res.body);
     });
 
     it('validates POST /assignments/propose (201 Created)', async () => {
-      const res = await request(app).post('/assignments/propose').send({});
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
       expect(res.status).toBe(201);
       validateResponseAgainstSpec('POST', '/assignments/propose', 201, res.body);
     });
 
     it('validates POST /assignments/propose (400 Bad Request)', async () => {
-      const res = await request(app).post('/assignments/propose').send({
-        algorithm: 'invalid_algorithm_name',
-      });
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          algorithm: 'invalid_algorithm_name',
+        });
       expect(res.status).toBe(400);
       validateResponseAgainstSpec('POST', '/assignments/propose', 400, res.body);
     });
 
     it('validates GET /assignments (200 OK)', async () => {
-      const res = await request(app).get('/assignments');
+      const res = await request(app)
+        .get('/assignments')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('GET', '/assignments', 200, res.body);
     });
 
     it('validates GET /assignments (400 Bad Request on invalid query)', async () => {
-      const res = await request(app).get('/assignments?status=INVALID_STATUS');
+      const res = await request(app)
+        .get('/assignments?status=INVALID_STATUS')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(400);
       validateResponseAgainstSpec('GET', '/assignments', 400, res.body);
     });
 
     it('validates GET /assignments/{id} (200 OK)', async () => {
-      const res = await request(app).get('/assignments/assign_456');
+      const res = await request(app)
+        .get('/assignments/assign_456')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('GET', '/assignments/{id}', 200, res.body);
     });
 
     it('validates GET /assignments/{id} (404 Not Found)', async () => {
-      const res = await request(app).get('/assignments/assign_unknown');
+      const res = await request(app)
+        .get('/assignments/assign_unknown')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
       validateResponseAgainstSpec('GET', '/assignments/{id}', 404, res.body);
     });
 
     it('validates POST /assignments/{id}/commit (200 OK)', async () => {
-      const res = await request(app).post('/assignments/assign_456/commit').send({
-        operatorId: 'operator_karan',
-      });
+      const res = await request(app)
+        .post('/assignments/assign_456/commit')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          operatorId: 'eoc_test_operator',
+        });
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 200, res.body);
     });
 
     it('validates POST /assignments/{id}/commit (400 Bad Request on missing operatorId)', async () => {
-      const res = await request(app).post('/assignments/assign_456/commit').send({});
+      const res = await request(app)
+        .post('/assignments/assign_456/commit')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
       expect(res.status).toBe(400);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 400, res.body);
     });
 
     it('validates POST /assignments/{id}/commit (404 Not Found)', async () => {
-      const res = await request(app).post('/assignments/assign_not_found/commit').send({
-        operatorId: 'operator_karan',
-      });
+      const res = await request(app)
+        .post('/assignments/assign_not_found/commit')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          operatorId: 'eoc_test_operator',
+        });
       expect(res.status).toBe(404);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 404, res.body);
     });
 
     it('validates POST /assignments/{id}/commit (409 Conflict: Already Committed)', async () => {
-      const res = await request(app).post('/assignments/assign_committed/commit').send({
-        operatorId: 'operator_karan',
-      });
+      const res = await request(app)
+        .post('/assignments/assign_committed/commit')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          operatorId: 'eoc_test_operator',
+        });
       expect(res.status).toBe(409);
       validateResponseAgainstSpec('POST', '/assignments/{id}/commit', 409, res.body);
     });
 
     it('validates PATCH /assignments/{id}/stops/{stopId} (200 OK)', async () => {
-      const res = await request(app).patch('/assignments/assign_456/stops/stop_1').send({
-        isFrozen: true,
-      });
+      const res = await request(app)
+        .patch('/assignments/assign_456/stops/stop_1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          isFrozen: true,
+        });
       expect(res.status).toBe(200);
       validateResponseAgainstSpec('PATCH', '/assignments/{id}/stops/{stopId}', 200, res.body);
     });
 
     it('validates PATCH /assignments/{id}/stops/{stopId} (400 Bad Request)', async () => {
-      const res = await request(app).patch('/assignments/assign_456/stops/stop_1').send({
-        stopNumber: -1, // Invalid stopNumber
-      });
+      const res = await request(app)
+        .patch('/assignments/assign_456/stops/stop_1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          stopNumber: -1, // Invalid stopNumber
+        });
       expect(res.status).toBe(400);
       validateResponseAgainstSpec('PATCH', '/assignments/{id}/stops/{stopId}', 400, res.body);
     });
 
     it('validates PATCH /assignments/{id}/stops/{stopId} (404 Not Found)', async () => {
-      const res = await request(app).patch('/assignments/assign_not_found/stops/stop_1').send({
-        isFrozen: true,
-      });
+      const res = await request(app)
+        .patch('/assignments/assign_not_found/stops/stop_1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          isFrozen: true,
+        });
       expect(res.status).toBe(404);
       validateResponseAgainstSpec('PATCH', '/assignments/{id}/stops/{stopId}', 404, res.body);
     });
 
     it('validates PATCH /assignments/{id}/stops/{stopId} (409 Conflict: Cannot Modify Committed)', async () => {
-      const res = await request(app).patch('/assignments/assign_committed/stops/stop_1').send({
-        isFrozen: true,
-      });
+      const res = await request(app)
+        .patch('/assignments/assign_committed/stops/stop_1')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          isFrozen: true,
+        });
       expect(res.status).toBe(409);
       validateResponseAgainstSpec('PATCH', '/assignments/{id}/stops/{stopId}', 409, res.body);
+    });
+
+    it('validates POST /auth/login (200 OK)', async () => {
+      const res = await request(app).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+      expect(res.status).toBe(200);
+      validateResponseAgainstSpec('POST', '/auth/login', 200, res.body);
+    });
+
+    it('validates POST /auth/login (400 Bad Request)', async () => {
+      const res = await request(app).post('/auth/login').send({});
+      expect(res.status).toBe(400);
+      validateResponseAgainstSpec('POST', '/auth/login', 400, res.body);
+    });
+
+    it('validates POST /auth/login (401 Invalid Credentials)', async () => {
+      const res = await request(app).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'WrongPassword',
+      });
+      expect(res.status).toBe(401);
+      validateResponseAgainstSpec('POST', '/auth/login', 401, res.body);
+    });
+
+    it('validates POST /auth/logout (200 OK)', async () => {
+      const loginRes = await request(app).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+      const tempToken = loginRes.body.data.token;
+      const res = await request(app)
+        .post('/auth/logout')
+        .set('Authorization', `Bearer ${tempToken}`);
+      expect(res.status).toBe(200);
+      validateResponseAgainstSpec('POST', '/auth/logout', 200, res.body);
+    });
+
+    it('validates GET /auth/me (200 OK)', async () => {
+      const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      validateResponseAgainstSpec('GET', '/auth/me', 200, res.body);
+    });
+
+    it('validates GET /auth/me (401 Unauthorized)', async () => {
+      const res = await request(app).get('/auth/me');
+      expect(res.status).toBe(401);
+      validateResponseAgainstSpec('GET', '/auth/me', 401, res.body);
     });
   });
 });

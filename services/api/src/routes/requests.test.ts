@@ -4,6 +4,7 @@ import type { RescueRequest, UrgencyLevel, RequestSource, RequestStatus } from '
 import { createApp } from '../app.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
 import { RequestService } from '../services/requestService.js';
+import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import type { DbRequest, VerificationStatus } from '../db/schema.js';
 
 // In-memory queryable mock simulating database storage with spatial distance calculations
@@ -217,12 +218,24 @@ class InMemoryDbMock implements Queryable {
 describe('Request Intake API (POST /requests)', () => {
   let dbMock: InMemoryDbMock;
   let app: ReturnType<typeof createApp>;
+  let authToken = '';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dbMock = new InMemoryDbMock();
     const repo = new PostgisRepository(dbMock);
+    const authRepo = new InMemoryAuthRepository();
+    const authService = new AuthService(authRepo);
+    await authService.createOperator({
+      username: 'test_operator',
+      password: 'TestPassword123!',
+      name: 'Capt. Vance',
+      role: 'OPERATOR',
+    });
+    const session = await authService.authenticate('test_operator', 'TestPassword123!');
+    authToken = session.token;
+
     const requestService = new RequestService(repo);
-    app = createApp({ repository: repo, requestService });
+    app = createApp({ repository: repo, requestService, authService });
   });
 
   it('submits a valid citizen rescue request with 201 Created and unverified status', async () => {
@@ -450,7 +463,19 @@ describe('Request Intake API (POST /requests)', () => {
   });
 
   describe('Retrieval Endpoints (GET /requests, GET /requests/:id)', () => {
-    it('retrieves created request by ID', async () => {
+    it('blocks anonymous access to GET /requests with 401 UNAUTHORIZED', async () => {
+      const res = await request(app).get('/requests');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('blocks anonymous access to GET /requests/:id with 401 UNAUTHORIZED', async () => {
+      const res = await request(app).get('/requests/req-any');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('retrieves created request by ID when authenticated', async () => {
       const created = await request(app).post('/requests').send({
         lat: 28.65,
         lng: 77.22,
@@ -460,7 +485,9 @@ describe('Request Intake API (POST /requests)', () => {
       });
 
       const id = created.body.data.id;
-      const getRes = await request(app).get(`/requests/${id}`);
+      const getRes = await request(app)
+        .get(`/requests/${id}`)
+        .set('Authorization', `Bearer ${authToken}`);
 
       expect(getRes.status).toBe(200);
       expect(getRes.body.success).toBe(true);
@@ -468,13 +495,15 @@ describe('Request Intake API (POST /requests)', () => {
       expect(getRes.body.data.peopleCount).toBe(2);
     });
 
-    it('returns 404 for non-existent request ID', async () => {
-      const res = await request(app).get('/requests/req-non-existent-999');
+    it('returns 404 for non-existent request ID when authenticated', async () => {
+      const res = await request(app)
+        .get('/requests/req-non-existent-999')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');
     });
 
-    it('lists all requests with count', async () => {
+    it('lists all requests with count when authenticated', async () => {
       await request(app).post('/requests').send({
         lat: 28.65,
         lng: 77.22,
@@ -488,7 +517,7 @@ describe('Request Intake API (POST /requests)', () => {
         urgency: 'HIGH',
       });
 
-      const res = await request(app).get('/requests');
+      const res = await request(app).get('/requests').set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.count).toBe(2);

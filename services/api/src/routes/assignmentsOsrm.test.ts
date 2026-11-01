@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { createApp } from '../app.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
 import { AssignmentService } from '../services/assignmentService.js';
+import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import type {
   DbAssignment,
   DbAssignmentStop,
@@ -118,6 +119,8 @@ class InMemoryAssignmentDbStub implements Queryable {
 }
 
 describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
+  let authService: AuthService;
+  let authToken: string;
   let server: http.Server;
   let serverPort: number;
   let fakeOsrmUrl: string;
@@ -160,7 +163,18 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const authRepo = new InMemoryAuthRepository();
+    authService = new AuthService(authRepo);
+    await authService.createOperator({
+      username: 'eoc_test_op',
+      password: 'TestPassword123!',
+      name: 'Test Officer',
+      role: 'OPERATOR',
+    });
+    const session = await authService.authenticate('eoc_test_op', 'TestPassword123!');
+    authToken = session.token;
+
     dbStub = new InMemoryAssignmentDbStub();
     repository = new PostgisRepository(dbStub as unknown as Queryable);
 
@@ -215,12 +229,15 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     const assignmentService = new AssignmentService(repository, {
       osrm: { baseUrl: fakeOsrmUrl },
     });
-    const app = createApp({ repository, assignmentService });
+    const app = createApp({ repository, assignmentService, authService });
 
     const algorithms = ['nearest-first', 'savings', 'cluster-allocation'] as const;
 
     for (const algorithm of algorithms) {
-      const res = await request(app).post('/assignments/propose').send({ algorithm });
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ algorithm });
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
@@ -246,10 +263,11 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     const assignmentService = new AssignmentService(repository, {
       osrm: { baseUrl: 'http://127.0.0.1:59998', timeoutMs: 200 },
     });
-    const app = createApp({ repository, assignmentService });
+    const app = createApp({ repository, assignmentService, authService });
 
     const res = await request(app)
       .post('/assignments/propose')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({ algorithm: 'cluster-allocation' });
 
     expect(res.status).toBe(201);
@@ -270,10 +288,11 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     try {
       process.env.OSRM_BASE_URL = fakeOsrmUrl;
       const assignmentService = new AssignmentService(repository); // options undefined -> reads process.env
-      const app = createApp({ repository, assignmentService });
+      const app = createApp({ repository, assignmentService, authService });
 
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ algorithm: 'nearest-first' });
 
       expect(res.status).toBe(201);
@@ -293,10 +312,11 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     try {
       process.env.OSRM_BASE_URL = fakeOsrmUrl;
       const assignmentService = new AssignmentService(repository, { osrm: null }); // null forces straight-line
-      const app = createApp({ repository, assignmentService });
+      const app = createApp({ repository, assignmentService, authService });
 
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ algorithm: 'nearest-first' });
 
       expect(res.status).toBe(201);
@@ -333,10 +353,11 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     const assignmentService = new AssignmentService(repository, {
       osrm: { baseUrl: fakeOsrmUrl },
     });
-    const app = createApp({ repository, assignmentService });
+    const app = createApp({ repository, assignmentService, authService });
 
     const res = await request(app)
       .post('/assignments/propose')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({ algorithm: 'nearest-first' });
 
     expect(res.status).toBe(201);
@@ -355,12 +376,13 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
 
     beforeEach(() => {
       const assignmentService = new AssignmentService(repository, { osrm: null });
-      app = createApp({ repository, assignmentService });
+      app = createApp({ repository, assignmentService, authService });
     });
 
     it('rejects blocked zone with polygon having fewer than 3 vertices', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -381,6 +403,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('rejects blocked zone with invalid coordinates (out of range)', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -402,6 +425,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('rejects blocked zone with invalid severity', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -428,6 +452,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
 
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -445,6 +470,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('rejects polygon with fewer than 3 distinct vertices (degenerate ring)', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -466,6 +492,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('rejects polygon with non-finite coordinates', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -487,6 +514,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('rejects longitude out of range [-180, 180]', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -516,7 +544,10 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         ],
       }));
 
-      const res = await request(app).post('/assignments/propose').send({ blockedZones });
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ blockedZones });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -533,7 +564,10 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         })),
       }));
 
-      const res = await request(app).post('/assignments/propose').send({ blockedZones });
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ blockedZones });
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -542,6 +576,7 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     it('accepts valid blockedZones and reflects them in the travelTime report', async () => {
       const res = await request(app)
         .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           blockedZones: [
             {
@@ -575,9 +610,12 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
         },
       ];
 
-      const res = await request(app).post('/assignments/propose').send({
-        blockedZones: sampleBlockedZones,
-      });
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          blockedZones: sampleBlockedZones,
+        });
 
       expect(res.status).toBe(201);
       const assignmentId = res.body.data.id;
