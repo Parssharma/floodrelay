@@ -369,3 +369,160 @@ export function validateScenario(input: unknown): ValidationResult {
     errors,
   };
 }
+
+// ==========================================
+// Operational Events & Dynamic Replanning Contracts
+// ==========================================
+
+export type OperationalEventType =
+  | 'REQUEST_CREATED'
+  | 'REQUEST_FLAGGED_DUPLICATE'
+  | 'REQUEST_CANCELLED'
+  | 'RESOURCE_OFFLINE'
+  | 'RESOURCE_AVAILABLE'
+  | 'ROAD_BLOCKED'
+  | 'ROAD_REOPENED';
+
+export const VALID_OPERATIONAL_EVENT_TYPES: ReadonlySet<OperationalEventType> = new Set([
+  'REQUEST_CREATED',
+  'REQUEST_FLAGGED_DUPLICATE',
+  'REQUEST_CANCELLED',
+  'RESOURCE_OFFLINE',
+  'RESOURCE_AVAILABLE',
+  'ROAD_BLOCKED',
+  'ROAD_REOPENED',
+]);
+
+export type EventEntityType = 'REQUEST' | 'RESOURCE' | 'ROAD_ZONE' | 'ASSIGNMENT';
+export const VALID_EVENT_ENTITY_TYPES: ReadonlySet<EventEntityType> = new Set([
+  'REQUEST',
+  'RESOURCE',
+  'ROAD_ZONE',
+  'ASSIGNMENT',
+]);
+
+export type EventActorType = 'CITIZEN' | 'OPERATOR' | 'SYSTEM';
+export const VALID_EVENT_ACTOR_TYPES: ReadonlySet<EventActorType> = new Set([
+  'CITIZEN',
+  'OPERATOR',
+  'SYSTEM',
+]);
+
+export type EventProcessingStatus = 'RECORDED' | 'SCOPE_IDENTIFIED' | 'AWAITING_REPAIR' | 'FAILED';
+
+export const VALID_EVENT_PROCESSING_STATUSES: ReadonlySet<EventProcessingStatus> = new Set([
+  'RECORDED',
+  'SCOPE_IDENTIFIED',
+  'AWAITING_REPAIR',
+  'FAILED',
+]);
+
+export interface OperationalEvent<TPayload = Record<string, unknown>> {
+  id: string;
+  type: OperationalEventType;
+  entityType: EventEntityType;
+  entityId: string;
+  actorId: string | null;
+  actorType: EventActorType;
+  occurredAt: string;
+  recordedAt: string;
+  correlationId?: string | null;
+  idempotencyKey?: string | null;
+  entityVersion?: number;
+  processingStatus?: EventProcessingStatus;
+  processingAttempts?: number;
+  lastErrorCode?: string | null;
+  processedAt?: string | null;
+  payload: TPayload;
+}
+
+export function validateOperationalEvent(input: unknown): ValidationResult {
+  const errors: string[] = [];
+  if (!input || typeof input !== 'object') {
+    return { valid: false, errors: ['Operational event must be a non-null object'] };
+  }
+
+  const evt = input as Partial<OperationalEvent>;
+  if (typeof evt.id !== 'string' || evt.id.trim() === '') {
+    errors.push('Event id must be a non-empty string');
+  }
+
+  if (!evt.type || !VALID_OPERATIONAL_EVENT_TYPES.has(evt.type)) {
+    errors.push(`Invalid operational event type: "${evt.type}"`);
+  }
+
+  if (!evt.entityType || !VALID_EVENT_ENTITY_TYPES.has(evt.entityType)) {
+    errors.push(`Invalid event entity type: "${evt.entityType}"`);
+  }
+
+  if (typeof evt.entityId !== 'string' || evt.entityId.trim() === '') {
+    errors.push('Event entityId must be a non-empty string');
+  }
+
+  if (!evt.actorType || !VALID_EVENT_ACTOR_TYPES.has(evt.actorType)) {
+    errors.push(`Invalid event actor type: "${evt.actorType}"`);
+  }
+
+  if (typeof evt.occurredAt !== 'string' || Number.isNaN(Date.parse(evt.occurredAt))) {
+    errors.push('Event occurredAt must be a valid ISO-8601 date string');
+  }
+
+  if (typeof evt.recordedAt !== 'string' || Number.isNaN(Date.parse(evt.recordedAt))) {
+    errors.push('Event recordedAt must be a valid ISO-8601 date string');
+  }
+
+  if (evt.processingStatus && !VALID_EVENT_PROCESSING_STATUSES.has(evt.processingStatus)) {
+    errors.push(`Invalid event processing status: "${evt.processingStatus}"`);
+  }
+
+  if (!evt.payload || typeof evt.payload !== 'object' || Array.isArray(evt.payload)) {
+    errors.push('Event payload must be a non-null object');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+// ==========================================
+// Affected-Scope & Solver Repair Contracts
+// ==========================================
+
+export interface AffectedScopeResult {
+  eventId: string;
+  affectedRequestIds: string[];
+  affectedResourceIds: string[];
+  affectedProposedAssignmentIds: string[];
+  committedAssignmentsRequiringReview: string[];
+  reason: string;
+  repairEligible: boolean;
+}
+
+export interface FrozenStopReference {
+  assignmentId: string;
+  resourceId: string;
+  stopNumber: number;
+  targetId: string;
+  type: StopType;
+  lat: number;
+  lng: number;
+}
+
+export interface RepairInput {
+  eventId: string;
+  baselineAssignmentId: string | null;
+  scenarioSnapshot: Scenario;
+  frozenStops: ReadonlyArray<FrozenStopReference>;
+  affectedRequestIds: string[];
+  affectedResourceIds: string[];
+  expectedVersion?: number;
+}
+
+export interface RepairResult {
+  status: 'PROPOSED' | 'NO_FEASIBLE_REPAIR';
+  proposedPlan?: SolverPlan;
+  unservedRequestIds: string[];
+  warnings: string[];
+  baselineVersion?: number;
+}
