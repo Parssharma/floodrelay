@@ -3,7 +3,9 @@ import {
   validateOperationalEvent,
   type OperationalEvent,
   type SolverPlan,
+  type SolverMetrics,
   type RepairResult,
+  type RepairInput,
 } from '@floodrelay/shared';
 import { OperationalEventService } from './operationalEventService.js';
 import { AffectedScopeService } from './affectedScopeService.js';
@@ -270,10 +272,46 @@ describe('Phase 5 Part 1: Operational Events & Replanning Infrastructure', () =>
       // Committed assignment is flagged for operator review but NOT mutated!
       expect(scope.committedAssignmentsRequiringReview).toContain('assign-c1');
     });
+
+    it('evaluates affected scope without truncation when >50 proposed and >50 committed assignments exist', async () => {
+      // 65 proposed and 60 committed assignments
+      const sixtyFiveProposed = Array.from({ length: 65 }, (_, i) => ({
+        id: `prop-batch-${i}`,
+        status: 'PROPOSED',
+      }));
+      const sixtyCommitted = Array.from({ length: 60 }, (_, i) => ({
+        id: `comm-batch-${i}`,
+        status: 'COMMITTED',
+      }));
+
+      mockRepo.listAssignments = vi.fn().mockImplementation((filter?: { status?: string }) => {
+        if (filter?.status === 'PROPOSED') return Promise.resolve(sixtyFiveProposed);
+        if (filter?.status === 'COMMITTED') return Promise.resolve(sixtyCommitted);
+        return Promise.resolve([]);
+      });
+
+      const event: OperationalEvent = {
+        id: 'evt-road-hazard',
+        type: 'ROAD_BLOCKED',
+        entityType: 'ROAD_ZONE',
+        entityId: 'zone-flood-basin',
+        actorId: 'dispatcher-1',
+        actorType: 'OPERATOR',
+        occurredAt: new Date().toISOString(),
+        recordedAt: new Date().toISOString(),
+        payload: { severity: 'BLOCKED' },
+      };
+
+      const scope = await scopeService.computeAffectedScope(event);
+      // All 65 proposed assignments identified without 50-limit truncation
+      expect(scope.affectedProposedAssignmentIds).toHaveLength(65);
+      // All 60 committed assignments identified for review without 50-limit truncation
+      expect(scope.committedAssignmentsRequiringReview).toHaveLength(60);
+    });
   });
 
   describe('RepairOrchestrationService Boundary', () => {
-    let mockRepo: Partial<PostgisRepository>;
+    let mockRepo: Record<string, ReturnType<typeof vi.fn>>;
 
     beforeEach(() => {
       mockRepo = {
@@ -284,15 +322,46 @@ describe('Phase 5 Part 1: Operational Events & Replanning Infrastructure', () =>
           entity_id: 'req-100',
           entity_version: 1,
         } as DbOperationalEvent),
-        listRequests: vi.fn().mockResolvedValue([]),
-        listResources: vi.fn().mockResolvedValue([]),
-        listShelters: vi.fn().mockResolvedValue([]),
+        listRequests: vi.fn().mockResolvedValue([
+          {
+            id: 'req-100',
+            lat: 28.65,
+            lng: 77.22,
+            peopleCount: 2,
+            urgency: 'HIGH',
+            createdAt: new Date().toISOString(),
+            source: 'REPORTED',
+          },
+        ]),
+        listResources: vi.fn().mockResolvedValue([
+          {
+            id: 'res-1',
+            name: 'Boat 1',
+            type: 'BOAT',
+            capacity: 6,
+            speedKmH: 25,
+            lat: 28.64,
+            lng: 77.21,
+            status: 'AVAILABLE',
+          },
+        ]),
+        listShelters: vi.fn().mockResolvedValue([
+          {
+            id: 'sh-1',
+            name: 'Shelter 1',
+            lat: 28.66,
+            lng: 77.23,
+            capacity: 100,
+          },
+        ]),
+        listBlockedZones: vi.fn().mockResolvedValue([]),
         listAssignments: vi.fn().mockResolvedValue([]),
+        insertAssignmentWithStops: vi.fn().mockResolvedValue(undefined),
       };
     });
 
     it('throws explicit 503 REPAIR_ENGINE_UNAVAILABLE when called without an injected solver in Part 1', async () => {
-      const orchestrator = new RepairOrchestrationService(mockRepo as PostgisRepository);
+      const orchestrator = new RepairOrchestrationService(mockRepo as unknown as PostgisRepository);
 
       await expect(orchestrator.orchestrateRepair('evt-100')).rejects.toThrow(
         /Incremental repair engine is not available/,
@@ -306,23 +375,31 @@ describe('Phase 5 Part 1: Operational Events & Replanning Infrastructure', () =>
       }
     });
 
-    it('delegates to injected solver when a solver implementation is plugged in', async () => {
+    it('delegates to injected solver and safely persists proposal with PROPOSED status', async () => {
       const mockSolver: RepairSolver = {
         solveRepair: vi.fn().mockResolvedValue({
           status: 'PROPOSED',
           unservedRequestIds: [],
           warnings: [],
           proposedPlan: {
-            scenarioId: 'active-operational-snapshot',
+            scenarioId: 'operational-snapshot-evt-100',
             calculatedAt: new Date().toISOString(),
-            routes: [],
+            routes: [
+              {
+                resourceId: 'res-1',
+                stops: [],
+                totalTravelDistanceKm: 5,
+                totalDurationMinutes: 12,
+                servedRequestIds: ['req-100'],
+              },
+            ],
             unserved: [],
             metrics: {
               coveragePercent: 100,
-              totalTravelTimeMinutes: 15,
-              totalTravelDistanceKm: 8,
-              highPriorityWaitTimeMinutes: 5,
-              solveDurationMs: 42,
+              totalTravelTimeMinutes: 12,
+              totalTravelDistanceKm: 5,
+              highPriorityWaitTimeMinutes: 4,
+              solveDurationMs: 30,
               servedRequestsCount: 1,
               unservedRequestsCount: 0,
             },
@@ -331,13 +408,266 @@ describe('Phase 5 Part 1: Operational Events & Replanning Infrastructure', () =>
       };
 
       const orchestrator = new RepairOrchestrationService(
-        mockRepo as PostgisRepository,
+        mockRepo as unknown as PostgisRepository,
         mockSolver,
       );
 
       const result = await orchestrator.orchestrateRepair('evt-100');
       expect(result.status).toBe('PROPOSED');
       expect(mockSolver.solveRepair).toHaveBeenCalledTimes(1);
+
+      // Verify safe PROPOSED persistence: never COMMITTED
+      expect(mockRepo.insertAssignmentWithStops).toHaveBeenCalledTimes(1);
+      const insertedAssignment = mockRepo.insertAssignmentWithStops!.mock.calls[0]?.[0];
+      expect(insertedAssignment.status).toBe('PROPOSED');
+    });
+
+    it('populates frozenStops with actual nonzero coordinates from assignment stops', async () => {
+      mockRepo.listAssignments = vi.fn().mockResolvedValue([{ id: 'assign-committed-1' }]);
+      mockRepo.getAssignmentWithStops = vi.fn().mockResolvedValue({
+        assignment: { id: 'assign-committed-1', status: 'COMMITTED' },
+        stops: [
+          {
+            assignment_id: 'assign-committed-1',
+            resource_id: 'res-1',
+            stop_number: 1,
+            target_id: 'req-prev',
+            type: 'PICKUP',
+            location: 'POINT(77.2456 28.6123)', // WKT: lng lat
+            is_frozen: true,
+          },
+        ],
+      });
+
+      let capturedInput: RepairInput | null = null;
+      const mockSolver: RepairSolver = {
+        solveRepair: vi.fn().mockImplementation((input: RepairInput) => {
+          capturedInput = input;
+          return Promise.resolve({
+            status: 'PROPOSED',
+            unservedRequestIds: [],
+            warnings: [],
+            proposedPlan: {
+              scenarioId: input.scenarioSnapshot.id,
+              calculatedAt: new Date().toISOString(),
+              routes: [
+                {
+                  resourceId: 'res-1',
+                  stops: [
+                    {
+                      stopNumber: 1,
+                      type: 'PICKUP',
+                      targetId: 'req-prev',
+                      lat: 28.6123,
+                      lng: 77.2456,
+                      passengersPickedUp: 2,
+                      passengersDroppedOff: 0,
+                      estimatedArrivalMinutes: 5,
+                      isFrozen: true,
+                    },
+                  ],
+                  totalTravelDistanceKm: 4,
+                  totalDurationMinutes: 10,
+                  servedRequestIds: ['req-prev'],
+                },
+              ],
+              unserved: [],
+              metrics: {
+                coveragePercent: 100,
+                totalTravelTimeMinutes: 10,
+                totalTravelDistanceKm: 4,
+                highPriorityWaitTimeMinutes: 2,
+                solveDurationMs: 15,
+                servedRequestsCount: 1,
+                unservedRequestsCount: 0,
+              } satisfies SolverMetrics,
+            },
+          });
+        }),
+      };
+
+      const orchestrator = new RepairOrchestrationService(
+        mockRepo as unknown as PostgisRepository,
+        mockSolver,
+      );
+
+      await orchestrator.orchestrateRepair('evt-100');
+      expect(capturedInput).not.toBeNull();
+      const frozen = capturedInput!.frozenStops;
+      expect(frozen).toHaveLength(1);
+      // Realistic nonzero coordinates: longitude and latitude parsed correctly
+      expect(frozen[0]?.lat).toBeCloseTo(28.6123, 4);
+      expect(frozen[0]?.lng).toBeCloseTo(77.2456, 4);
+      expect(frozen[0]?.lat).not.toBe(0);
+      expect(frozen[0]?.lng).not.toBe(0);
+    });
+
+    it('loads complete safety snapshot without truncation when >500 requests and >50 assignments exist', async () => {
+      // Generate 520 requests
+      const manyRequests = Array.from({ length: 520 }, (_, i) => ({
+        id: i === 0 ? 'req-100' : `req-overflow-${i}`,
+        lat: 28.6 + (i % 50) * 0.002,
+        lng: 77.2 + (i % 50) * 0.002,
+        peopleCount: 2,
+        urgency: 'MEDIUM' as const,
+        createdAt: new Date().toISOString(),
+        source: 'REPORTED' as const,
+      }));
+      mockRepo.listRequests = vi.fn().mockResolvedValue(manyRequests);
+
+      // Generate 60 committed assignments
+      const manyCommitted = Array.from({ length: 60 }, (_, i) => ({
+        id: `ca-${i}`,
+        status: 'COMMITTED',
+      }));
+      mockRepo.listAssignments = vi.fn().mockResolvedValue(manyCommitted);
+      mockRepo.getAssignmentWithStops = vi.fn().mockImplementation((id: string) =>
+        Promise.resolve({
+          assignment: { id, status: 'COMMITTED' },
+          stops: [
+            {
+              assignment_id: id,
+              resource_id: 'res-1',
+              stop_number: 1,
+              target_id: `target-${id}`,
+              type: 'PICKUP',
+              location: 'POINT(77.21 28.63)',
+              is_frozen: true,
+            },
+          ],
+        }),
+      );
+
+      let capturedInput: RepairInput | null = null;
+      const mockSolver: RepairSolver = {
+        solveRepair: vi.fn().mockImplementation((input: RepairInput) => {
+          capturedInput = input;
+          return Promise.resolve({
+            status: 'NO_FEASIBLE_REPAIR',
+            unservedRequestIds: [],
+            warnings: ['Capacity exceeded'],
+          });
+        }),
+      };
+
+      const orchestrator = new RepairOrchestrationService(
+        mockRepo as unknown as PostgisRepository,
+        mockSolver,
+      );
+
+      await orchestrator.orchestrateRepair('evt-100');
+      expect(capturedInput).not.toBeNull();
+      // Complete snapshot of all 520 requests preserved
+      expect(capturedInput!.scenarioSnapshot.requests).toHaveLength(520);
+      // Complete safety-critical frozen stop set of all 60 assignments retrieved
+      expect(capturedInput!.frozenStops).toHaveLength(60);
+    });
+
+    it('rejects version conflict when expectedVersion does not match entity version with 409', async () => {
+      const mockSolver: RepairSolver = {
+        solveRepair: vi.fn(),
+      };
+      const orchestrator = new RepairOrchestrationService(
+        mockRepo as unknown as PostgisRepository,
+        mockSolver,
+      );
+
+      // eventRow has entity_version: 1; caller expects 2
+      await expect(
+        orchestrator.orchestrateRepair('evt-100', { expectedVersion: 2 }),
+      ).rejects.toMatchObject({
+        code: 'VERSION_CONFLICT',
+        statusCode: 409,
+      });
+      expect(mockSolver.solveRepair).not.toHaveBeenCalled();
+    });
+
+    it('fails closed with 500 SAFETY_SNAPSHOT_INCOMPLETE when affected request is missing from snapshot', async () => {
+      // listRequests returns list that does NOT contain req-100
+      mockRepo.listRequests = vi.fn().mockResolvedValue([
+        {
+          id: 'req-other',
+          lat: 28.6,
+          lng: 77.2,
+          peopleCount: 1,
+          urgency: 'LOW',
+          createdAt: new Date().toISOString(),
+          source: 'REPORTED',
+        },
+      ]);
+
+      const mockSolver: RepairSolver = { solveRepair: vi.fn() };
+      const orchestrator = new RepairOrchestrationService(
+        mockRepo as unknown as PostgisRepository,
+        mockSolver,
+      );
+
+      await expect(orchestrator.orchestrateRepair('evt-100')).rejects.toMatchObject({
+        code: 'SAFETY_SNAPSHOT_INCOMPLETE',
+        statusCode: 500,
+      });
+      expect(mockSolver.solveRepair).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when solver output modifies or drops a frozen stop', async () => {
+      mockRepo.listAssignments = vi.fn().mockResolvedValue([{ id: 'assign-1' }]);
+      mockRepo.getAssignmentWithStops = vi.fn().mockResolvedValue({
+        assignment: { id: 'assign-1', status: 'COMMITTED' },
+        stops: [
+          {
+            assignment_id: 'assign-1',
+            resource_id: 'res-1',
+            stop_number: 1,
+            target_id: 'req-frozen-required',
+            type: 'PICKUP',
+            location: 'POINT(77.2 28.6)',
+            is_frozen: true,
+          },
+        ],
+      });
+
+      // Solver attempts to omit the frozen stop
+      const maliciousSolver: RepairSolver = {
+        solveRepair: vi.fn().mockResolvedValue({
+          status: 'PROPOSED',
+          unservedRequestIds: [],
+          warnings: [],
+          proposedPlan: {
+            scenarioId: 'test',
+            calculatedAt: new Date().toISOString(),
+            routes: [
+              {
+                resourceId: 'res-1',
+                stops: [], // Dropped the frozen stop!
+                totalTravelDistanceKm: 0,
+                totalDurationMinutes: 0,
+                servedRequestIds: [],
+              },
+            ],
+            unserved: [],
+            metrics: {
+              coveragePercent: 0,
+              totalTravelTimeMinutes: 0,
+              totalTravelDistanceKm: 0,
+              highPriorityWaitTimeMinutes: 0,
+              solveDurationMs: 5,
+              servedRequestsCount: 0,
+              unservedRequestsCount: 1,
+            } satisfies SolverMetrics,
+          },
+        }),
+      };
+
+      const orchestrator = new RepairOrchestrationService(
+        mockRepo as unknown as PostgisRepository,
+        maliciousSolver,
+      );
+
+      await expect(orchestrator.orchestrateRepair('evt-100')).rejects.toMatchObject({
+        code: 'FROZEN_STOP_INVARIANT_VIOLATED',
+        statusCode: 500,
+      });
+      expect(mockRepo.insertAssignmentWithStops).not.toHaveBeenCalled();
     });
   });
 

@@ -17,6 +17,7 @@ import {
   type EventProcessingStatus,
   type HazardLevel,
   type GeoPoint,
+  type FrozenStopReference,
 } from '@floodrelay/shared';
 import {
   type DbRequest,
@@ -1202,9 +1203,28 @@ export class PostgisRepository {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limit = filter?.limit ?? 50;
-    const offset = filter?.offset ?? 0;
-    values.push(limit, offset);
+
+    let limitClause = '';
+    if (filter?.limit !== undefined) {
+      const limit = Math.max(1, Math.min(Math.floor(filter.limit), MAX_QUERY_LIMIT));
+      values.push(limit);
+      limitClause = `LIMIT $${values.length}`;
+    }
+
+    let offsetClause = '';
+    if (filter?.offset !== undefined) {
+      if (
+        !Number.isFinite(filter.offset) ||
+        filter.offset < 0 ||
+        filter.offset > MAX_QUERY_OFFSET
+      ) {
+        throw new Error(
+          `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${filter.offset})`,
+        );
+      }
+      values.push(Math.floor(filter.offset));
+      offsetClause = `OFFSET $${values.length}`;
+    }
 
     const sql = `
       SELECT
@@ -1212,7 +1232,7 @@ export class PostgisRepository {
       FROM assignments
       ${whereClause}
       ORDER BY created_at DESC
-      LIMIT $${values.length - 1} OFFSET $${values.length};
+      ${limitClause} ${offsetClause};
     `;
 
     const result = await this.client.query(sql, values);
@@ -1226,6 +1246,37 @@ export class PostgisRepository {
       committed_by: row.committed_by,
       created_at: row.created_at,
       updated_at: row.updated_at,
+    }));
+  }
+
+  /**
+   * Retrieves all frozen stops across all committed assignments with parsed nonzero coordinates.
+   * Scoped SQL join guarantees complete safety snapshot without arbitrary pagination limits.
+   */
+  async listCommittedFrozenStops(): Promise<FrozenStopReference[]> {
+    const sql = `
+      SELECT
+        s.assignment_id as "assignmentId",
+        s.resource_id as "resourceId",
+        s.stop_number as "stopNumber",
+        s.type as "type",
+        s.target_id as "targetId",
+        ST_Y(s.location::geometry) as lat,
+        ST_X(s.location::geometry) as lng
+      FROM assignment_stops s
+      JOIN assignments a ON s.assignment_id = a.id
+      WHERE a.status = 'COMMITTED' AND s.is_frozen = TRUE
+      ORDER BY s.assignment_id ASC, s.resource_id ASC, s.stop_number ASC;
+    `;
+    const result = await this.client.query(sql);
+    return result.rows.map((row) => ({
+      assignmentId: row.assignmentId,
+      resourceId: row.resourceId,
+      stopNumber: row.stopNumber,
+      targetId: row.targetId,
+      type: row.type,
+      lat: Number(row.lat),
+      lng: Number(row.lng),
     }));
   }
 

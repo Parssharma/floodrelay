@@ -24,8 +24,8 @@ export class AffectedScopeService {
           affectedRequestIds.add(event.payload.duplicateOfId);
         }
 
-        // Find currently proposed assignments that may incorporate this new demand
-        const proposed = await this.repo.listAssignments({ status: 'PROPOSED', limit: 50 });
+        // Find all currently proposed assignments that may incorporate this new demand
+        const proposed = await this.repo.listAssignments({ status: 'PROPOSED' });
         for (const assign of proposed) {
           affectedProposedAssignmentIds.add(assign.id);
         }
@@ -48,8 +48,8 @@ export class AffectedScopeService {
         const reqId = event.entityId;
         affectedRequestIds.add(reqId);
 
-        // Check proposed assignments referencing this request
-        const proposed = await this.repo.listAssignments({ status: 'PROPOSED', limit: 50 });
+        // Check all proposed assignments referencing this request
+        const proposed = await this.repo.listAssignments({ status: 'PROPOSED' });
         for (const assign of proposed) {
           const detail = await this.repo.getAssignmentWithStops(assign.id);
           if (detail && detail.stops) {
@@ -62,8 +62,8 @@ export class AffectedScopeService {
           }
         }
 
-        // Check committed assignments referencing this request
-        const committed = await this.repo.listAssignments({ status: 'COMMITTED', limit: 50 });
+        // Check all committed assignments referencing this request
+        const committed = await this.repo.listAssignments({ status: 'COMMITTED' });
         for (const assign of committed) {
           const detail = await this.repo.getAssignmentWithStops(assign.id);
           if (detail && detail.stops) {
@@ -85,8 +85,8 @@ export class AffectedScopeService {
         const resId = event.entityId;
         affectedResourceIds.add(resId);
 
-        // Check proposed assignments using this resource
-        const proposed = await this.repo.listAssignments({ status: 'PROPOSED', limit: 50 });
+        // Check all proposed assignments using this resource
+        const proposed = await this.repo.listAssignments({ status: 'PROPOSED' });
         for (const assign of proposed) {
           const detail = await this.repo.getAssignmentWithStops(assign.id);
           if (detail && detail.stops) {
@@ -101,8 +101,8 @@ export class AffectedScopeService {
           }
         }
 
-        // Check committed assignments using this resource
-        const committed = await this.repo.listAssignments({ status: 'COMMITTED', limit: 50 });
+        // Check all committed assignments using this resource
+        const committed = await this.repo.listAssignments({ status: 'COMMITTED' });
         for (const assign of committed) {
           const detail = await this.repo.getAssignmentWithStops(assign.id);
           if (detail && detail.stops) {
@@ -126,8 +126,8 @@ export class AffectedScopeService {
         const resId = event.entityId;
         affectedResourceIds.add(resId);
 
-        // Find pending or unassigned requests that this resource could serve
-        const pending = await this.repo.listRequests({ status: 'PENDING', limit: 50 });
+        // Find all pending or unassigned requests that this resource could serve
+        const pending = await this.repo.listRequests({ status: 'PENDING' });
         for (const req of pending) {
           affectedRequestIds.add(req.id);
         }
@@ -140,12 +140,12 @@ export class AffectedScopeService {
       case 'ROAD_BLOCKED':
       case 'ROAD_REOPENED': {
         const zoneId = event.entityId;
-        const proposed = await this.repo.listAssignments({ status: 'PROPOSED', limit: 50 });
+        const proposed = await this.repo.listAssignments({ status: 'PROPOSED' });
         for (const assign of proposed) {
           affectedProposedAssignmentIds.add(assign.id);
         }
 
-        const committed = await this.repo.listAssignments({ status: 'COMMITTED', limit: 50 });
+        const committed = await this.repo.listAssignments({ status: 'COMMITTED' });
         for (const assign of committed) {
           committedAssignmentsRequiringReview.add(assign.id);
         }
