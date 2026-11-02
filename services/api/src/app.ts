@@ -7,9 +7,14 @@ import { PostgisRepository } from './db/repository.js';
 import { RequestService } from './services/requestService.js';
 import { AssignmentService } from './services/assignmentService.js';
 import { AuthService } from './services/authService.js';
+import { OperationalEventService } from './services/operationalEventService.js';
+import { AffectedScopeService } from './services/affectedScopeService.js';
+import { RepairOrchestrationService } from './services/repairOrchestrationService.js';
 import { createRequestsRouter } from './routes/requests.js';
 import { createAssignmentsRouter } from './routes/assignments.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createOperationsRouter } from './routes/operations.js';
+import { createAuditRouter } from './routes/audit.js';
 import { requireOperatorAuth } from './middleware/authMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +26,9 @@ export interface AppDependencies {
   requestService?: RequestService;
   assignmentService?: AssignmentService;
   authService?: AuthService;
+  operationalEventService?: OperationalEventService;
+  affectedScopeService?: AffectedScopeService;
+  repairOrchestrationService?: RepairOrchestrationService;
 }
 
 export function createApp(deps?: AppDependencies): Express {
@@ -92,6 +100,10 @@ export function createApp(deps?: AppDependencies): Express {
   const authService = deps?.authService ?? new AuthService(repo);
   const requestService = deps?.requestService ?? new RequestService(repo);
   const assignmentService = deps?.assignmentService ?? new AssignmentService(repo);
+  const affectedScopeService = deps?.affectedScopeService ?? new AffectedScopeService(repo);
+  const eventService =
+    deps?.operationalEventService ?? new OperationalEventService(repo, affectedScopeService);
+  const repairService = deps?.repairOrchestrationService ?? new RepairOrchestrationService(repo);
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
@@ -111,6 +123,12 @@ export function createApp(deps?: AppDependencies): Express {
     requireOperatorAuth(authService),
     createAssignmentsRouter(assignmentService),
   );
+  app.use(
+    '/operations',
+    requireOperatorAuth(authService),
+    createOperationsRouter(repo, eventService, repairService),
+  );
+  app.use('/audit', requireOperatorAuth(authService), createAuditRouter(repo));
 
   // 404 handler for undefined routes
   app.use((_req: Request, res: Response) => {

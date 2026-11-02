@@ -94,14 +94,59 @@ export class RequestService {
       duplicateOfId,
     };
 
-    // 4. Store in database
+    // 4. Store in database transactionally along with operational event and audit log
     try {
-      await this.repo.insertRequest(request, {
-        verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
-        idempotencyKey: input.idempotencyKey ?? null,
-        idempotencyRequestHash: requestHash,
-        duplicateOfId,
-        isFlaggedDuplicate,
+      return await this.repo.withTransaction(async (txRepo) => {
+        await txRepo.insertRequest(request, {
+          verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
+          idempotencyKey: input.idempotencyKey ?? null,
+          idempotencyRequestHash: requestHash,
+          duplicateOfId,
+          isFlaggedDuplicate,
+        });
+
+        // Operational Event (Phase 5)
+        await txRepo.insertOperationalEvent({
+          id: `evt-${crypto.randomUUID().slice(0, 8)}`,
+          type: isFlaggedDuplicate ? 'REQUEST_FLAGGED_DUPLICATE' : 'REQUEST_CREATED',
+          entityType: 'REQUEST',
+          entityId: id,
+          actorId: null,
+          actorType: input.source === 'SIMULATED' ? 'SYSTEM' : 'CITIZEN',
+          occurredAt: createdAt,
+          payload: {
+            id,
+            urgency: input.urgency,
+            peopleCount: input.peopleCount,
+            isFlaggedDuplicate,
+            duplicateOfId,
+            verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
+          },
+          idempotencyKey: input.idempotencyKey ? `op-req-${input.idempotencyKey}` : null,
+        });
+
+        // Audit Event Log
+        await txRepo.insertAuditEvent({
+          entityType: 'REQUEST',
+          entityId: id,
+          eventType: isFlaggedDuplicate ? 'REQUEST_FLAGGED_DUPLICATE' : 'REQUEST_CREATED',
+          actor: input.source === 'SIMULATED' ? 'SIMULATION' : 'CITIZEN',
+          payload: {
+            id,
+            urgency: input.urgency,
+            peopleCount: input.peopleCount,
+            isFlaggedDuplicate,
+            duplicateOfId,
+            verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
+          },
+        });
+
+        return {
+          idempotent: false,
+          isFlaggedDuplicate,
+          duplicateOfId,
+          request,
+        };
       });
     } catch (insertErr: unknown) {
       const errMessage = (insertErr as Error)?.message || '';
@@ -133,29 +178,79 @@ export class RequestService {
       }
       throw insertErr;
     }
+  }
 
-    // 5. Audit event log
-    await this.repo.insertAuditEvent({
-      entityType: 'REQUEST',
-      entityId: id,
-      eventType: isFlaggedDuplicate ? 'REQUEST_FLAGGED_DUPLICATE' : 'REQUEST_CREATED',
-      actor: input.source === 'SIMULATED' ? 'SIMULATION' : 'CITIZEN',
-      payload: {
-        id,
-        urgency: input.urgency,
-        peopleCount: input.peopleCount,
-        isFlaggedDuplicate,
-        duplicateOfId,
-        verificationStatus: input.verificationStatus ?? 'UNVERIFIED',
-      },
+  async cancelRequest(
+    id: string,
+    options?: {
+      actorId?: string | null;
+      actorType?: 'CITIZEN' | 'OPERATOR' | 'SYSTEM';
+      reason?: string;
+    },
+  ): Promise<RescueRequest> {
+    const existing = await this.repo.getRequestById(id);
+    if (!existing) {
+      const err = new Error(`Rescue request with id "${id}" not found`);
+      (err as unknown as { code: string; statusCode: number }).code = 'NOT_FOUND';
+      (err as unknown as { code: string; statusCode: number }).statusCode = 404;
+      throw err;
+    }
+
+    if (existing.status === 'CANCELLED') {
+      return existing;
+    }
+
+    if (
+      existing.status === 'ASSIGNED' ||
+      existing.status === 'IN_TRANSIT' ||
+      existing.status === 'RESCUED'
+    ) {
+      const err = new Error(
+        `Cannot cancel request "${id}" with status "${existing.status}". Active or committed rescue missions cannot be silently reversed.`,
+      );
+      (err as unknown as { code: string; statusCode: number }).code =
+        'CANNOT_CANCEL_COMMITTED_REQUEST';
+      (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+      throw err;
+    }
+
+    const actorId = options?.actorId ?? null;
+    const actorType = options?.actorType ?? 'CITIZEN';
+    const reason = options?.reason ?? 'Citizen cancellation request';
+
+    return await this.repo.withTransaction(async (txRepo) => {
+      await txRepo.updateRequestStatus(id, 'CANCELLED');
+
+      await txRepo.insertOperationalEvent({
+        id: `evt-${crypto.randomUUID().slice(0, 8)}`,
+        type: 'REQUEST_CANCELLED',
+        entityType: 'REQUEST',
+        entityId: id,
+        actorId,
+        actorType,
+        occurredAt: new Date().toISOString(),
+        payload: {
+          requestId: id,
+          reason,
+          previousStatus: existing.status,
+        },
+      });
+
+      await txRepo.insertAuditEvent({
+        entityType: 'REQUEST',
+        entityId: id,
+        eventType: 'REQUEST_CANCELLED',
+        actor: actorId || (actorType === 'CITIZEN' ? 'CITIZEN' : 'OPERATOR'),
+        payload: {
+          requestId: id,
+          reason,
+          previousStatus: existing.status,
+        },
+      });
+
+      const updated = await txRepo.getRequestById(id);
+      return updated ?? { ...existing, status: 'CANCELLED' };
     });
-
-    return {
-      idempotent: false,
-      isFlaggedDuplicate,
-      duplicateOfId,
-      request,
-    };
   }
 
   async getRequest(id: string): Promise<RescueRequest | null> {

@@ -134,6 +134,27 @@ export function classifyScenarioProvenance(
   };
 }
 
+export function computeBoundingBoxFromPoints(points: GeoPoint[]): BoundingBox {
+  if (points.length === 0) {
+    return {
+      minLat: -0.01,
+      maxLat: 0.01,
+      minLng: -0.01,
+      maxLng: 0.01,
+    };
+  }
+
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+
+  return {
+    minLat: Math.max(-90, Math.min(...lats) - 0.02),
+    maxLat: Math.min(90, Math.max(...lats) + 0.02),
+    minLng: Math.max(-180, Math.min(...lngs) - 0.02),
+    maxLng: Math.min(180, Math.max(...lngs) + 0.02),
+  };
+}
+
 export function deriveRegionFromCoordinates(points: GeoPoint[]): string {
   if (points.length === 0) {
     return 'Operational Area (Unspecified)';
@@ -510,25 +531,7 @@ export class AssignmentService {
       ...resources.map((r) => ({ lat: r.lat, lng: r.lng })),
       ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
     ];
-
-    if (points.length === 0) {
-      return {
-        minLat: -0.01,
-        maxLat: 0.01,
-        minLng: -0.01,
-        maxLng: 0.01,
-      };
-    }
-
-    const lats = points.map((p) => p.lat);
-    const lngs = points.map((p) => p.lng);
-
-    return {
-      minLat: Math.max(-90, Math.min(...lats) - 0.02),
-      maxLat: Math.min(90, Math.max(...lats) + 0.02),
-      minLng: Math.max(-180, Math.min(...lngs) - 0.02),
-      maxLng: Math.min(180, Math.max(...lngs) + 0.02),
-    };
+    return computeBoundingBoxFromPoints(points);
   }
 
   /**

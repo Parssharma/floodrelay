@@ -157,5 +157,121 @@ export function createRequestsRouter(
     },
   );
 
+  // POST /requests/:id/cancel - Cancel rescue request (Preserves committed missions)
+  // Authorization: requires either a valid operator session OR the original idempotency key
+  // as proof of ownership. A request ID alone is not sufficient authorization.
+  router.post(
+    '/:id/cancel',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Request ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        // Attempt to populate req.operator from session token (non-blocking)
+        if (!req.operator && authService) {
+          const { extractSessionToken } = await import('../middleware/authMiddleware.js');
+          const token = extractSessionToken(req);
+          if (token) {
+            const profile = await authService.validateSession(token);
+            if (profile) {
+              req.operator = profile;
+            }
+          }
+        }
+
+        const operator = req.operator;
+
+        if (operator) {
+          const { hasPermission } = await import('../middleware/rbacMiddleware.js');
+          if (!hasPermission(operator.role, 'CANCEL_REQUEST')) {
+            res.status(403).json({
+              error: {
+                code: 'FORBIDDEN',
+                message: `Access denied: role "${operator.role}" does not have "CANCEL_REQUEST" permission`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        } else {
+          // Citizens must prove ownership via their original idempotency key
+          const citizenIdempotencyKey =
+            typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : null;
+
+          if (!citizenIdempotencyKey) {
+            res.status(401).json({
+              error: {
+                code: 'UNAUTHORIZED',
+                message:
+                  'Cancellation requires either operator authentication or the original idempotencyKey as proof of ownership',
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+
+          // Verify that the idempotency key matches the request being cancelled
+          const existingRequest = await requestService.getRequest(id);
+          if (
+            !existingRequest ||
+            !existingRequest.idempotencyKey ||
+            existingRequest.idempotencyKey !== citizenIdempotencyKey
+          ) {
+            res.status(403).json({
+              error: {
+                code: 'FORBIDDEN',
+                message: 'Provided idempotencyKey does not match this rescue request',
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        }
+
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+
+        try {
+          const cancelled = await requestService.cancelRequest(id, {
+            actorId: operator?.username ?? null,
+            actorType: operator ? 'OPERATOR' : 'CITIZEN',
+            reason,
+          });
+
+          res.status(200).json({
+            success: true,
+            message: 'Rescue request cancelled successfully',
+            data: cancelled,
+          });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          if (code && statusCode) {
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   return router;
 }

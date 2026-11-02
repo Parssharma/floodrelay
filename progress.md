@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-01
+**Last updated:** 2026-11-02
 
-**Current focus:** Phase 3 Complete & Ready for PR Review ✅ — Full Next.js Stitch Frontend, Citizen Intake, Operator Command Center, React Leaflet GIS Map, Solver Proposals & Human-Supervised ACID Commit
+**Current focus:** Phase 5 Part 1 Complete & Ready for Review ✅ — Backend Infrastructure, Operational Events, RBAC Authorization & Audit Log
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -174,15 +174,16 @@ Incoming rescue requests
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task                   | Owner | Status |
-| ---------------------- | ----- | ------ |
-| Event handlers         | —     | ⬜     |
-| Local repair           | —     | ⬜     |
-| Frozen committed stops | —     | ⬜     |
-| Churn metric           | —     | ⬜     |
-| Live dashboard updates | —     | ⬜     |
-| Roles                  | —     | ⬜     |
-| Audit log              | —     | ⬜     |
+| Task                   | Owner | Status | Details                                                                                                                                                                                                |
+| ---------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Event handlers         | —     | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys |
+| Roles & Authorization  | —     | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                    |
+| Audit log              | —     | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                   |
+| Frozen committed stops | —     | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                     |
+| Local repair contracts | —     | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; explicitly signals 503 `REPAIR_ENGINE_UNAVAILABLE` until Part 2 solver integration                     |
+| Local repair algorithm | —     | ⬜     | Slated for Phase 5 Part 2                                                                                                                                                                              |
+| Churn calculations     | —     | ⬜     | Slated for Phase 5 Part 2                                                                                                                                                                              |
+| Live dashboard updates | —     | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
 
 ### Phase 6 — Hardening and documentation
 
@@ -199,14 +200,15 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 3: Frontend & Full-Stack Integration (All 6 milestones complete ✅: Next.js App Router UI foundation, Citizen Portal with browser geolocation & idempotency, Operator Command Center authentication & live dashboard, React Leaflet GIS Operations Map, VRP solver proposal generation & human-supervised commitment with PostgreSQL row-level locks, and master end-to-end acceptance verification) and Phase 4: Road network and uncertainty (Live OSRM integration, hazard zones, calibrated lognormal uncertainty model, perturbation evaluation, 7 ADRs, and 106 Phase 4 tests passing).
-- **Next up:** Phase 5 — Incremental updates and live operations (Event handlers, local repair, live dashboard updates).
+- **Last completed:** Phase 5 Part 1: Backend Infrastructure, Operational Events, Authorization and Audit (OperationalEventService, Migration 004, RBAC permission matrix, audit read API, RepairOrchestrationService interface boundary, OpenAPI 3.1 zero-drift synchronization, and comprehensive test suite with 100% pass rate).
+- **Next up:** Phase 5 Part 2 — Solver Incremental Repair Algorithms & Churn Benchmarks.
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
-- **Phase 4:** Complete ✅. Follow-up fixes and live OSRM Docker verification completed on `fix/phase-4-review-followup` (per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, 7 ADRs, and live OSRM verification on Docker Compose with BBBike New Delhi extract, with 106 tests passing across Phase 4 test suites including live integration test).
-- Everything in Phase 5 and beyond: not started.
+- **Phase 4:** Complete ✅.
+- **Phase 5 Part 1:** Complete ✅.
+- **Phase 5 Part 2 & Part 3:** Next up.
 
 ---
 
@@ -248,6 +250,9 @@ Incoming rescue requests
 | Request-scoped hazard zones & audit hashing                | Polygon zones provided per-proposal; SHA-256 canonical JSON hash logged in ASSIGNMENT_PROPOSED audit payload; frozen stops preserved (ADR-24)                                                                                              |
 | 500-point prefetch ceiling                                 | Bound OSRM table prefetch coordinates to prevent excessive API latency; Large scenario falls back to straight-line (ADR-25)                                                                                                                |
 | Deterministic perturbation noise model                     | Uniform noise in [1-m, 1+m] deterministic per (seed, from, to) pair to benchmark route and sequence churn reproducibly (ADR-26)                                                                                                            |
+| Transactional operational events outbox                    | PostgreSQL table `operational_events` updated atomically with domain and audit writes in single transaction client; no external queue in Part 1 (ADR-27)                                                                                   |
+| Centralized RBAC and audit redaction                       | Strict permission matrix across OPERATOR, DISPATCHER, ADMIN with `requirePermission(...)` middleware; automatic redaction of sensitive metadata for OPERATOR role (ADR-28)                                                                 |
+| Incremental solver repair boundary                         | Decoupled `RepairInput`/`RepairResult` interfaces; explicit HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` signaling until Part 2 solver integration (ADR-29)                                                                                        |
 
 ---
 

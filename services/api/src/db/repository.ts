@@ -10,6 +10,14 @@ import {
   type RequestSource,
   type ResourceStatus,
   type ResourceType,
+  type OperationalEvent,
+  type OperationalEventType,
+  type EventEntityType,
+  type EventActorType,
+  type EventProcessingStatus,
+  type HazardLevel,
+  type GeoPoint,
+  type FrozenStopReference,
 } from '@floodrelay/shared';
 import {
   type DbRequest,
@@ -22,6 +30,10 @@ import {
   type DbOperatorSession,
   type OperatorProfile,
   type OperatorRole,
+  type DbOperationalEvent,
+  type DbBlockedZone,
+  type DbAuditEvent,
+  toPolygonWkt,
 } from './schema.js';
 
 // Queryable interface allowing either pg.Pool or pg.PoolClient (for transactions)
@@ -51,8 +63,70 @@ export interface RequestCreateOptions {
   isFlaggedDuplicate?: boolean;
 }
 
+export interface ListAuditEventsFilter {
+  entityType?: string;
+  entityId?: string;
+  eventType?: string;
+  actor?: string;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListOperationalEventsFilter {
+  eventType?: OperationalEventType;
+  entityType?: EventEntityType;
+  entityId?: string;
+  actorType?: EventActorType;
+  actorId?: string;
+  processingStatus?: EventProcessingStatus;
+  since?: Date;
+  until?: Date;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BlockedZoneCreateInput {
+  id?: string;
+  name?: string;
+  severity?: HazardLevel;
+  polygon: GeoPoint[];
+  createdBy: string;
+}
+
 export class PostgisRepository {
   constructor(private readonly client: Queryable) {}
+
+  getClient(): Queryable {
+    return this.client;
+  }
+
+  async withTransaction<T>(
+    fn: (txRepo: PostgisRepository, client: Queryable) => Promise<T>,
+  ): Promise<T> {
+    const isPool = this.client instanceof pg.Pool;
+    if (!isPool) {
+      return fn(this, this.client);
+    }
+    const poolClient = await (this.client as pg.Pool).connect();
+    try {
+      await poolClient.query('BEGIN');
+      const txRepo = new PostgisRepository(poolClient);
+      const result = await fn(txRepo, poolClient);
+      await poolClient.query('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await poolClient.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Error rolling back transaction:', rollbackErr);
+      }
+      throw err;
+    } finally {
+      poolClient.release();
+    }
+  }
 
   // ==========================================
   // Requests Data Access
@@ -551,6 +625,35 @@ export class PostgisRepository {
       depotId: row.depotId ?? undefined,
       source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
     }));
+  }
+
+  async updateResourceStatus(id: string, status: ResourceStatus): Promise<RescueResource | null> {
+    const sql = `
+      UPDATE resources
+      SET status = $2, updated_at = NOW()
+      WHERE id = $1
+      RETURNING
+        id, name, type, capacity, speed_km_h as "speedKmH",
+        ST_Y(location::geometry) as lat,
+        ST_X(location::geometry) as lng,
+        status, depot_id as "depotId",
+        source;
+    `;
+    const result = await this.client.query(sql, [id, status]);
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      capacity: Number(row.capacity),
+      speedKmH: Number(row.speedKmH),
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+      status: row.status,
+      depotId: row.depotId ?? undefined,
+      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
+    };
   }
 
   // ==========================================
@@ -1100,9 +1203,28 @@ export class PostgisRepository {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limit = filter?.limit ?? 50;
-    const offset = filter?.offset ?? 0;
-    values.push(limit, offset);
+
+    let limitClause = '';
+    if (filter?.limit !== undefined) {
+      const limit = Math.max(1, Math.min(Math.floor(filter.limit), MAX_QUERY_LIMIT));
+      values.push(limit);
+      limitClause = `LIMIT $${values.length}`;
+    }
+
+    let offsetClause = '';
+    if (filter?.offset !== undefined) {
+      if (
+        !Number.isFinite(filter.offset) ||
+        filter.offset < 0 ||
+        filter.offset > MAX_QUERY_OFFSET
+      ) {
+        throw new Error(
+          `Invalid query offset: must be a finite integer between 0 and ${MAX_QUERY_OFFSET} (received: ${filter.offset})`,
+        );
+      }
+      values.push(Math.floor(filter.offset));
+      offsetClause = `OFFSET $${values.length}`;
+    }
 
     const sql = `
       SELECT
@@ -1110,7 +1232,7 @@ export class PostgisRepository {
       FROM assignments
       ${whereClause}
       ORDER BY created_at DESC
-      LIMIT $${values.length - 1} OFFSET $${values.length};
+      ${limitClause} ${offsetClause};
     `;
 
     const result = await this.client.query(sql, values);
@@ -1124,6 +1246,37 @@ export class PostgisRepository {
       committed_by: row.committed_by,
       created_at: row.created_at,
       updated_at: row.updated_at,
+    }));
+  }
+
+  /**
+   * Retrieves all frozen stops across all committed assignments with parsed nonzero coordinates.
+   * Scoped SQL join guarantees complete safety snapshot without arbitrary pagination limits.
+   */
+  async listCommittedFrozenStops(): Promise<FrozenStopReference[]> {
+    const sql = `
+      SELECT
+        s.assignment_id as "assignmentId",
+        s.resource_id as "resourceId",
+        s.stop_number as "stopNumber",
+        s.type as "type",
+        s.target_id as "targetId",
+        ST_Y(s.location::geometry) as lat,
+        ST_X(s.location::geometry) as lng
+      FROM assignment_stops s
+      JOIN assignments a ON s.assignment_id = a.id
+      WHERE a.status = 'COMMITTED' AND s.is_frozen = TRUE
+      ORDER BY s.assignment_id ASC, s.resource_id ASC, s.stop_number ASC;
+    `;
+    const result = await this.client.query(sql);
+    return result.rows.map((row) => ({
+      assignmentId: row.assignmentId,
+      resourceId: row.resourceId,
+      stopNumber: row.stopNumber,
+      targetId: row.targetId,
+      type: row.type,
+      lat: Number(row.lat),
+      lng: Number(row.lng),
     }));
   }
 
@@ -1284,6 +1437,294 @@ export class PostgisRepository {
       event.actor ?? 'SYSTEM',
       JSON.stringify(event.payload ?? {}),
     ]);
+  }
+
+  async listAuditEvents(filter?: ListAuditEventsFilter): Promise<DbAuditEvent[]> {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filter?.entityType) {
+      values.push(filter.entityType);
+      conditions.push(`entity_type = $${values.length}`);
+    }
+    if (filter?.entityId) {
+      values.push(filter.entityId);
+      conditions.push(`entity_id = $${values.length}`);
+    }
+    if (filter?.eventType) {
+      values.push(filter.eventType);
+      conditions.push(`event_type = $${values.length}`);
+    }
+    if (filter?.actor) {
+      values.push(filter.actor);
+      conditions.push(`actor = $${values.length}`);
+    }
+    if (filter?.since) {
+      values.push(filter.since);
+      conditions.push(`created_at >= $${values.length}`);
+    }
+    if (filter?.until) {
+      values.push(filter.until);
+      conditions.push(`created_at <= $${values.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(filter?.limit ?? 50, 1), MAX_QUERY_LIMIT);
+    const offset = Math.min(Math.max(filter?.offset ?? 0, 0), MAX_QUERY_OFFSET);
+
+    values.push(limit);
+    const limitPlaceholder = `$${values.length}`;
+    values.push(offset);
+    const offsetPlaceholder = `$${values.length}`;
+
+    const sql = `
+      SELECT id::text, entity_type, entity_id, event_type, actor, payload, created_at
+      FROM audit_events
+      ${whereClause}
+      ORDER BY id DESC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder};
+    `;
+
+    const result = await this.client.query<DbAuditEvent>(sql, values);
+    return result.rows;
+  }
+
+  // ==========================================
+  // Operational Events Data Access
+  // ==========================================
+
+  async insertOperationalEvent(
+    event: Omit<OperationalEvent, 'recordedAt'> & { recordedAt?: string },
+  ): Promise<DbOperationalEvent> {
+    const sql = `
+      INSERT INTO operational_events (
+        id, event_type, entity_type, entity_id, actor_id, actor_type,
+        payload, correlation_id, idempotency_key, entity_version,
+        processing_status, processing_attempts, last_error_code,
+        occurred_at, created_at, processed_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10,
+        $11, $12, $13,
+        $14, NOW(), $15
+      )
+      RETURNING
+        id, event_type, entity_type, entity_id, actor_id, actor_type,
+        payload, correlation_id, idempotency_key, entity_version,
+        processing_status, processing_attempts, last_error_code,
+        occurred_at, created_at, processed_at;
+    `;
+
+    const occurredAt = event.occurredAt ? new Date(event.occurredAt) : new Date();
+    const processedAt = event.processedAt ? new Date(event.processedAt) : null;
+
+    const result = await this.client.query<DbOperationalEvent>(sql, [
+      event.id,
+      event.type,
+      event.entityType,
+      event.entityId,
+      event.actorId ?? null,
+      event.actorType,
+      JSON.stringify(event.payload ?? {}),
+      event.correlationId ?? null,
+      event.idempotencyKey ?? null,
+      event.entityVersion ?? 1,
+      event.processingStatus ?? 'RECORDED',
+      event.processingAttempts ?? 0,
+      event.lastErrorCode ?? null,
+      occurredAt,
+      processedAt,
+    ]);
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(`Failed to insert operational event "${event.id}"`);
+    }
+    return row;
+  }
+
+  async getOperationalEvent(id: string): Promise<DbOperationalEvent | null> {
+    const sql = `
+      SELECT
+        id, event_type, entity_type, entity_id, actor_id, actor_type,
+        payload, correlation_id, idempotency_key, entity_version,
+        processing_status, processing_attempts, last_error_code,
+        occurred_at, created_at, processed_at
+      FROM operational_events
+      WHERE id = $1;
+    `;
+    const res = await this.client.query<DbOperationalEvent>(sql, [id]);
+    return res.rows[0] ?? null;
+  }
+
+  async getOperationalEventByIdempotencyKey(key: string): Promise<DbOperationalEvent | null> {
+    const sql = `
+      SELECT
+        id, event_type, entity_type, entity_id, actor_id, actor_type,
+        payload, correlation_id, idempotency_key, entity_version,
+        processing_status, processing_attempts, last_error_code,
+        occurred_at, created_at, processed_at
+      FROM operational_events
+      WHERE idempotency_key = $1;
+    `;
+    const res = await this.client.query<DbOperationalEvent>(sql, [key]);
+    return res.rows[0] ?? null;
+  }
+
+  async listOperationalEvents(filter?: ListOperationalEventsFilter): Promise<DbOperationalEvent[]> {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (filter?.eventType) {
+      values.push(filter.eventType);
+      conditions.push(`event_type = $${values.length}`);
+    }
+    if (filter?.entityType) {
+      values.push(filter.entityType);
+      conditions.push(`entity_type = $${values.length}`);
+    }
+    if (filter?.entityId) {
+      values.push(filter.entityId);
+      conditions.push(`entity_id = $${values.length}`);
+    }
+    if (filter?.actorType) {
+      values.push(filter.actorType);
+      conditions.push(`actor_type = $${values.length}`);
+    }
+    if (filter?.actorId) {
+      values.push(filter.actorId);
+      conditions.push(`actor_id = $${values.length}`);
+    }
+    if (filter?.processingStatus) {
+      values.push(filter.processingStatus);
+      conditions.push(`processing_status = $${values.length}`);
+    }
+    if (filter?.since) {
+      values.push(filter.since);
+      conditions.push(`occurred_at >= $${values.length}`);
+    }
+    if (filter?.until) {
+      values.push(filter.until);
+      conditions.push(`occurred_at <= $${values.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(filter?.limit ?? 50, 1), MAX_QUERY_LIMIT);
+    const offset = Math.min(Math.max(filter?.offset ?? 0, 0), MAX_QUERY_OFFSET);
+
+    values.push(limit);
+    const limitPlaceholder = `$${values.length}`;
+    values.push(offset);
+    const offsetPlaceholder = `$${values.length}`;
+
+    const sql = `
+      SELECT
+        id, event_type, entity_type, entity_id, actor_id, actor_type,
+        payload, correlation_id, idempotency_key, entity_version,
+        processing_status, processing_attempts, last_error_code,
+        occurred_at, created_at, processed_at
+      FROM operational_events
+      ${whereClause}
+      ORDER BY occurred_at DESC, created_at DESC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder};
+    `;
+
+    const result = await this.client.query<DbOperationalEvent>(sql, values);
+    return result.rows;
+  }
+
+  async updateOperationalEventStatus(
+    id: string,
+    status: EventProcessingStatus,
+    details?: { attempts?: number; lastErrorCode?: string | null; processedAt?: Date | null },
+  ): Promise<boolean> {
+    const sets: string[] = ['processing_status = $2'];
+    const values: unknown[] = [id, status];
+
+    if (details?.attempts !== undefined) {
+      values.push(details.attempts);
+      sets.push(`processing_attempts = $${values.length}`);
+    }
+    if (details?.lastErrorCode !== undefined) {
+      values.push(details.lastErrorCode);
+      sets.push(`last_error_code = $${values.length}`);
+    }
+    if (details?.processedAt !== undefined) {
+      values.push(details.processedAt);
+      sets.push(`processed_at = $${values.length}`);
+    } else if (status === 'SCOPE_IDENTIFIED' || status === 'AWAITING_REPAIR') {
+      sets.push('processed_at = NOW()');
+    }
+
+    const sql = `
+      UPDATE operational_events
+      SET ${sets.join(', ')}
+      WHERE id = $1;
+    `;
+    const result = await this.client.query(sql, values);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ==========================================
+  // Blocked Zones Data Access
+  // ==========================================
+
+  async insertBlockedZone(input: BlockedZoneCreateInput): Promise<DbBlockedZone> {
+    const id = input.id ?? `bz-${crypto.randomUUID().slice(0, 8)}`;
+    const polygonWkt = toPolygonWkt(input.polygon);
+    const sql = `
+      INSERT INTO blocked_zones (
+        id, name, severity, geometry, is_active, created_by, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, ST_GeogFromText($4), TRUE, $5, NOW(), NOW()
+      )
+      RETURNING
+        id, name, severity, ST_AsText(geometry) as geometry, is_active, created_by, created_at, updated_at;
+    `;
+    const res = await this.client.query<DbBlockedZone>(sql, [
+      id,
+      input.name ?? null,
+      input.severity ?? 'BLOCKED',
+      polygonWkt,
+      input.createdBy,
+    ]);
+    const row = res.rows[0];
+    if (!row) throw new Error(`Failed to insert blocked zone "${id}"`);
+    return row;
+  }
+
+  async getBlockedZone(id: string): Promise<DbBlockedZone | null> {
+    const sql = `
+      SELECT
+        id, name, severity, ST_AsText(geometry) as geometry, is_active, created_by, created_at, updated_at
+      FROM blocked_zones
+      WHERE id = $1;
+    `;
+    const res = await this.client.query<DbBlockedZone>(sql, [id]);
+    return res.rows[0] ?? null;
+  }
+
+  async listBlockedZones(activeOnly = true): Promise<DbBlockedZone[]> {
+    const whereClause = activeOnly ? 'WHERE is_active = TRUE' : '';
+    const sql = `
+      SELECT
+        id, name, severity, ST_AsText(geometry) as geometry, is_active, created_by, created_at, updated_at
+      FROM blocked_zones
+      ${whereClause}
+      ORDER BY created_at DESC;
+    `;
+    const res = await this.client.query<DbBlockedZone>(sql);
+    return res.rows;
+  }
+
+  async updateBlockedZoneStatus(id: string, isActive: boolean): Promise<boolean> {
+    const sql = `
+      UPDATE blocked_zones
+      SET is_active = $2, updated_at = NOW()
+      WHERE id = $1;
+    `;
+    const res = await this.client.query(sql, [id, isActive]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   // ==========================================
