@@ -34,6 +34,7 @@ export function createAuditRouter(repo: PostgisRepository): Router {
             const redactedPayload = { ...evt.payload };
             delete redactedPayload.clientIp;
             delete redactedPayload.idempotencyRequestHash;
+            delete redactedPayload.idempotencyKey;
             return {
               ...evt,
               payload: redactedPayload,

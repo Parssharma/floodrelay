@@ -553,6 +553,7 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
           payload: {
             clientIp: '192.168.1.100',
             idempotencyRequestHash: 'abc123hash',
+            idempotencyKey: 'idem-secret-999',
             urgency: 'HIGH',
           },
           created_at: new Date(),
@@ -560,7 +561,7 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       ];
     });
 
-    it('redacts sensitive fields (clientIp, hashes) when viewed by OPERATOR role', async () => {
+    it('redacts sensitive fields (clientIp, hashes, citizen tokens) when viewed by OPERATOR role', async () => {
       const res = await request(app)
         .get('/audit/events')
         .set('Authorization', `Bearer ${operatorToken}`);
@@ -571,6 +572,7 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       const payload = res.body.data[0].payload;
       expect(payload.clientIp).toBeUndefined();
       expect(payload.idempotencyRequestHash).toBeUndefined();
+      expect(payload.idempotencyKey).toBeUndefined();
       expect(payload.urgency).toBe('HIGH');
     });
 
@@ -584,6 +586,7 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       const payload = res.body.data[0].payload;
       expect(payload.clientIp).toBe('192.168.1.100');
       expect(payload.idempotencyRequestHash).toBe('abc123hash');
+      expect(payload.idempotencyKey).toBe('idem-secret-999');
     });
   });
 
