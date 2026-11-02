@@ -191,8 +191,20 @@ export function createRequestsRouter(
 
         const operator = req.operator;
 
-        // Citizens must prove ownership via their original idempotency key
-        if (!operator) {
+        if (operator) {
+          const { hasPermission } = await import('../middleware/rbacMiddleware.js');
+          if (!hasPermission(operator.role, 'CANCEL_REQUEST')) {
+            res.status(403).json({
+              error: {
+                code: 'FORBIDDEN',
+                message: `Access denied: role "${operator.role}" does not have "CANCEL_REQUEST" permission`,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        } else {
+          // Citizens must prove ownership via their original idempotency key
           const citizenIdempotencyKey =
             typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : null;
 

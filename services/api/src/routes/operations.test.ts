@@ -664,6 +664,106 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       expect(res.body.error.code).toBe('CANNOT_CANCEL_COMMITTED_REQUEST');
     });
 
+    it('rejects OPERATOR role from cancelling request with 403 FORBIDDEN', async () => {
+      const res = await request(app)
+        .post('/requests/req-test-1/cancel')
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({ reason: 'Operator viewer cannot cancel' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.body.error.message).toContain('CANCEL_REQUEST');
+    });
+
+    it('allows authenticated ADMIN to cancel any pending request', async () => {
+      const res = await request(app)
+        .post('/requests/req-test-1/cancel')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: 'Admin emergency override cancellation' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('CANCELLED');
+    });
+
+    it('rejects cancellation using an idempotency key belonging to a different request with 403 FORBIDDEN', async () => {
+      // Seed request A and request B with different keys
+      mockQueryable.requests.set('req-citizen-a', {
+        id: 'req-citizen-a',
+        location: 'POINT(77.2 28.6)',
+        people_count: 2,
+        urgency: 'MEDIUM',
+        source: 'REPORTED',
+        status: 'PENDING',
+        verification_status: 'UNVERIFIED',
+        medical_needs: false,
+        notes: null,
+        idempotency_key: 'citizen-key-alpha',
+        idempotency_request_hash: null,
+        duplicate_of_id: null,
+        is_flagged_duplicate: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      mockQueryable.requests.set('req-citizen-b', {
+        id: 'req-citizen-b',
+        location: 'POINT(77.2 28.6)',
+        people_count: 4,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        verification_status: 'UNVERIFIED',
+        medical_needs: false,
+        notes: null,
+        idempotency_key: 'citizen-key-beta',
+        idempotency_request_hash: null,
+        duplicate_of_id: null,
+        is_flagged_duplicate: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      // Attacker tries to cancel request B using request A's key
+      const res = await request(app)
+        .post('/requests/req-citizen-b/cancel')
+        .send({ reason: 'Malicious cancellation', idempotencyKey: 'citizen-key-alpha' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('handles replay of cancellation on already-cancelled request idempotently', async () => {
+      // Seed a request that is already cancelled with its idempotency key
+      mockQueryable.requests.set('req-already-cancelled', {
+        id: 'req-already-cancelled',
+        location: 'POINT(77.2 28.6)',
+        people_count: 2,
+        urgency: 'LOW',
+        source: 'REPORTED',
+        status: 'CANCELLED',
+        verification_status: 'UNVERIFIED',
+        medical_needs: false,
+        notes: null,
+        idempotency_key: 'citizen-key-replay-test',
+        idempotency_request_hash: null,
+        duplicate_of_id: null,
+        is_flagged_duplicate: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      // Replay citizen cancellation with matching key
+      const res = await request(app).post('/requests/req-already-cancelled/cancel').send({
+        reason: 'Replay cancellation request',
+        idempotencyKey: 'citizen-key-replay-test',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('CANCELLED');
+    });
+
     it('rejects anonymous cancellation of request without idempotency key set', async () => {
       // req-test-1 has idempotency_key: null, so even providing one should fail
       const res = await request(app)

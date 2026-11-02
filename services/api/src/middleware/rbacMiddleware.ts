@@ -8,6 +8,7 @@ export type OperationalAction =
   | 'MANAGE_BLOCKED_ZONES'
   | 'REQUEST_REPAIR'
   | 'COMMIT_ASSIGNMENT'
+  | 'CANCEL_REQUEST'
   | 'MANAGE_OPERATORS';
 
 export const ROLE_PERMISSIONS: Record<OperatorRole, ReadonlySet<OperationalAction>> = {
@@ -19,6 +20,7 @@ export const ROLE_PERMISSIONS: Record<OperatorRole, ReadonlySet<OperationalActio
     'MANAGE_BLOCKED_ZONES',
     'REQUEST_REPAIR',
     'COMMIT_ASSIGNMENT',
+    'CANCEL_REQUEST',
   ]),
   ADMIN: new Set([
     'VIEW_EVENTS',
@@ -27,6 +29,7 @@ export const ROLE_PERMISSIONS: Record<OperatorRole, ReadonlySet<OperationalActio
     'MANAGE_BLOCKED_ZONES',
     'REQUEST_REPAIR',
     'COMMIT_ASSIGNMENT',
+    'CANCEL_REQUEST',
     'MANAGE_OPERATORS',
   ]),
 };
