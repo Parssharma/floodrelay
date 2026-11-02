@@ -321,3 +321,39 @@ When recording a new decision, copy this template and fill it in:
   - _Non-deterministic runtime jitter_: Add random noise using `Math.random()`. Rejected because benchmark results cannot be independently reproduced, verified, or compared across solver commits.
   - _Node-level perturbation only_: Jitter request locations or urgency scores rather than edge travel times. Rejected because road network inundation primarily affects transit duration between fixed physical rescue points.
 - **Consequence:** Solver resilience under real-world transit noise can be quantified, compared, and reproduced deterministically across CI and evaluation environments.
+
+---
+
+### ADR-27: Transactional Operational Events over External Message Queues
+
+- **Date:** 2026-11-02
+- **Decision:** Persist operational events in PostgreSQL table `operational_events` atomically in the same database transaction client as domain state mutations (requests, resource status changes, road hazard zones). Avoid external message brokers (such as Redis/BullMQ, RabbitMQ, or Kafka) during Phase 5 Part 1.
+- **Context:** Disaster relief state mutations require absolute ACID consistency. Writing domain entities to PostgreSQL while publishing events to an external broker risks dual-write anomalies (e.g. request saved in DB but event lost due to network timeout, or event published but DB transaction aborted). An emergency dispatch platform's write throughput (tens to hundreds of operational events per second) is easily handled with high durability by PostgreSQL indexed tables and row-level locking.
+- **Alternatives considered:**
+  - _Redis / BullMQ queue_: Add BullMQ queue immediately. Rejected for Part 1 to eliminate dual-write hazards and operational dependencies until solver benchmarking proves async background execution is necessary.
+  - _Node.js EventEmitter in-memory_: Emit events via Node EventEmitter. Rejected because events are lost if the server process restarts or encounters an unhandled exception.
+- **Consequence:** Zero dual-write failures. Domain mutations, operational events, and audit logs succeed or fail together atomically. Event retry and replay are guaranteed without external queue dependencies.
+
+---
+
+### ADR-28: Centralized Role-Based Access Control (RBAC) and Audit Redaction
+
+- **Date:** 2026-11-02
+- **Decision:** Define a centralized permission matrix across the three existing operator roles (`OPERATOR`, `DISPATCHER`, `ADMIN`) mapped to specific operational actions (`VIEW_EVENTS`, `VIEW_AUDIT`, `MANAGE_RESOURCE_STATUS`, `MANAGE_BLOCKED_ZONES`, `REQUEST_REPAIR`, `COMMIT_ASSIGNMENT`, `MANAGE_OPERATORS`). Enforce permissions centrally using Express `requirePermission(...)` middleware, and apply automatic field-level redaction (e.g. client IP addresses, internal hashes) when the `OPERATOR` role queries audit logs.
+- **Context:** Phase 3 established session authentication and basic role assignment, but operational mutations in Phase 5 (taking vehicles offline, declaring road blockages, triggering replanning) require strict least-privilege enforcement. Only `DISPATCHER` and `ADMIN` should perform operational mutations, while read-only `OPERATOR` roles should inspect events and audit records without viewing sensitive metadata.
+- **Alternatives considered:**
+  - _Ad-hoc role checks in route handlers_: Duplicate `if (req.operator.role !== ...)` across routes. Rejected due to drift and maintenance hazards.
+  - _Full external authorization engine (e.g. OPA/Casbin)_: Rejected as disproportionately complex for a 3-role disaster response hierarchy.
+- **Consequence:** Clean, auditable security enforcement across all operational routes with automatic sensitive data redaction.
+
+---
+
+### ADR-29: Solver Repair Interface Boundary and Explicit 503 Signaling
+
+- **Date:** 2026-11-02
+- **Decision:** Decouple backend operational event infrastructure from solver repair algorithms via shared contracts (`RepairInput`, `RepairResult`) and a dependency-injected `RepairOrchestrationService`. In Phase 5 Part 1, when no repair solver is plugged in, invoking `POST /operations/repair` explicitly throws HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` rather than returning simulated or dummy success.
+- **Context:** Phase 5 is partitioned into Part 1 (Backend Infrastructure, Operational Events, Authorization, and Audit) and Part 2 (Solver Incremental Repair Algorithms). Backend contracts must be established, tested, and validated against OpenAPI without fabricating false solver results or coupling the database directly to optimization algorithms.
+- **Alternatives considered:**
+  - _Return fake proposed plan in Part 1_: Return a static mock plan to simulate a working solver. Rejected because returning false success violates the project principle of honest status reporting and risks misleading operators.
+  - _Omit the repair route entirely until Part 2_: Rejected because Part 1 requires stable backend API contracts for frontend and orchestration integration.
+- **Consequence:** The interface boundary for Part 2 is strictly defined and verified, with unambiguous error signaling until the repair solver is integrated.
