@@ -530,7 +530,7 @@ spec.paths['/requests/{id}/cancel'] = {
   post: {
     summary: 'Cancel rescue request',
     description:
-      'Cancels an unassigned or pending rescue request and emits REQUEST_CANCELLED. Rejects with 409 if request is committed to an active mission.',
+      'Cancels an unassigned or pending rescue request and emits REQUEST_CANCELLED. Requires either operator authentication or matching idempotencyKey proof of ownership. Rejects with 409 if request is committed to an active mission.',
     parameters: [
       {
         name: 'id',
@@ -548,6 +548,12 @@ spec.paths['/requests/{id}/cancel'] = {
             type: 'object',
             properties: {
               reason: { type: 'string', example: 'Water receded, no longer in danger' },
+              idempotencyKey: {
+                type: 'string',
+                description:
+                  'Original idempotency key submitted by citizen as proof of ownership when cancelling without operator auth',
+                example: 'idem-12345',
+              },
             },
           },
         },
@@ -564,6 +570,22 @@ spec.paths['/requests/{id}/cancel'] = {
       },
       '400': {
         description: 'Validation failure',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '401': {
+        description: 'Unauthorized: missing operator authentication or idempotency key',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ErrorResponse' },
+          },
+        },
+      },
+      '403': {
+        description: 'Forbidden: idempotency key does not match request',
         content: {
           'application/json': {
             schema: { $ref: '#/components/schemas/ErrorResponse' },

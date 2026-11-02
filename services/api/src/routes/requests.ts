@@ -158,6 +158,8 @@ export function createRequestsRouter(
   );
 
   // POST /requests/:id/cancel - Cancel rescue request (Preserves committed missions)
+  // Authorization: requires either a valid operator session OR the original idempotency key
+  // as proof of ownership. A request ID alone is not sufficient authorization.
   router.post(
     '/:id/cancel',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -175,7 +177,55 @@ export function createRequestsRouter(
           return;
         }
 
+        // Attempt to populate req.operator from session token (non-blocking)
+        if (!req.operator && authService) {
+          const { extractSessionToken } = await import('../middleware/authMiddleware.js');
+          const token = extractSessionToken(req);
+          if (token) {
+            const profile = await authService.validateSession(token);
+            if (profile) {
+              req.operator = profile;
+            }
+          }
+        }
+
         const operator = req.operator;
+
+        // Citizens must prove ownership via their original idempotency key
+        if (!operator) {
+          const citizenIdempotencyKey =
+            typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey.trim() : null;
+
+          if (!citizenIdempotencyKey) {
+            res.status(401).json({
+              error: {
+                code: 'UNAUTHORIZED',
+                message:
+                  'Cancellation requires either operator authentication or the original idempotencyKey as proof of ownership',
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+
+          // Verify that the idempotency key matches the request being cancelled
+          const existingRequest = await requestService.getRequest(id);
+          if (
+            !existingRequest ||
+            !existingRequest.idempotencyKey ||
+            existingRequest.idempotencyKey !== citizenIdempotencyKey
+          ) {
+            res.status(403).json({
+              error: {
+                code: 'FORBIDDEN',
+                message: 'Provided idempotencyKey does not match this rescue request',
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+        }
+
         const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
 
         try {

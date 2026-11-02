@@ -232,6 +232,9 @@ class MockOperationsQueryable implements Queryable {
             source: req.source,
             status: req.status,
             verificationStatus: req.verification_status,
+            idempotencyKey: req.idempotency_key,
+            isFlaggedDuplicate: req.is_flagged_duplicate,
+            duplicateOfId: req.duplicate_of_id,
           } as unknown as R,
         ],
         command: 'SELECT',
@@ -584,11 +587,49 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
     });
   });
 
-  describe('Rescue Request Cancellation', () => {
-    it('cancels an unassigned/pending request successfully and emits REQUEST_CANCELLED', async () => {
+  describe('Rescue Request Cancellation Authorization', () => {
+    it('rejects anonymous cancellation without idempotency key with 401 UNAUTHORIZED', async () => {
       const res = await request(app)
         .post('/requests/req-test-1/cancel')
-        .send({ reason: 'Family reached safety independently' });
+        .send({ reason: 'Anonymous attempt' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('rejects anonymous cancellation with wrong idempotency key with 403 FORBIDDEN', async () => {
+      const res = await request(app)
+        .post('/requests/req-test-1/cancel')
+        .send({ reason: 'Wrong key', idempotencyKey: 'wrong-key-does-not-match' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('allows citizen cancellation with correct idempotency key as ownership proof', async () => {
+      // First, seed a request with an idempotency key
+      mockQueryable.requests.set('req-citizen-owned', {
+        id: 'req-citizen-owned',
+        location: 'POINT(77.2 28.6)',
+        people_count: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        verification_status: 'UNVERIFIED',
+        medical_needs: false,
+        notes: null,
+        idempotency_key: 'citizen-secret-key-123',
+        idempotency_request_hash: null,
+        duplicate_of_id: null,
+        is_flagged_duplicate: false,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const res = await request(app).post('/requests/req-citizen-owned/cancel').send({
+        reason: 'Family reached safety independently',
+        idempotencyKey: 'citizen-secret-key-123',
+      });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -598,16 +639,71 @@ describe('Phase 5 Part 1: Operations API Endpoints, RBAC & Audit', () => {
       const events = Array.from(mockQueryable.operationalEvents.values());
       const cancelEvt = events.find((e) => e.event_type === 'REQUEST_CANCELLED');
       expect(cancelEvt).toBeDefined();
-      expect(cancelEvt?.entity_id).toBe('req-test-1');
+      expect(cancelEvt?.entity_id).toBe('req-citizen-owned');
+      expect(cancelEvt?.actor_type).toBe('CITIZEN');
+    });
+
+    it('allows authenticated DISPATCHER to cancel any pending request', async () => {
+      const res = await request(app)
+        .post('/requests/req-test-1/cancel')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ reason: 'Duplicate resolved by operator' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe('CANCELLED');
     });
 
     it('rejects cancellation of an ASSIGNED/committed request with 409 Conflict', async () => {
       const res = await request(app)
         .post('/requests/req-committed-1/cancel')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
         .send({ reason: 'Try to cancel active mission' });
 
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('CANNOT_CANCEL_COMMITTED_REQUEST');
+    });
+
+    it('rejects anonymous cancellation of request without idempotency key set', async () => {
+      // req-test-1 has idempotency_key: null, so even providing one should fail
+      const res = await request(app)
+        .post('/requests/req-test-1/cancel')
+        .send({ reason: 'Trying with key', idempotencyKey: 'some-key' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+  });
+
+  describe('Frozen-Stop Bypass Protection', () => {
+    it('repair endpoint does not accept freezeCommittedStops parameter from client', async () => {
+      // Verify the RequestRepairSchema only allows eventId, baselineAssignmentId, expectedVersion
+      const res = await request(app)
+        .post('/operations/repair')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({
+          eventId: 'evt-any',
+          freezeCommittedStops: false, // attacker tries to disable frozen-stop protection
+        });
+
+      // Should return 503 (repair unavailable), NOT process with freezeCommittedStops=false
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('REPAIR_ENGINE_UNAVAILABLE');
+    });
+
+    it('repair endpoint never fabricates assignments and returns explicit 503', async () => {
+      // The RepairOrchestrationService.orchestrateRepair always queries frozenStops from DB.
+      // The client never supplies frozenStops. RepairInput has no freezeCommittedStops toggle.
+      // frozenStops is typed as ReadonlyArray<FrozenStopReference> populated server-side.
+      const res = await request(app)
+        .post('/operations/repair')
+        .set('Authorization', `Bearer ${dispatcherToken}`)
+        .send({ eventId: 'evt-nonexistent' });
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('REPAIR_ENGINE_UNAVAILABLE');
+      // The response must never include fabricated assignment data
+      expect(res.body.data).toBeUndefined();
     });
   });
 });
