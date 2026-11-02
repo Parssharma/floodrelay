@@ -157,5 +157,59 @@ export function createRequestsRouter(
     },
   );
 
+  // POST /requests/:id/cancel - Cancel rescue request (Preserves committed missions)
+  router.post(
+    '/:id/cancel',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        if (!id) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Request ID parameter is required',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const operator = req.operator;
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+
+        try {
+          const cancelled = await requestService.cancelRequest(id, {
+            actorId: operator?.username ?? null,
+            actorType: operator ? 'OPERATOR' : 'CITIZEN',
+            reason,
+          });
+
+          res.status(200).json({
+            success: true,
+            message: 'Rescue request cancelled successfully',
+            data: cancelled,
+          });
+        } catch (domainErr: unknown) {
+          const code = (domainErr as { code?: string }).code;
+          const statusCode = (domainErr as { statusCode?: number }).statusCode;
+          if (code && statusCode) {
+            res.status(statusCode).json({
+              error: {
+                code,
+                message: (domainErr as Error).message,
+                timestamp: new Date().toISOString(),
+              },
+            });
+            return;
+          }
+          throw domainErr;
+        }
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   return router;
 }
