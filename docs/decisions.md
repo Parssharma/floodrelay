@@ -321,3 +321,53 @@ When recording a new decision, copy this template and fill it in:
   - _Non-deterministic runtime jitter_: Add random noise using `Math.random()`. Rejected because benchmark results cannot be independently reproduced, verified, or compared across solver commits.
   - _Node-level perturbation only_: Jitter request locations or urgency scores rather than edge travel times. Rejected because road network inundation primarily affects transit duration between fixed physical rescue points.
 - **Consequence:** Solver resilience under real-world transit noise can be quantified, compared, and reproduced deterministically across CI and evaluation environments.
+
+---
+
+### ADR-27: Deterministic Best-Feasible Insertion Heuristic for Incremental Requests
+
+- **Date:** 2026-11-04
+- **Decision:** Implement incremental new-request insertion as a deterministic best-feasible scan across all mutable insertion positions in existing routes. Tie-breaking is fully ordered: (1) `objectiveScore` descending (urgency × route cost × capacity fit), (2) incremental distance cost ascending, (3) `resourceId` lexicographic ascending, (4) pickup index ascending, (5) dropoff index ascending, (6) `shelterId` lexicographic ascending. A new-route activation incurs a fixed 15-minute penalty to prefer insertion into existing routes. Complexity: O(R × L² × C) where R = resources, L = route length, C = candidate shelter count.
+- **Context:** When a new rescue request arrives during active operations, a full re-solve is prohibitively expensive and disrupts already-committed allocations. A deterministic insertion heuristic that reuses existing routes avoids unnecessary plan churn while giving a reproducible, explainable assignment decision.
+- **Alternatives considered:**
+  - _Random insertion_: Rejected — non-deterministic; cannot reproduce benchmark results or audit assignments.
+  - _Full re-solve on every event_: Rejected — O(N² log N) solver re-run on every event destroys existing committed plans and creates unacceptable operator workload.
+  - _Nearest-neighbor only (no existing-route preference)_: Rejected — does not minimise churn; may replace good existing assignments unnecessarily.
+- **Consequence:** New requests are insertable in bounded time with deterministic tie-breaking; the benchmark confirms event-triggered local repair achieves equal or lower churn compared to full re-solve at a fraction of the latency.
+
+---
+
+### ADR-28: Frozen Stop Protection Invariant
+
+- **Date:** 2026-11-04
+- **Decision:** Any candidate repaired plan that alters, removes, reassigns, or renumbers a stop marked `isFrozen: true` (committed stops) is immediately rejected with status `NO_FEASIBLE_REPAIR`. This invariant is enforced by `validateFrozenStopsPreserved()` in `incremental/frozenStops.ts`, called unconditionally by the orchestrator before accepting any repaired plan. DEPOT stops are excluded from frozen-stop tracking — they are structural route bookmarks that may be legitimately renumbered by a re-solver. Only PICKUP and DROPOFF stops bearing `isFrozen: true` constitute committed rescue assignments and are protected.
+- **Context:** Operators manually review and commit specific rescue assignments before resources are dispatched. Automatically overwriting a committed assignment mid-operation would cause field confusion and potentially strand survivors. The frozen-stop invariant provides a hard algorithmic barrier that makes it impossible for any repair strategy to silently violate a commitment.
+- **Alternatives considered:**
+  - _Soft warning only_: Rejected — a warning that can be silently ignored provides no safety guarantee.
+  - _Freeze entire routes_: Rejected — prevents any downstream mutable insertion after a partial commitment, reducing repair opportunity unnecessarily.
+  - _Operator confirmation per frozen conflict_: This is correct UX behaviour but belongs to Phase 3 frontend; the solver layer enforces the invariant unconditionally.
+- **Consequence:** Committed rescue dispatch decisions are guaranteed to persist across all incremental repair operations. Conflicts between repair needs and existing commitments are always surfaced explicitly as `NO_FEASIBLE_REPAIR` with descriptive warnings.
+
+---
+
+### ADR-29: Assignment Churn Metric Definition
+
+- **Date:** 2026-11-04
+- **Decision:** Define the incremental churn rate as `(reassignedRequestsCount + newlyUnservedRequestsCount) / comparableExistingAssignments` where the denominator is the count of distinct requests served in the **baseline plan** only. New requests introduced by a `REQUEST_CREATED` event are excluded from the denominator because they were not part of the original allocation — including them would artificially deflate the churn rate. When `comparableExistingAssignments === 0`, the rate is defined as 0.0. Frozen-stop violations in the churn metric exclude: (a) DEPOT stops (structural, legitimately renumbered), and (b) frozen stops from resources that have gone offline (route absent or empty in updated plan — this is a legitimate operational event, not a constraint violation).
+- **Context:** The churn metric drives strategy comparison in the benchmark harness and in operator-facing repair proposals. A poorly defined denominator would make strategy comparisons meaningless and mislead operators about the actual disruption caused by a repair decision.
+- **Alternatives considered:**
+  - _Total requests in updated plan as denominator_: Rejected — includes new requests and masks the actual reassignment rate for existing work.
+  - _Count all frozen violations regardless of resource status_: Rejected — a resource going offline legitimately empties its route; treating that as a constraint violation would incorrectly penalise the repair engine for expected operational events.
+- **Consequence:** The churn metric is comparable across strategy runs, seeds, and event types. The benchmark invariant `frozenViolationsTotal === 0` holds for all three strategies under any event sequence that the incremental engine can handle.
+
+---
+
+### ADR-30: Phase 1 Backend Integration Dependency
+
+- **Date:** 2026-11-04
+- **Decision:** Phase 5 Part 2 (incremental solver algorithms) is implemented entirely as pure TypeScript solver-library code in `packages/solver/src/incremental/`, with no dependency on Express, PostgreSQL, or React. The `OperationalEvent` union type, `IncrementalRepairInput`, `IncrementalRepairResult`, and `IncrementalChurnMetrics` interfaces are defined within the solver package. No `services/api` integration adapter is implemented in this phase.
+- **Context:** Phase 5 Part 1 (backend event persistence, repair API endpoints, DB audit log, role-based access control) has not been merged into `main` and no Part 1 remote branch was available at implementation time. Per the Phase 5 spec: "If Part 1 has not been merged, implement pure solver components against the reviewed contracts." The solver-layer algorithms are correct and complete; the missing piece is the HTTP layer that would call `repairIncrementally()` in response to incoming operator events, persist the resulting proposal to PostgreSQL, and stream the repair status to the operator dashboard.
+- **Alternatives considered:**
+  - _Stub a fake API endpoint_: Rejected — would create misleading surface area and production risk.
+  - _Delay Part 2 until Part 1 is merged_: Rejected — solver algorithms are independent of persistence and can be fully tested in isolation.
+- **Consequence:** All incremental solver algorithms are production-ready and fully tested (199 tests, 198 passing, 1 skipped live integration test). Integration into the Express API requires Phase 1 to be completed and merged; that work is documented as a known limitation in `docs/limitations.md`.

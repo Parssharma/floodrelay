@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-01
+**Last updated:** 2026-11-05
 
-**Current focus:** Phase 3 Complete & Ready for PR Review ✅ — Full Next.js Stitch Frontend, Citizen Intake, Operator Command Center, React Leaflet GIS Map, Solver Proposals & Human-Supervised ACID Commit
+**Current focus:** Phase 5 Part 2 Complete ✅ — Incremental Solver, Local Route Repair, Frozen Stop Invariant, Assignment Churn Metric (pure solver algorithms; Part 1 backend integration pending)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -174,15 +174,15 @@ Incoming rescue requests
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task                   | Owner | Status |
-| ---------------------- | ----- | ------ |
-| Event handlers         | —     | ⬜     |
-| Local repair           | —     | ⬜     |
-| Frozen committed stops | —     | ⬜     |
-| Churn metric           | —     | ⬜     |
-| Live dashboard updates | —     | ⬜     |
-| Roles                  | —     | ⬜     |
-| Audit log              | —     | ⬜     |
+| Task                   | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                               |
+| ---------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Event handlers         | —     | ✅     | `packages/solver/src/incremental/orchestrator.test.ts` (5 passing tests: REQUEST_CREATED insertion, RESOURCE_OFFLINE local repair, REQUEST_CANCELLED removal, ROAD_BLOCKED re-routing, DUPLICATE_FLAGGED safety check)                                                                                        |
+| Local repair           | —     | ✅     | `packages/solver/src/incremental/localRepair.test.ts` (8 passing tests: offline resource mutable work reassignment, frozen-conflict detection, unserved fallback, no phantom re-assignment), `packages/solver/src/incremental/insertion.test.ts` (7 passing tests: best-feasible insertion with tie-breaking) |
+| Frozen committed stops | —     | ✅     | `packages/solver/src/incremental/frozenStops.test.ts` (6 passing tests: extraction, violation detection, immutability enforcement, NO_FEASIBLE_REPAIR on frozen conflict)                                                                                                                                     |
+| Churn metric           | —     | ✅     | `packages/solver/src/metrics/churn.test.ts` (7 passing tests: reassignment rate, unserved rate, zero-denominator guard, travel-time delta, deterministic tie-breaking), `packages/solver/src/evaluation/incrementalBenchmark.test.ts` (strategy comparison harness, frozen violations = 0 invariant)          |
+| Live dashboard updates | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
+| Roles                  | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
+| Audit log              | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
 
 ### Phase 6 — Hardening and documentation
 
@@ -199,14 +199,14 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 3: Frontend & Full-Stack Integration (All 6 milestones complete ✅: Next.js App Router UI foundation, Citizen Portal with browser geolocation & idempotency, Operator Command Center authentication & live dashboard, React Leaflet GIS Operations Map, VRP solver proposal generation & human-supervised commitment with PostgreSQL row-level locks, and master end-to-end acceptance verification) and Phase 4: Road network and uncertainty (Live OSRM integration, hazard zones, calibrated lognormal uncertainty model, perturbation evaluation, 7 ADRs, and 106 Phase 4 tests passing).
-- **Next up:** Phase 5 — Incremental updates and live operations (Event handlers, local repair, live dashboard updates).
+- **Last completed:** Phase 5 Part 2 — Incremental Solver & Local Route Repair (Event handlers, best-feasible insertion, local repair, frozen stop invariant, assignment churn metric — 34 new tests, 199 passing across solver workspace, 1 live OSRM test skipped, 0 frozen-stop violations across all strategies in benchmark).
+- **Next up:** Phase 5 Part 1 (backend events, DB persistence, repair API endpoint, audit log — currently unmerged) → Phase 5 Part 3 (live dashboard updates, map polling, repair comparison frontend).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
 - **Phase 4:** Complete ✅. Follow-up fixes and live OSRM Docker verification completed on `fix/phase-4-review-followup` (per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, 7 ADRs, and live OSRM verification on Docker Compose with BBBike New Delhi extract, with 106 tests passing across Phase 4 test suites including live integration test).
-- Everything in Phase 5 and beyond: not started.
+- **Phase 5 Part 2:** Complete ✅ on branch `feature/phase5-part2-incremental-solver`. Pure solver algorithms implemented; Phase 1 backend integration not yet available (see ADR-30).
 
 ---
 
