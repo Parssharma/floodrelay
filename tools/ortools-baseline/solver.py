@@ -20,15 +20,19 @@ from typing import Any
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
+def _get_status_code(name: str, fallback: int) -> int:
+    val = getattr(pywrapcp.RoutingModel, name, getattr(routing_enums_pb2.RoutingSearchStatus, name, None))
+    return fallback if val is None else val
+
 ROUTING_STATUS_NAMES: dict[int, str] = {
-    pywrapcp.RoutingModel.ROUTING_NOT_SOLVED: "NOT_SOLVED",
-    pywrapcp.RoutingModel.ROUTING_SUCCESS: "FEASIBLE_LOCAL_OPTIMUM",
-    pywrapcp.RoutingModel.ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED: "FEASIBLE_TIME_LIMIT_REACHED",
-    pywrapcp.RoutingModel.ROUTING_FAIL: "NO_SOLUTION_FOUND",
-    pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT: "TIMEOUT_NO_SOLUTION",
-    pywrapcp.RoutingModel.ROUTING_INVALID: "INVALID_MODEL",
-    pywrapcp.RoutingModel.ROUTING_INFEASIBLE: "PROVEN_INFEASIBLE",
-    pywrapcp.RoutingModel.ROUTING_OPTIMAL: "PROVEN_GLOBAL_OPTIMUM",
+    _get_status_code("ROUTING_NOT_SOLVED", 0): "NOT_SOLVED",
+    _get_status_code("ROUTING_SUCCESS", 1): "FEASIBLE_LOCAL_OPTIMUM",
+    _get_status_code("ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED", 2): "FEASIBLE_TIME_LIMIT_REACHED",
+    _get_status_code("ROUTING_FAIL", 3): "NO_SOLUTION_FOUND",
+    _get_status_code("ROUTING_FAIL_TIMEOUT", 4): "TIMEOUT_NO_SOLUTION",
+    _get_status_code("ROUTING_INVALID", 5): "INVALID_MODEL",
+    _get_status_code("ROUTING_INFEASIBLE", 6): "PROVEN_INFEASIBLE",
+    _get_status_code("ROUTING_OPTIMAL", 7): "PROVEN_GLOBAL_OPTIMUM",
 }
 
 try:
@@ -441,8 +445,8 @@ def solve(
         raw_status, f"STATUS_{raw_status}"
     )
     timed_out = raw_status in (
-        pywrapcp.RoutingModel.ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED,
-        pywrapcp.RoutingModel.ROUTING_FAIL_TIMEOUT,
+        _get_status_code("ROUTING_PARTIAL_SUCCESS_LOCAL_OPTIMUM_NOT_REACHED", 2),
+        _get_status_code("ROUTING_FAIL_TIMEOUT", 4),
     )
 
     for req in candidate_requests:
