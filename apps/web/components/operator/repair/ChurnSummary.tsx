@@ -45,7 +45,14 @@ export default function ChurnSummary({
     };
   };
 
-  const severity = getChurnSeverity(churnPercent);
+  const isChurnValid = churnPercent != null && !isNaN(churnPercent);
+  const severity = isChurnValid
+    ? getChurnSeverity(churnPercent)
+    : {
+        label: 'Metric not available',
+        badgeClass: 'bg-surface-container text-on-surface-variant border-outline-variant',
+        barClass: 'bg-surface-variant',
+      };
 
   return (
     <div className="bg-surface-container-low border border-outline-variant/30 rounded-xl p-4 space-y-4">
@@ -63,7 +70,9 @@ export default function ChurnSummary({
           <span
             className={`text-xs font-semibold px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5 w-fit ${severity.badgeClass}`}
           >
-            <span className="font-mono font-bold">{churnPercent}% Churn</span>
+            <span className="font-mono font-bold">
+              {isChurnValid ? `${churnPercent}% Churn` : 'Not available'}
+            </span>
             <span>•</span>
             <span>{severity.label}</span>
           </span>
@@ -73,7 +82,7 @@ export default function ChurnSummary({
         <div className="w-full bg-surface-container-highest h-2.5 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${severity.barClass}`}
-            style={{ width: `${Math.min(churnPercent, 100)}%` }}
+            style={{ width: `${isChurnValid ? Math.min(churnPercent, 100) : 0}%` }}
           />
         </div>
         <div className="flex justify-between text-[10px] text-on-surface-variant font-mono mt-1">

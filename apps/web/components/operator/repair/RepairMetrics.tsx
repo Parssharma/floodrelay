@@ -20,18 +20,18 @@ export default function RepairMetrics({
   highPriorityWaitDeltaMinutes = 0,
   unservedDelta = 0,
 }: RepairMetricsProps) {
-  const baseCoverage = baselineMetrics?.coveragePercent ?? 0;
-  const repCoverage = repairedMetrics?.coveragePercent ?? 0;
+  const baseCoverage = baselineMetrics?.coveragePercent;
+  const repCoverage = repairedMetrics?.coveragePercent;
 
-  const baseTravel = baselineMetrics?.totalTravelTimeMinutes ?? 0;
-  const repTravel = repairedMetrics?.totalTravelTimeMinutes ?? 0;
+  const baseTravel = baselineMetrics?.totalTravelTimeMinutes;
+  const repTravel = repairedMetrics?.totalTravelTimeMinutes;
 
-  const baseWait = baselineMetrics?.highPriorityWaitTimeMinutes ?? 0;
-  const repWait = repairedMetrics?.highPriorityWaitTimeMinutes ?? 0;
+  const baseWait = baselineMetrics?.highPriorityWaitTimeMinutes;
+  const repWait = repairedMetrics?.highPriorityWaitTimeMinutes;
 
-  const repServed = repairedMetrics?.servedRequestsCount ?? 0;
-  const baseUnserved = baselineMetrics?.unservedRequestsCount ?? 0;
-  const repUnserved = repairedMetrics?.unservedRequestsCount ?? 0;
+  const repServed = repairedMetrics?.servedRequestsCount;
+  const baseUnserved = baselineMetrics?.unservedRequestsCount;
+  const repUnserved = repairedMetrics?.unservedRequestsCount;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -41,7 +41,9 @@ export default function RepairMetrics({
           Population Coverage
         </div>
         <div className="mt-2 flex items-baseline justify-between">
-          <div className="text-2xl font-black font-mono text-on-surface">{repCoverage}%</div>
+          <div className="text-2xl font-black font-mono text-on-surface">
+            {repCoverage != null ? `${repCoverage}%` : 'Not available'}
+          </div>
           <span
             className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
               coverageDeltaPercent > 0
@@ -55,7 +57,7 @@ export default function RepairMetrics({
           </span>
         </div>
         <div className="text-[10px] text-on-surface-variant mt-1 font-mono">
-          Baseline: {baseCoverage}%
+          Baseline: {baseCoverage != null ? `${baseCoverage}%` : 'Not available'}
         </div>
       </div>
 
@@ -65,7 +67,9 @@ export default function RepairMetrics({
           Fleet Travel Time
         </div>
         <div className="mt-2 flex items-baseline justify-between">
-          <div className="text-2xl font-black font-mono text-on-surface">{repTravel}m</div>
+          <div className="text-2xl font-black font-mono text-on-surface">
+            {repTravel != null ? `${repTravel}m` : 'Not available'}
+          </div>
           <span
             className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
               travelTimeDeltaMinutes < 0
@@ -81,7 +85,7 @@ export default function RepairMetrics({
           </span>
         </div>
         <div className="text-[10px] text-on-surface-variant mt-1 font-mono">
-          Baseline: {baseTravel}m
+          Baseline: {baseTravel != null ? `${baseTravel}m` : 'Not available'}
         </div>
       </div>
 
@@ -91,7 +95,9 @@ export default function RepairMetrics({
           Critical / High Wait
         </div>
         <div className="mt-2 flex items-baseline justify-between">
-          <div className="text-2xl font-black font-mono text-on-surface">{repWait}m</div>
+          <div className="text-2xl font-black font-mono text-on-surface">
+            {repWait != null ? `${repWait}m` : 'Not available'}
+          </div>
           <span
             className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
               highPriorityWaitDeltaMinutes < 0
@@ -107,7 +113,7 @@ export default function RepairMetrics({
           </span>
         </div>
         <div className="text-[10px] text-on-surface-variant mt-1 font-mono">
-          Baseline: {baseWait}m
+          Baseline: {baseWait != null ? `${baseWait}m` : 'Not available'}
         </div>
       </div>
 
@@ -117,7 +123,9 @@ export default function RepairMetrics({
           Unserved Incidents
         </div>
         <div className="mt-2 flex items-baseline justify-between">
-          <div className="text-2xl font-black font-mono text-on-surface">{repUnserved}</div>
+          <div className="text-2xl font-black font-mono text-on-surface">
+            {repUnserved != null ? repUnserved : 'Not available'}
+          </div>
           <span
             className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
               unservedDelta < 0
@@ -131,7 +139,8 @@ export default function RepairMetrics({
           </span>
         </div>
         <div className="text-[10px] text-on-surface-variant mt-1 font-mono">
-          Repaired: {repServed} served (Base unserved: {baseUnserved})
+          Repaired: {repServed != null ? `${repServed} served` : 'Not available'} (Base unserved:{' '}
+          {baseUnserved != null ? baseUnserved : 'Not available'})
         </div>
       </div>
     </div>

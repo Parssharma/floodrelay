@@ -237,7 +237,7 @@ function OperatorMapContent() {
         <div className="flex items-center gap-3">
           <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            POSTGIS REALTIME
+            LIVE INCIDENTS • REFERENCE FLEET & HAZARDS
           </span>
           <LiveStatusIndicator
             status={liveStatus}
@@ -271,7 +271,7 @@ function OperatorMapContent() {
                 </span>
               </label>
 
-              {/* Craft Layer */}
+              {/* Craft Layer (Reference) */}
               <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-teal-950/40 border border-teal-500/40 text-slate-100 cursor-pointer hover:bg-teal-900/40 transition-colors">
                 <input
                   type="checkbox"
@@ -282,13 +282,13 @@ function OperatorMapContent() {
                 <span className="material-symbols-outlined text-[14px] text-teal-400">
                   directions_boat
                 </span>
-                <span className="font-medium">Staged Fleet</span>
+                <span className="font-medium">Reference Fleet (Simulated)</span>
                 <span className="ml-0.5 px-1.5 py-0.2 rounded bg-teal-700 text-white font-mono text-[10px] font-bold">
                   {STAGED_SECTOR_FLEET.length}
                 </span>
               </label>
 
-              {/* Shelters Layer */}
+              {/* Shelters Layer (Reference) */}
               <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-950/40 border border-emerald-500/40 text-slate-100 cursor-pointer hover:bg-emerald-900/40 transition-colors">
                 <input
                   type="checkbox"
@@ -299,7 +299,7 @@ function OperatorMapContent() {
                 <span className="material-symbols-outlined text-[14px] text-emerald-400">
                   night_shelter
                 </span>
-                <span className="font-medium">Shelters</span>
+                <span className="font-medium">Relief Shelters (Reference)</span>
                 <span className="ml-0.5 px-1.5 py-0.2 rounded bg-emerald-700 text-white font-mono text-[10px] font-bold">
                   {STAGED_SECTOR_SHELTERS.length}
                 </span>
@@ -317,7 +317,7 @@ function OperatorMapContent() {
                 <span className="font-medium">Transit Vectors</span>
               </label>
 
-              {/* Road Hazard Blockages Layer */}
+              {/* Road Hazard Blockages Layer (Reference) */}
               <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-rose-950/40 border border-rose-500/40 text-slate-100 cursor-pointer hover:bg-rose-900/40 transition-colors">
                 <input
                   type="checkbox"
@@ -326,7 +326,7 @@ function OperatorMapContent() {
                   className="rounded text-rose-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-400 cursor-pointer"
                 />
                 <span className="material-symbols-outlined text-[14px] text-rose-400">traffic</span>
-                <span className="font-medium">Hazard Zones</span>
+                <span className="font-medium">Hazard Zones (Reference Z-402/Z-405)</span>
                 <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
                   {STAGED_SECTOR_BLOCKED_ZONES.length}
                 </span>
@@ -346,6 +346,24 @@ function OperatorMapContent() {
                 <span className="font-medium">Repair Overlay</span>
               </label>
             </div>
+
+            {/* Simulated Repair Preview Notice Banner */}
+            {layers.repairOverlay && (
+              <div className="bg-purple-950/90 backdrop-blur-md border border-purple-500/80 p-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs text-purple-200 animate-in fade-in">
+                <span className="material-symbols-outlined text-[16px] text-purple-400 shrink-0">
+                  alt_route
+                </span>
+                <div>
+                  <span className="font-bold font-mono text-[11px]">
+                    [SIMULATED REPAIR PREVIEW — NOT COMMITTED]
+                  </span>
+                  <span className="text-purple-300/90 text-[11px] block">
+                    Displaying synthetic test fixture routes. Map overlay is strictly read-only; no
+                    commit action is available.
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Filter Dropdowns and Tile Theme */}
             <div className="flex items-center gap-2 flex-wrap">

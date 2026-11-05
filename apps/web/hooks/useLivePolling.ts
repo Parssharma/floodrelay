@@ -60,6 +60,7 @@ export function useLivePolling<T>(
     initialData !== undefined ? new Date() : null,
   );
 
+  // Keep latest mutable references
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -69,40 +70,52 @@ export function useLivePolling<T>(
   const onSuccessRef = useRef(onSuccess);
   onSuccessRef.current = onSuccess;
 
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const optionsRef = useRef({ intervalMs, enabled, pauseWhenHidden, maxBackoffMs });
+  optionsRef.current = { intervalMs, enabled, pauseWhenHidden, maxBackoffMs };
+
+  const statusRef = useRef<LivePollingStatus>(status);
+  statusRef.current = status;
+
+  const dataRef = useRef<T | undefined>(data);
+  dataRef.current = data;
+
+  const isMountedRef = useRef<boolean>(true);
   const isPollingRef = useRef<boolean>(false);
   const seqRef = useRef<number>(0);
   const backoffDelayRef = useRef<number>(intervalMs);
   const timeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dataRef = useRef<T | undefined>(data);
-  dataRef.current = data;
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Cleanup helper
-  const clearTimer = () => {
+  const clearTimer = useCallback(() => {
     if (timeoutIdRef.current) {
       clearTimeout(timeoutIdRef.current);
       timeoutIdRef.current = null;
     }
-  };
+  }, []);
 
-  const abortInFlight = () => {
+  const abortInFlight = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-  };
+    isPollingRef.current = false;
+  }, []);
 
+  // Stable execution function that does NOT recreate on status change
   const executePoll = useCallback(
     async (isManual = false): Promise<void> => {
-      if (!enabled) return;
+      if (!optionsRef.current.enabled || !isMountedRef.current) return;
 
-      // Prevent duplicate overlapping requests
-      if (isPollingRef.current) {
+      // Prevent overlapping duplicate polls
+      if (isPollingRef.current && !isManual) {
         return;
       }
 
-      clearTimer();
-      abortInFlight();
+      // If manual refresh, cancel any pending timer and in-flight request to prioritize manual fetch
+      if (isManual) {
+        clearTimer();
+        abortInFlight();
+      }
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -110,17 +123,15 @@ export function useLivePolling<T>(
       const currentSeq = ++seqRef.current;
 
       const hasExistingData = dataRef.current !== undefined;
-      if (!hasExistingData) {
-        setStatus('INITIAL_LOADING');
-      } else {
-        setStatus('REFRESHING');
-      }
+      const nextStatus: LivePollingStatus = hasExistingData ? 'REFRESHING' : 'INITIAL_LOADING';
+      statusRef.current = nextStatus;
+      setStatus(nextStatus);
 
       try {
         const result = await fetcherRef.current(controller.signal);
 
-        // Discard stale responses if newer poll started
-        if (currentSeq !== seqRef.current) {
+        // Ignore if unmounted or if a newer poll has superseded this one
+        if (!isMountedRef.current || currentSeq !== seqRef.current) {
           return;
         }
 
@@ -129,11 +140,12 @@ export function useLivePolling<T>(
         const now = new Date();
         setLastUpdated(now);
         setError(null);
+        statusRef.current = 'UP_TO_DATE';
         setStatus('UP_TO_DATE');
-        backoffDelayRef.current = intervalMs; // Reset backoff on success
+        backoffDelayRef.current = optionsRef.current.intervalMs; // Reset backoff on success
         onSuccessRef.current?.(result);
       } catch (err: unknown) {
-        if (currentSeq !== seqRef.current) {
+        if (!isMountedRef.current || currentSeq !== seqRef.current) {
           return;
         }
 
@@ -146,80 +158,70 @@ export function useLivePolling<T>(
         setError(errorObj);
         onErrorRef.current?.(errorObj);
 
-        // Check for auth / permission errors
+        // Check for auth / permission errors (401/403 terminates polling)
         if (err instanceof ApiClientError) {
           if (err.statusCode === 401) {
+            statusRef.current = 'UNAUTHORIZED';
             setStatus('UNAUTHORIZED');
-            // Stop polling on 401
             return;
           }
           if (err.statusCode === 403) {
+            statusRef.current = 'FORBIDDEN';
             setStatus('FORBIDDEN');
-            // Stop polling on 403
             return;
           }
           if (err.isNetworkError) {
+            statusRef.current = 'OFFLINE';
             setStatus('OFFLINE');
           } else {
+            statusRef.current = 'STALE';
             setStatus('STALE');
           }
         } else {
+          statusRef.current = 'STALE';
           setStatus('STALE');
         }
 
         // Bounded exponential backoff on failure
-        backoffDelayRef.current = Math.min(backoffDelayRef.current * 1.5, maxBackoffMs);
+        backoffDelayRef.current = Math.min(
+          backoffDelayRef.current * 1.5,
+          optionsRef.current.maxBackoffMs,
+        );
       } finally {
         isPollingRef.current = false;
         abortControllerRef.current = null;
 
-        // Schedule next polling cycle if still enabled and not stopped by 401/403
-        if (enabled && status !== 'UNAUTHORIZED' && status !== 'FORBIDDEN') {
-          // If browser tab is visible, queue next poll
+        // Schedule next polling cycle if still mounted, enabled, and not terminated by auth failure
+        if (
+          isMountedRef.current &&
+          optionsRef.current.enabled &&
+          statusRef.current !== 'UNAUTHORIZED' &&
+          statusRef.current !== 'FORBIDDEN'
+        ) {
           const isHidden = typeof document !== 'undefined' && document.hidden;
-          if (!pauseWhenHidden || !isHidden) {
+          if (!optionsRef.current.pauseWhenHidden || !isHidden) {
             clearTimer();
-            timeoutIdRef.current = setTimeout(
-              () => {
-                void executePoll(false);
-              },
-              isManual ? intervalMs : backoffDelayRef.current,
-            );
+            const delay = isManual ? optionsRef.current.intervalMs : backoffDelayRef.current;
+            timeoutIdRef.current = setTimeout(() => {
+              void executePoll(false);
+            }, delay);
           }
         }
       }
     },
-    [enabled, intervalMs, maxBackoffMs, pauseWhenHidden, status],
+    [clearTimer, abortInFlight],
   );
 
   // Manual refresh trigger
   const refresh = useCallback(async (): Promise<void> => {
-    backoffDelayRef.current = intervalMs;
+    backoffDelayRef.current = optionsRef.current.intervalMs;
     await executePoll(true);
-  }, [executePoll, intervalMs]);
+  }, [executePoll]);
 
-  // Handle visibility changes (pause when hidden, resume & refresh on visible)
+  // Primary lifecycle effect: controlled solely by `enabled` and initial mount
   useEffect(() => {
-    if (typeof document === 'undefined' || !pauseWhenHidden) return;
+    isMountedRef.current = true;
 
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Tab hidden: clear upcoming timeout to pause polling
-        clearTimer();
-      } else {
-        // Tab visible again: refresh immediately and resume schedule
-        void executePoll(false);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [executePoll, pauseWhenHidden]);
-
-  // Primary lifecycle effect: start on mount / when enabled changes
-  useEffect(() => {
     if (!enabled) {
       clearTimer();
       abortInFlight();
@@ -229,10 +231,33 @@ export function useLivePolling<T>(
     void executePoll(false);
 
     return () => {
+      isMountedRef.current = false;
       clearTimer();
       abortInFlight();
     };
-  }, [enabled, executePoll]);
+  }, [enabled, executePoll, clearTimer, abortInFlight]);
+
+  // Handle visibility changes (pause when hidden, resume & refresh once on visible)
+  useEffect(() => {
+    if (typeof document === 'undefined' || !pauseWhenHidden) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden: cancel upcoming timer to pause polling
+        clearTimer();
+      } else {
+        // Tab visible again: refresh once immediately if not already polling
+        if (!isPollingRef.current && enabled) {
+          void executePoll(false);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [enabled, executePoll, clearTimer, pauseWhenHidden]);
 
   // Derived user-facing label
   const statusLabel = (() => {

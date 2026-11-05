@@ -17,8 +17,13 @@ import { SIMULATED_RESOURCES } from '@/lib/fixtures/resources';
 
 interface DashboardData {
   requests: RescueRequest[];
-  assignments: AssignmentRecord[];
-  recentEvents: OperationalEvent[];
+  assignments: AssignmentRecord[] | null;
+  recentEvents: OperationalEvent[] | null;
+  assignmentsError: string | null;
+  assignmentsStale: boolean;
+  eventsError: string | null;
+  eventsStale: boolean;
+  hasPartialFailure: boolean;
 }
 
 export default function OperatorOverviewPage() {
@@ -28,27 +33,73 @@ export default function OperatorOverviewPage() {
   const [isRoadBlockageOpen, setIsRoadBlockageOpen] = useState<boolean>(false);
   const [resources] = useState<RescueResource[]>(() => [...SIMULATED_RESOURCES]);
 
-  // Combined Live Polling for Dashboard
+  const previousDataRef = React.useRef<{
+    assignments: AssignmentRecord[] | null;
+    recentEvents: OperationalEvent[] | null;
+  }>({
+    assignments: null,
+    recentEvents: null,
+  });
+
+  // Combined Live Polling for Dashboard with Domain Error Preservation
   const fetchDashboardData = useCallback(async (signal: AbortSignal): Promise<DashboardData> => {
-    const [requests, assignments, recentEvents] = await Promise.all([
-      apiClient.listRequests(undefined, signal).catch((err) => {
-        console.error('Failed to load requests:', err);
-        throw err;
-      }),
-      apiClient.listAssignments(undefined, signal).catch((err) => {
-        console.warn('Assignments list not yet available or empty:', err);
-        return [] as AssignmentRecord[];
-      }),
-      apiClient.listOperationalEvents({ limit: 5 }, signal).catch((err) => {
-        console.warn('Events feed not yet available:', err);
-        return [] as OperationalEvent[];
-      }),
+    const [requestsResult, assignmentsResult, eventsResult] = await Promise.allSettled([
+      apiClient.listRequests(undefined, signal),
+      apiClient.listAssignments(undefined, signal),
+      apiClient.listOperationalEvents({ limit: 5 }, signal),
     ]);
 
+    if (requestsResult.status === 'rejected') {
+      console.error('Failed to load requests:', requestsResult.reason);
+      throw requestsResult.reason;
+    }
+    const requests = requestsResult.value || [];
+
+    // Assignments domain error preservation
+    let assignments: AssignmentRecord[] | null = null;
+    let assignmentsError: string | null = null;
+    let assignmentsStale = false;
+
+    if (assignmentsResult.status === 'fulfilled') {
+      assignments = assignmentsResult.value || [];
+      previousDataRef.current.assignments = assignments;
+    } else {
+      const err = assignmentsResult.reason as Error;
+      assignmentsError = err?.message || 'Failed to fetch assignments';
+      console.warn('Assignments fetch failed in dashboard polling:', err);
+      if (previousDataRef.current.assignments !== null) {
+        assignments = previousDataRef.current.assignments;
+        assignmentsStale = true;
+      }
+    }
+
+    // Events domain error preservation
+    let recentEvents: OperationalEvent[] | null = null;
+    let eventsError: string | null = null;
+    let eventsStale = false;
+
+    if (eventsResult.status === 'fulfilled') {
+      recentEvents = eventsResult.value || [];
+      previousDataRef.current.recentEvents = recentEvents;
+    } else {
+      const err = eventsResult.reason as Error;
+      eventsError = err?.message || 'Failed to fetch operational events';
+      console.warn('Operational events fetch failed in dashboard polling:', err);
+      if (previousDataRef.current.recentEvents !== null) {
+        recentEvents = previousDataRef.current.recentEvents;
+        eventsStale = true;
+      }
+    }
+
     return {
-      requests: requests || [],
-      assignments: assignments || [],
-      recentEvents: recentEvents || [],
+      requests,
+      assignments,
+      recentEvents,
+      assignmentsError,
+      assignmentsStale,
+      eventsError,
+      eventsStale,
+      hasPartialFailure: Boolean(assignmentsError || eventsError),
     };
   }, []);
 
@@ -212,39 +263,68 @@ export default function OperatorOverviewPage() {
         </div>
       )}
 
+      {/* Partial Telemetry Failure Notice */}
+      {dashboardData?.hasPartialFailure && (
+        <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-600/60 text-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="material-symbols-outlined text-amber-400 text-lg">warning</span>
+            <div>
+              <span className="font-bold">Partial Telemetry Warning: </span>
+              <span>
+                One or more dashboard feeds failed to update. Previously cached data is retained
+                where available (not zeroed).
+              </span>
+              <div className="text-[11px] font-mono text-amber-300/90 mt-0.5 space-x-2">
+                {dashboardData.assignmentsError && (
+                  <span>
+                    • Assignments: <strong>{dashboardData.assignmentsError}</strong> (
+                    {dashboardData.assignmentsStale ? 'Cached data retained' : 'No prior cache'})
+                  </span>
+                )}
+                {dashboardData.eventsError && (
+                  <span>
+                    • Events: <strong>{dashboardData.eventsError}</strong> (
+                    {dashboardData.eventsStale ? 'Cached data retained' : 'No prior cache'})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            className="px-2.5 py-1 rounded bg-amber-900/60 hover:bg-amber-800 text-amber-100 font-semibold border border-amber-500/50 text-xs transition-colors"
+            onClick={() => void refresh()}
+            type="button"
+          >
+            Retry Feeds
+          </button>
+        </div>
+      )}
+
       {/* 4 PRIMARY METRIC CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Staged Rescue Fleet */}
+        {/* Metric 1: Reference Rescue Fleet */}
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between text-on-surface-variant mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider font-mono">
-              Active Rescue Fleet
+              Fleet Roster
             </span>
-            <span className="material-symbols-outlined text-primary text-[20px]">
-              directions_boat
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950/60 text-amber-400 border border-amber-500/40">
+              SIMULATED / REFERENCE
             </span>
           </div>
-          <div className="flex items-baseline gap-2 mb-2">
+          <div className="flex items-baseline gap-2 mb-1">
             <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
-              {metrics.availableResources}
+              {resources.length}
             </span>
-            <span className="text-xs text-on-surface-variant font-medium">
-              / {resources.length} craft ready
-            </span>
+            <span className="text-xs text-on-surface-variant font-medium">Reference Assets</span>
           </div>
-          <div className="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-primary h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${(metrics.availableResources / Math.max(1, resources.length)) * 100}%`,
-              }}
-            />
+          <div className="text-[10px] text-amber-500/90 font-mono leading-tight mb-2">
+            Authoritative resource read endpoint (GET /operations/resources) pending backend
+            integration
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
-            <span>Ready: {metrics.availableResources}</span>
-            <span className="text-rose-600 font-semibold">
-              {metrics.offlineResources} Offline/Maint
-            </span>
+          <div className="mt-2 pt-2 border-t border-outline-variant/40 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
+            <span>Standby: {resources.length} craft</span>
+            <span className="text-on-surface-variant/70 italic">Unpolled</span>
           </div>
         </div>
 
@@ -286,18 +366,46 @@ export default function OperatorOverviewPage() {
             <span className="text-xs font-semibold uppercase tracking-wider font-mono">
               Missions & Demand
             </span>
-            <span className="material-symbols-outlined text-primary text-[20px]">assignment</span>
+            {dashboardData?.assignmentsStale ? (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950/60 text-amber-300 border border-amber-600/40">
+                CACHED
+              </span>
+            ) : dashboardData?.assignmentsError && !dashboardData?.assignments ? (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950/60 text-rose-300 border border-rose-600/40">
+                UNAVAILABLE
+              </span>
+            ) : (
+              <span className="material-symbols-outlined text-primary text-[20px]">assignment</span>
+            )}
           </div>
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
-              {metrics.committedAssignmentsCount}
-            </span>
-            <span className="text-xs text-on-surface-variant font-medium">Committed Active</span>
-          </div>
-          <div className="flex items-center justify-between text-xs text-on-surface-variant font-mono">
-            <span>{metrics.proposedAssignmentsCount} Proposed</span>
-            <span className="text-amber-700 font-bold">{metrics.unservedCount} Unserved</span>
-          </div>
+          {dashboardData?.assignmentsError && !dashboardData?.assignments ? (
+            <div className="space-y-1 mb-2">
+              <span className="font-inter text-lg lg:text-xl font-bold text-rose-400">
+                Data Unavailable
+              </span>
+              <p
+                className="text-[10px] text-rose-300/80 font-mono truncate"
+                title={dashboardData.assignmentsError}
+              >
+                {dashboardData.assignmentsError}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
+                  {metrics.committedAssignmentsCount}
+                </span>
+                <span className="text-xs text-on-surface-variant font-medium">
+                  Committed Active
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-on-surface-variant font-mono">
+                <span>{metrics.proposedAssignmentsCount} Proposed</span>
+                <span className="text-amber-700 font-bold">{metrics.unservedCount} Unserved</span>
+              </div>
+            </>
+          )}
           <div className="mt-2 pt-2 border-t border-outline-variant/40 flex items-center justify-between text-[11px]">
             <Link
               className="text-primary font-semibold hover:underline"
@@ -317,7 +425,11 @@ export default function OperatorOverviewPage() {
             <span className="material-symbols-outlined text-primary text-[20px]">route</span>
           </div>
           <div className="flex items-baseline gap-2 mb-2">
-            {latestAssignment ? (
+            {dashboardData?.assignmentsError && !latestAssignment ? (
+              <span className="font-inter text-sm font-bold text-rose-400">
+                Unavailable (Fetch Error)
+              </span>
+            ) : latestAssignment ? (
               <>
                 <span className="font-inter text-2xl lg:text-3xl font-extrabold text-primary">
                   {latestAssignment.metrics?.coveragePercent || 0}%
@@ -515,15 +627,26 @@ export default function OperatorOverviewPage() {
                 <span className="material-symbols-outlined text-primary text-[18px]">radar</span>
                 <h3 className="text-sm font-bold text-on-surface">Recent Operational Events</h3>
               </div>
-              <Link
-                className="text-xs text-primary font-semibold hover:underline"
-                href="/operator/events"
-              >
-                All Events ({recentEvents.length}) →
-              </Link>
+              <div className="flex items-center gap-2">
+                {dashboardData?.eventsStale && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950/60 text-amber-300 border border-amber-600/40">
+                    CACHED
+                  </span>
+                )}
+                <Link
+                  className="text-xs text-primary font-semibold hover:underline"
+                  href="/operator/events"
+                >
+                  All Events ({recentEvents.length}) →
+                </Link>
+              </div>
             </div>
 
-            {recentEvents.length === 0 ? (
+            {dashboardData?.eventsError && !dashboardData?.recentEvents ? (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+                Failed to load operational events: {dashboardData.eventsError}
+              </div>
+            ) : recentEvents.length === 0 ? (
               <p className="text-xs text-on-surface-variant italic py-3 text-center">
                 No recent operational events recorded yet.
               </p>

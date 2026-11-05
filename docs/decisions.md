@@ -357,3 +357,51 @@ When recording a new decision, copy this template and fill it in:
   - _Return fake proposed plan in Part 1_: Return a static mock plan to simulate a working solver. Rejected because returning false success violates the project principle of honest status reporting and risks misleading operators.
   - _Omit the repair route entirely until Part 2_: Rejected because Part 1 requires stable backend API contracts for frontend and orchestration integration.
 - **Consequence:** The interface boundary for Part 2 is strictly defined and verified, with unambiguous error signaling until the repair solver is integrated.
+
+---
+
+### ADR-34: Shared Live Polling Lifecycle with Page Visibility API and Bounded Exponential Backoff
+
+- **Date:** 2026-11-05
+- **Decision:** Implement a centralized React polling hook (`useLivePolling`) using mutable refs (`optionsRef`, `statusRef`, `dataRef`, `isMountedRef`) and stable polling callbacks decoupled from internal polling status transitions. The lifecycle pauses polling on hidden tabs via the Page Visibility API, triggers a single refresh on foreground resume, uses bounded exponential backoff on transient errors (capped at 60s), terminates polling on HTTP 401/403 authorization failures, and preserves the last valid data during transient network errors.
+- **Context:** Frequent timer recreation and callback churn occurred when polling status was included in `useEffect` dependency arrays, causing unintentional restarts and overlapping in-flight HTTP requests.
+- **Alternatives considered:**
+  - _React Query or SWR library_: Rejected to maintain zero unvetted external dependencies and keep frontend bundle lightweight.
+  - _Native setInterval with raw fetch_: Rejected due to lack of cancellation on unmount, missing tab visibility pausing, and inability to handle exponential backoff safely.
+- **Consequence:** Stable, resource-efficient polling lifecycle across all operator dashboard, map, and event feed screens with cancellation safety and no memory leaks.
+
+---
+
+### ADR-35: Human-in-the-Loop Plan Repair Evaluation and Stability Churn Visualization
+
+- **Date:** 2026-11-05
+- **Decision:** Display comprehensive side-by-side plan comparisons between baseline assignments and proposed solver repairs, including overall churn percentage gauge, categorized stop status badges (FROZEN, ADDED, REMOVED, REASSIGNED, REORDERED, UNCHANGED), wait time and SLA impact deltas, and explicit warnings for unserved demand. Commitment requires dispatcher or admin authorization, manual review of frozen stops, and displays an explicit decision-support-only legal disclaimer.
+- **Context:** Automated re-optimization during disaster response risks operational chaos if vehicle crews are reassigned arbitrarily. Field supervisors must understand exactly what changes before confirming a plan.
+- **Alternatives considered:**
+  - _Automated background commitment without operator confirmation_: Rejected as dangerous in live flood environments where field conditions may deviate from solver inputs.
+  - _Text-only diff view_: Rejected because spatial and passenger capacity impacts cannot be visually evaluated without structured metrics and route stop diffs.
+- **Consequence:** Transparent decision support enabling dispatchers to weigh optimization gains against real-world disruption before committing revised routes.
+
+---
+
+### ADR-36: Isolated Deterministic Test Fixtures and Safe HTTP 503 Solver Fallback
+
+- **Date:** 2026-11-05
+- **Decision:** When the Phase 5 Part 2 incremental solver is unavailable (HTTP 503), the frontend surfaces a clear status banner and provides an isolated preview fixture (`SIMULATED_REPAIR_RESULT`) for UI validation. The fixture is strictly locked to prevent database commitments, and real operational data in the database remains unaltered.
+- **Context:** Part 3 frontend is being developed in parallel with Part 2 solver algorithms. The UI must be fully verifiable and testable without fabricating backend success or mocking database persistence.
+- **Alternatives considered:**
+  - _Mock solver responses inside backend API routes_: Rejected because Part 1 requires honest 503 signaling when no solver engine is registered.
+  - _Disable repair comparison UI entirely until Part 2 merges_: Rejected because frontend acceptance and UX validation must proceed in parallel.
+- **Consequence:** Frontend repair comparison is fully verified and documented while strictly preventing fake plan commits from mutating production or development databases.
+
+---
+
+### ADR-37: Authoritative Resource Inventory and GIS Layer Isolation with Endpoint Disclosure
+
+- **Date:** 2026-11-05
+- **Decision:** Visibly segregate real operational telemetry from reference/simulated models across the dashboard and GIS tactical map. Label the staged Harris County fleet as `[SIMULATED / REFERENCE]`, disclose that authoritative resource listing (`GET /operations/resources`) is pending backend implementation, block status mutations against simulated IDs, and provide an authentic database UUID override form for dispatchers. On the map, replace realtime claims with `LIVE INCIDENTS • REFERENCE FLEET & HAZARDS`, and require deliberate coordinate validation and hazard perimeter disclaimers on road blockage creation.
+- **Context:** The backend provides `PATCH /operations/resources/:id/status` but currently lacks a resource listing endpoint. Displaying simulated fleet counts as verified live availability would mislead field operations.
+- **Alternatives considered:**
+  - _Create a mock GET /operations/resources endpoint in API_: Rejected because Part 3 is strictly a frontend implementation; creating fake endpoints violates architectural boundaries.
+  - _Hide fleet information completely_: Rejected because dispatchers still need reference fleet specs and the capability to override authentic vehicle statuses by ID.
+- **Consequence:** 100% truthful data representation across the entire frontend with no fabricated operational activity and robust guardrails against database corruption.

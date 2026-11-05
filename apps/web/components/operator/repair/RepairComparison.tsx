@@ -218,7 +218,7 @@ export default function RepairComparison({
 
       {/* 4. Comparison Body */}
       <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(100vh-14rem)]">
-        {!activeBaseline || !activeRepairedPlan || !diffAnalysis ? (
+        {!activeRepairedPlan ? (
           <div className="p-12 text-center text-xs text-on-surface-variant space-y-2">
             <span className="material-symbols-outlined text-3xl text-on-surface-variant">
               pending_actions
@@ -233,6 +233,24 @@ export default function RepairComparison({
                 Inspect Simulated Fixture
               </button>
             )}
+          </div>
+        ) : !activeBaseline ? (
+          <div className="p-12 text-center text-xs text-on-surface-variant space-y-2">
+            <span className="material-symbols-outlined text-3xl text-amber-400">warning</span>
+            <p className="font-semibold text-on-surface">
+              Baseline Plan Not Available — Cannot compute comparative churn.
+            </p>
+            <p className="text-on-surface-variant max-w-sm mx-auto">
+              A baseline operational plan is required to calculate stop differences, passenger
+              movement, and schedule churn.
+            </p>
+          </div>
+        ) : !diffAnalysis ? (
+          <div className="p-12 text-center text-xs text-on-surface-variant space-y-2">
+            <span className="material-symbols-outlined text-3xl text-on-surface-variant">
+              sync_problem
+            </span>
+            <p>Plan differential analysis could not be computed.</p>
           </div>
         ) : (
           <>
@@ -266,6 +284,17 @@ export default function RepairComparison({
 
             {/* Stop-by-Stop Diff Breakdown */}
             <ChangedStopList stopDiffs={diffAnalysis.stopDiffs} />
+
+            {/* Decision Support Disclaimer */}
+            <div className="p-3 rounded-lg bg-surface-container border border-outline-variant/40 text-[11px] text-on-surface-variant flex items-start gap-2">
+              <span className="material-symbols-outlined text-sm text-primary shrink-0 mt-0.5">
+                gavel
+              </span>
+              <p>
+                <strong>Decision Support Only:</strong> Authorizing plan commitment records
+                decisions in the database. It does not initiate automated physical vehicle dispatch.
+              </p>
+            </div>
 
             {/* Human Supervisor Action Bar */}
             <div className="pt-2 border-t border-outline-variant/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

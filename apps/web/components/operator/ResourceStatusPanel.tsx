@@ -27,7 +27,28 @@ export function ResourceStatusPanel({
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [mutationSuccess, setMutationSuccess] = useState<string | null>(null);
 
+  // Dedicated direct database ID override form
+  const [directResourceId, setDirectResourceId] = useState<string>('');
+  const [directStatus, setDirectStatus] = useState<ResourceStatus>('AVAILABLE');
+  const [directReason, setDirectReason] = useState<string>('');
+  const [isDirectSubmitting, setIsDirectSubmitting] = useState<boolean>(false);
+  const [directError, setDirectError] = useState<string | null>(null);
+  const [directSuccess, setDirectSuccess] = useState<string | null>(null);
+  const [showDirectForm, setShowDirectForm] = useState<boolean>(false);
+
+  const isSimulatedResource = (res: RescueResource) => {
+    return (
+      res.source === 'SIMULATED' ||
+      res.id.startsWith('boat_') ||
+      res.id.startsWith('truck_') ||
+      res.id.startsWith('helo_')
+    );
+  };
+
   const handleOpenDialog = (res: RescueResource) => {
+    if (isSimulatedResource(res)) {
+      return;
+    }
     setSelectedResource(res);
     setTargetStatus(res.status);
     setReason('');
@@ -38,6 +59,13 @@ export function ResourceStatusPanel({
   const handleStatusUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedResource || !canManageStatus) return;
+
+    if (isSimulatedResource(selectedResource)) {
+      setMutationError(
+        'Mutations against simulated reference assets are blocked. Status updates must target authentic database vehicle IDs.',
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     setMutationError(null);
@@ -60,6 +88,47 @@ export function ResourceStatusPanel({
       setMutationError((err as Error).message || 'Failed to update resource status');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDirectStatusUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanId = directResourceId.trim();
+    if (!cleanId || !canManageStatus) return;
+
+    if (
+      cleanId.startsWith('boat_') ||
+      cleanId.startsWith('truck_') ||
+      cleanId.startsWith('helo_')
+    ) {
+      setDirectError(
+        'Mutations against simulated reference IDs are blocked. Enter an authentic operational resource UUID.',
+      );
+      return;
+    }
+
+    setIsDirectSubmitting(true);
+    setDirectError(null);
+    setDirectSuccess(null);
+
+    try {
+      const result = await apiClient.updateResourceStatus(cleanId, {
+        status: directStatus,
+        reason: directReason.trim() || undefined,
+      });
+
+      setDirectSuccess(
+        `Resource "${result.resource.name || cleanId}" status updated to ${result.resource.status}.`,
+      );
+      onResourceUpdated?.();
+      setDirectReason('');
+      setTimeout(() => {
+        setDirectSuccess(null);
+      }, 3000);
+    } catch (err) {
+      setDirectError((err as Error).message || 'Failed to update operational resource status');
+    } finally {
+      setIsDirectSubmitting(false);
     }
   };
 
@@ -106,16 +175,155 @@ export function ResourceStatusPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-primary">directions_boat</span>
-          <h3 className="font-manrope text-base font-bold text-on-surface">
-            Rescue Fleet & Resource Roster
-          </h3>
+          <div>
+            <h3 className="font-manrope text-base font-bold text-on-surface">
+              Rescue Fleet & Resource Roster
+            </h3>
+            <span className="text-[11px] font-mono text-amber-500 font-bold">
+              [REFERENCE / SIMULATED ASSETS]
+            </span>
+          </div>
         </div>
-        {!canManageStatus && (
-          <span className="text-[11px] font-mono text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">
-            Role ({operator?.role || 'OPERATOR'}): View Only
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {canManageStatus && (
+            <button
+              className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors flex items-center gap-1"
+              onClick={() => setShowDirectForm(!showDirectForm)}
+              type="button"
+            >
+              <span className="material-symbols-outlined text-sm">tune</span>
+              <span>{showDirectForm ? 'Hide Override Form' : 'Direct DB ID Override'}</span>
+            </button>
+          )}
+          {!canManageStatus && (
+            <span className="text-[11px] font-mono text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">
+              Role ({operator?.role || 'OPERATOR'}): View Only
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Authoritative Resource Inventory Endpoint Missing Disclosure Banner */}
+      <div className="p-3 bg-amber-950/30 border border-amber-500/40 rounded-lg text-xs text-amber-200 flex items-start gap-2.5">
+        <span className="material-symbols-outlined text-amber-400 text-base shrink-0 mt-0.5">
+          info
+        </span>
+        <div className="space-y-1">
+          <div className="font-bold text-amber-300">
+            Authoritative Resource Read Endpoint Pending (GET /operations/resources)
+          </div>
+          <p className="text-amber-200/90 leading-relaxed text-[11px]">
+            The backend API currently provides status mutation via{' '}
+            <code>PATCH /operations/resources/:id/status</code>, but does not yet provide an
+            authoritative resource inventory read endpoint. The roster below displays static
+            reference / simulated assets. Direct mutation against simulated IDs is disabled to
+            prevent database errors. Dispatchers can override authentic database vehicle IDs using
+            the tool below.
+          </p>
+        </div>
+      </div>
+
+      {/* Direct DB Resource Status Override Form */}
+      {showDirectForm && canManageStatus && (
+        <form
+          className="p-4 bg-surface-container border border-primary/30 rounded-xl space-y-3"
+          onSubmit={handleDirectStatusUpdate}
+        >
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-primary flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <span className="material-symbols-outlined text-sm">terminal</span>
+              Authoritative Operational Resource Status Override
+            </h4>
+            <span className="text-[10px] text-on-surface-variant font-mono">
+              PATCH /operations/resources/:id/status
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-on-surface" htmlFor="directIdInput">
+                Database Resource ID (UUID)
+              </label>
+              <input
+                className="w-full h-9 px-2.5 rounded-lg bg-surface border border-outline-variant text-xs font-mono text-on-surface focus:ring-1 focus:ring-primary placeholder:text-outline"
+                id="directIdInput"
+                onChange={(e) => setDirectResourceId(e.target.value)}
+                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                required
+                type="text"
+                value={directResourceId}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label
+                className="text-[11px] font-semibold text-on-surface"
+                htmlFor="directStatusSelect"
+              >
+                Target Status
+              </label>
+              <select
+                className="w-full h-9 px-2.5 rounded-lg bg-surface border border-outline-variant text-xs font-semibold text-on-surface focus:ring-1 focus:ring-primary"
+                id="directStatusSelect"
+                onChange={(e) => setDirectStatus(e.target.value as ResourceStatus)}
+                value={directStatus}
+              >
+                <option value="AVAILABLE">AVAILABLE (Ready)</option>
+                <option value="MAINTENANCE">MAINTENANCE (Servicing)</option>
+                <option value="OFFLINE">OFFLINE (Unavailable)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label
+                className="text-[11px] font-semibold text-on-surface"
+                htmlFor="directReasonInput"
+              >
+                Operational Reason
+              </label>
+              <input
+                className="w-full h-9 px-2.5 rounded-lg bg-surface border border-outline-variant text-xs text-on-surface focus:ring-1 focus:ring-primary placeholder:text-outline"
+                id="directReasonInput"
+                onChange={(e) => setDirectReason(e.target.value)}
+                placeholder="e.g. Returning from bayou mission"
+                type="text"
+                value={directReason}
+              />
+            </div>
+          </div>
+
+          {directError && (
+            <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">
+              {directError}
+            </div>
+          )}
+
+          {directSuccess && (
+            <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300">
+              {directSuccess}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              className="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              disabled={isDirectSubmitting || !directResourceId.trim()}
+              type="submit"
+            >
+              {isDirectSubmitting ? (
+                <>
+                  <span className="material-symbols-outlined animate-spin text-xs">
+                    progress_activity
+                  </span>
+                  <span>Updating...</span>
+                </>
+              ) : (
+                <span>Dispatch Status Update</span>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs border-collapse">
@@ -130,31 +338,52 @@ export function ResourceStatusPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-outline-variant/15 font-mono text-xs">
-            {resources.map((res) => (
-              <tr className="hover:bg-surface-container/50 transition-colors" key={res.id}>
-                <td className="py-2.5 font-bold text-on-surface">
-                  <span className="block font-sans text-xs">{res.name || res.id}</span>
-                  <span className="text-[10px] text-on-surface-variant font-mono">{res.id}</span>
-                </td>
-                <td className="py-2.5 text-on-surface-variant">{res.type}</td>
-                <td className="py-2.5 text-on-surface">{res.capacity} pax</td>
-                <td className="py-2.5 text-on-surface">{res.speedKmH} km/h</td>
-                <td className="py-2.5">{getStatusBadge(res.status)}</td>
-                <td className="py-2.5 text-right font-sans">
-                  {canManageStatus ? (
-                    <button
-                      className="px-2.5 py-1 rounded border border-outline-variant hover:bg-surface-variant font-semibold text-[11px] text-primary transition-colors"
-                      onClick={() => handleOpenDialog(res)}
-                      type="button"
-                    >
-                      Update
-                    </button>
-                  ) : (
-                    <span className="text-[10px] text-on-surface-variant/60 italic">Read-only</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {resources.map((res) => {
+              const simulated = isSimulatedResource(res);
+              return (
+                <tr className="hover:bg-surface-container/50 transition-colors" key={res.id}>
+                  <td className="py-2.5 font-bold text-on-surface">
+                    <span className="block font-sans text-xs">{res.name || res.id}</span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] text-on-surface-variant font-mono">
+                        {res.id}
+                      </span>
+                      {simulated && (
+                        <span className="text-[9px] font-mono px-1 rounded bg-amber-950/60 text-amber-400 border border-amber-600/40">
+                          REFERENCE
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2.5 text-on-surface-variant">{res.type}</td>
+                  <td className="py-2.5 text-on-surface">{res.capacity} pax</td>
+                  <td className="py-2.5 text-on-surface">{res.speedKmH} km/h</td>
+                  <td className="py-2.5">{getStatusBadge(res.status)}</td>
+                  <td className="py-2.5 text-right font-sans">
+                    {simulated ? (
+                      <span
+                        className="text-[10px] font-mono text-on-surface-variant/70 italic px-2 py-0.5 rounded bg-surface-container"
+                        title="Simulated reference asset — status cannot be updated in database"
+                      >
+                        Read-only (Reference)
+                      </span>
+                    ) : canManageStatus ? (
+                      <button
+                        className="px-2.5 py-1 rounded border border-outline-variant hover:bg-surface-variant font-semibold text-[11px] text-primary transition-colors"
+                        onClick={() => handleOpenDialog(res)}
+                        type="button"
+                      >
+                        Update
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-on-surface-variant/60 italic">
+                        Read-only
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
