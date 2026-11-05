@@ -1,91 +1,72 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import type { RescueRequest } from '@floodrelay/shared';
+import type { RescueRequest, RescueResource } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
-import type { AssignmentRecord } from '@/lib/api/types';
+import type { AssignmentRecord, OperationalEvent } from '@/lib/api/types';
+import { useLivePolling } from '@/hooks/useLivePolling';
+import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
+import { hasPermission } from '@/lib/auth/permissions';
+import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
+import { ResourceStatusPanel } from '@/components/operator/ResourceStatusPanel';
+import { RoadBlockageModal } from '@/components/operator/RoadBlockageModal';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { SIMULATED_RESOURCES } from '@/lib/fixtures/resources';
 
-// Designated staged sector assets for Harris County Sector 4
-const STAGED_SECTOR_FLEET = [
-  {
-    id: 'res-alpha',
-    name: 'Rescue Boat Alpha',
-    type: 'BOAT',
-    capacity: 6,
-    speedKmH: 25,
-    status: 'AVAILABLE' as const,
-  },
-  {
-    id: 'res-bravo',
-    name: 'Rescue Boat Bravo',
-    type: 'BOAT',
-    capacity: 8,
-    speedKmH: 22,
-    status: 'AVAILABLE' as const,
-  },
-  {
-    id: 'res-delta',
-    name: 'High-Water Truck Delta',
-    type: 'HIGH_WATER_VEHICLE',
-    capacity: 12,
-    speedKmH: 45,
-    status: 'AVAILABLE' as const,
-  },
-  {
-    id: 'res-air1',
-    name: 'Air Rescue One',
-    type: 'HELICOPTER',
-    capacity: 4,
-    speedKmH: 180,
-    status: 'AVAILABLE' as const,
-  },
-];
+interface DashboardData {
+  requests: RescueRequest[];
+  assignments: AssignmentRecord[];
+  recentEvents: OperationalEvent[];
+}
 
 export default function OperatorOverviewPage() {
-  const [requests, setRequests] = useState<RescueRequest[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentRecord[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const { operator } = useOperatorAuth();
+  const canManageRoadZones = hasPermission(operator, 'MANAGE_BLOCKED_ZONES');
 
-  const fetchData = useCallback(async (isManualRefresh = false) => {
-    try {
-      if (isManualRefresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
+  const [isRoadBlockageOpen, setIsRoadBlockageOpen] = useState<boolean>(false);
+  const [resources] = useState<RescueResource[]>(() => [...SIMULATED_RESOURCES]);
 
-      const [requestsData, assignmentsData] = await Promise.all([
-        apiClient.listRequests().catch((err) => {
-          console.error('Failed to load requests:', err);
-          throw err;
-        }),
-        apiClient.listAssignments().catch((err) => {
-          console.warn('Assignments list not yet available or empty:', err);
-          return [] as AssignmentRecord[];
-        }),
-      ]);
+  // Combined Live Polling for Dashboard
+  const fetchDashboardData = useCallback(async (signal: AbortSignal): Promise<DashboardData> => {
+    const [requests, assignments, recentEvents] = await Promise.all([
+      apiClient.listRequests(undefined, signal).catch((err) => {
+        console.error('Failed to load requests:', err);
+        throw err;
+      }),
+      apiClient.listAssignments(undefined, signal).catch((err) => {
+        console.warn('Assignments list not yet available or empty:', err);
+        return [] as AssignmentRecord[];
+      }),
+      apiClient.listOperationalEvents({ limit: 5 }, signal).catch((err) => {
+        console.warn('Events feed not yet available:', err);
+        return [] as OperationalEvent[];
+      }),
+    ]);
 
-      setRequests(requestsData || []);
-      setAssignments(assignmentsData || []);
-      setLastRefreshed(new Date());
-    } catch (err) {
-      setError((err as Error).message || 'Unable to connect to FloodRelay command backend');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
+    return {
+      requests: requests || [],
+      assignments: assignments || [],
+      recentEvents: recentEvents || [],
+    };
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const {
+    data: dashboardData,
+    isLoading,
+    isRefreshing,
+    status,
+    lastUpdated,
+    error,
+    refresh,
+  } = useLivePolling<DashboardData>(fetchDashboardData, {
+    intervalMs: 20000,
+  });
+
+  const requests = useMemo(() => dashboardData?.requests || [], [dashboardData]);
+  const assignments = useMemo(() => dashboardData?.assignments || [], [dashboardData]);
+  const recentEvents = useMemo(() => dashboardData?.recentEvents || [], [dashboardData]);
 
   // Compute live real-time metrics
   const metrics = useMemo(() => {
@@ -100,6 +81,18 @@ export default function OperatorOverviewPage() {
     const medicalCount = requests.filter((r) => r.medicalNeeds).length;
     const duplicateCount = requests.filter((r) => r.isFlaggedDuplicate).length;
 
+    const proposedAssignments = assignments.filter((a) => a.status === 'PROPOSED');
+    const committedAssignments = assignments.filter((a) => a.status === 'COMMITTED');
+
+    // Calculate unserved demand across proposed plans
+    const latestProposed = proposedAssignments[0];
+    const unservedCount = latestProposed?.unserved?.length || 0;
+
+    const availableResources = resources.filter((res) => res.status === 'AVAILABLE').length;
+    const offlineResources = resources.filter(
+      (res) => res.status === 'OFFLINE' || res.status === 'MAINTENANCE',
+    ).length;
+
     return {
       totalRequests,
       criticalCount,
@@ -111,8 +104,13 @@ export default function OperatorOverviewPage() {
       totalPassengers,
       medicalCount,
       duplicateCount,
+      proposedAssignmentsCount: proposedAssignments.length,
+      committedAssignmentsCount: committedAssignments.length,
+      unservedCount,
+      availableResources,
+      offlineResources,
     };
-  }, [requests]);
+  }, [requests, assignments, resources]);
 
   // Sort top urgent requests for triage queue
   const criticalTriageQueue = useMemo(() => {
@@ -139,54 +137,74 @@ export default function OperatorOverviewPage() {
   const latestAssignment = assignments[0] || null;
 
   return (
-    <main className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
-      {/* Top Banner Notice: Live PostGIS Stream Status */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-surface-container border border-outline-variant/60">
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-semibold text-xs text-on-surface">Sector 4 Command Center</span>
-          <span className="text-outline text-xs">•</span>
-          <span className="text-xs text-on-surface-variant">
-            Harris County Flood Basin Operations
-          </span>
+    <main
+      className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto"
+      data-testid="operator-dashboard"
+    >
+      {/* Top Banner Notice: Live Polling Status Strip */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <h1 className="font-bold text-lg md:text-xl text-on-surface">
+              Sector 4 Emergency Operations Command
+            </h1>
+          </div>
+          <p className="text-xs text-on-surface-variant font-mono mt-0.5">
+            Harris County Flood Basin • Live Decision-Support System
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            DATABASE SNAPSHOT
-          </span>
-          {lastRefreshed && (
-            <span className="text-[11px] text-on-surface-variant font-mono">
-              Refreshed {lastRefreshed.toLocaleTimeString()}
-            </span>
-          )}
-          <button
-            onClick={() => fetchData(true)}
-            disabled={isRefreshing || isLoading}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-semibold transition-colors disabled:opacity-50"
-            title="Refresh stream"
-            type="button"
-          >
-            <span
-              className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin' : ''}`}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageRoadZones && (
+            <button
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition-colors"
+              onClick={() => setIsRoadBlockageOpen(true)}
+              type="button"
             >
-              refresh
-            </span>
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+              <span className="material-symbols-outlined text-[16px]">block</span>
+              <span>Register Road Hazard</span>
+            </button>
+          )}
+
+          <LiveStatusIndicator
+            isRefreshing={isRefreshing}
+            lastUpdated={lastUpdated}
+            onRefresh={refresh}
+            status={status}
+          />
         </div>
       </div>
+
+      {/* Operational Alerts Strip */}
+      {metrics.criticalCount > 0 && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="material-symbols-outlined text-amber-600 text-lg">crisis_alert</span>
+            <div>
+              <span className="font-bold">Active Critical Priority Distress Alerts: </span>
+              <span>{metrics.criticalCount} critical requests awaiting dispatch confirmation.</span>
+            </div>
+          </div>
+          <Link
+            className="text-primary font-bold hover:underline font-mono text-[11px]"
+            href="/operator/requests?urgency=CRITICAL"
+          >
+            Review Critical Requests →
+          </Link>
+        </div>
+      )}
 
       {/* Error Alert */}
       {error && (
         <div className="p-4 rounded-xl bg-red-950/40 border border-red-800 text-red-200 flex items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-red-400">error</span>
-            <span>{error}</span>
+            <span>{error.message || 'Unable to connect to FloodRelay command backend'}</span>
           </div>
           <button
-            onClick={() => fetchData(false)}
             className="px-3 py-1 rounded bg-red-900 hover:bg-red-800 text-white font-bold transition-colors"
+            onClick={() => void refresh()}
             type="button"
           >
             Retry Connection
@@ -208,19 +226,25 @@ export default function OperatorOverviewPage() {
           </div>
           <div className="flex items-baseline gap-2 mb-2">
             <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
-              {STAGED_SECTOR_FLEET.length}
+              {metrics.availableResources}
             </span>
-            <span className="text-xs text-on-surface-variant font-medium">/ 6 craft staged</span>
+            <span className="text-xs text-on-surface-variant font-medium">
+              / {resources.length} craft ready
+            </span>
           </div>
           <div className="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-primary h-full rounded-full"
-              style={{ width: `${(STAGED_SECTOR_FLEET.length / 6) * 100}%` }}
+              className="bg-primary h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${(metrics.availableResources / Math.max(1, resources.length)) * 100}%`,
+              }}
             />
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-on-surface-variant">
-            <span>Standby: Ready</span>
-            <span className="text-emerald-700 font-semibold font-mono">4 Staged in Basin</span>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
+            <span>Ready: {metrics.availableResources}</span>
+            <span className="text-rose-600 font-semibold">
+              {metrics.offlineResources} Offline/Maint
+            </span>
           </div>
         </div>
 
@@ -256,28 +280,31 @@ export default function OperatorOverviewPage() {
           </div>
         </div>
 
-        {/* Metric 3: Relief Shelters */}
+        {/* Metric 3: Assignments & Unserved Demand */}
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between text-on-surface-variant mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider font-mono">
-              Relief Shelters
+              Missions & Demand
             </span>
-            <span className="material-symbols-outlined text-primary text-[20px]">
-              night_shelter
-            </span>
+            <span className="material-symbols-outlined text-primary text-[20px]">assignment</span>
           </div>
           <div className="flex items-baseline gap-2 mb-2">
             <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
-              68%
+              {metrics.committedAssignmentsCount}
             </span>
-            <span className="text-xs text-on-surface-variant font-medium">Occupancy</span>
+            <span className="text-xs text-on-surface-variant font-medium">Committed Active</span>
           </div>
-          <div className="w-full bg-surface-container rounded-full h-1.5 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: '68%' }} />
+          <div className="flex items-center justify-between text-xs text-on-surface-variant font-mono">
+            <span>{metrics.proposedAssignmentsCount} Proposed</span>
+            <span className="text-amber-700 font-bold">{metrics.unservedCount} Unserved</span>
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-on-surface-variant">
-            <span>3 of 3 Facilities Open</span>
-            <span className="text-emerald-700 font-semibold">119 Beds Open</span>
+          <div className="mt-2 pt-2 border-t border-outline-variant/40 flex items-center justify-between text-[11px]">
+            <Link
+              className="text-primary font-semibold hover:underline"
+              href="/operator/assignments"
+            >
+              Review Proposals →
+            </Link>
           </div>
         </div>
 
@@ -302,7 +329,7 @@ export default function OperatorOverviewPage() {
                 <span className="font-inter text-lg lg:text-xl font-bold text-on-surface-variant">
                   Standby
                 </span>
-                <span className="text-xs text-on-surface-variant">M5 Solver</span>
+                <span className="text-xs text-on-surface-variant">Solver</span>
               </>
             )}
           </div>
@@ -369,7 +396,7 @@ export default function OperatorOverviewPage() {
                 </p>
                 <div className="pt-2">
                   <Link
-                    href="/citizen"
+                    href="/citizen/request"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors"
                   >
                     <span>Test Citizen Portal Intake</span>
@@ -436,7 +463,7 @@ export default function OperatorOverviewPage() {
           </div>
         </section>
 
-        {/* Right Column: Tactical Map Shortcut & Fleet Status (5 cols) */}
+        {/* Right Column: Tactical Map Shortcut & Operational Events (5 cols) */}
         <section className="lg:col-span-5 space-y-6">
           {/* Tactical Map Shortcut Card */}
           <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-xs">
@@ -467,131 +494,75 @@ export default function OperatorOverviewPage() {
                 <span className="material-symbols-outlined text-sky-400 text-3xl">
                   location_searching
                 </span>
-                <div className="text-xs font-semibold text-slate-200">
-                  Sector 4 — Buffalo Bayou Basin Tactical Map
-                </div>
+                <div className="text-xs font-semibold text-slate-200">Sector 4 — Tactical Map</div>
                 <p className="text-[11px] text-slate-400 max-w-xs">
-                  {metrics.totalRequests} Distress reports • 4 Rescue craft staged • 3 Shelters open
+                  {metrics.totalRequests} Distress reports • {resources.length} Craft staged
                 </p>
                 <Link
                   className="inline-block px-3 py-1.5 rounded bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors"
                   href="/operator/map"
                 >
-                  Launch Interactive Map (M4)
+                  Launch Interactive Map
                 </Link>
               </div>
             </div>
           </div>
 
-          {/* Quick Fleet Readiness Roster */}
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-outline-variant">
-              <div>
-                <h3 className="text-sm font-bold text-on-surface">Staged Rescue Assets</h3>
-                <span className="text-[10px] text-on-surface-variant font-mono">
-                  Harris County Sector 4 Standby Fleet
-                </span>
+          {/* Recent Operational Events Summary Card */}
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-outline-variant/30">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[18px]">radar</span>
+                <h3 className="text-sm font-bold text-on-surface">Recent Operational Events</h3>
               </div>
-              <span className="text-xs font-mono text-on-surface-variant">
-                {STAGED_SECTOR_FLEET.length} Deployed / Ready
-              </span>
+              <Link
+                className="text-xs text-primary font-semibold hover:underline"
+                href="/operator/events"
+              >
+                All Events ({recentEvents.length}) →
+              </Link>
             </div>
-            <div className="space-y-2 text-xs">
-              {STAGED_SECTOR_FLEET.map((res) => (
-                <div
-                  key={res.id}
-                  className="flex items-center justify-between p-2 rounded bg-surface border border-outline-variant/60"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[18px]">
-                      {res.type === 'BOAT'
-                        ? 'directions_boat'
-                        : res.type === 'HELICOPTER'
-                          ? 'flight'
-                          : 'local_shipping'}
-                    </span>
-                    <div>
-                      <span className="font-semibold text-on-surface block">{res.name}</span>
-                      <span className="text-[10px] text-on-surface-variant font-mono">
-                        Cap: {res.capacity} pax • {res.speedKmH} km/h
+
+            {recentEvents.length === 0 ? (
+              <p className="text-xs text-on-surface-variant italic py-3 text-center">
+                No recent operational events recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentEvents.slice(0, 4).map((evt) => (
+                  <div
+                    className="p-2.5 rounded-lg bg-surface border border-outline-variant/30 text-xs flex items-center justify-between gap-2"
+                    key={evt.id}
+                  >
+                    <div className="truncate">
+                      <span className="font-bold text-on-surface block truncate">{evt.type}</span>
+                      <span className="text-[10px] text-on-surface-variant font-mono truncate block">
+                        {evt.entityType}: {evt.entityId}
                       </span>
                     </div>
+                    <span className="text-[10px] font-mono text-on-surface-variant shrink-0">
+                      {new Date(evt.recordedAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
                   </div>
-                  <StatusBadge status={res.status} />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
       </div>
 
-      {/* RECENT ASSIGNMENTS SECTION */}
-      <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-xs">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-outline-variant">
-          <div>
-            <h2 className="text-base font-bold text-on-surface">Recent Assignment Plans</h2>
-            <p className="text-xs text-on-surface-variant">
-              Human-supervised vehicle route proposals and committed plans
-            </p>
-          </div>
-          <Link
-            className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
-            href="/operator/assignments"
-          >
-            <span>View All Assignments</span>
-            <span className="material-symbols-outlined text-xs">arrow_forward</span>
-          </Link>
-        </div>
+      {/* LOWER SECTION: Resource Roster & Live Status Mutation Panel */}
+      <ResourceStatusPanel onResourceUpdated={() => void refresh()} resources={resources} />
 
-        {assignments.length === 0 ? (
-          <div className="p-6 rounded-xl border border-dashed border-outline-variant bg-surface text-center space-y-2">
-            <span className="material-symbols-outlined text-3xl text-outline">route</span>
-            <p className="text-xs font-bold text-on-surface">No assignment plans generated yet</p>
-            <p className="text-[11px] text-on-surface-variant max-w-md mx-auto">
-              Automated multi-vehicle routing and human-supervised dispatch proposals will connect
-              to the solver engine in Milestone 5.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {assignments.map((plan) => (
-              <div
-                key={plan.id}
-                className="p-4 rounded-xl border border-outline-variant bg-surface hover:border-primary transition-all flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-sm font-bold text-on-surface">{plan.id}</span>
-                    <StatusBadge status={plan.status} />
-                  </div>
-                  <div className="text-xs text-on-surface-variant space-y-1 mb-3">
-                    <div className="flex justify-between">
-                      <span>Coverage:</span>
-                      <span className="font-bold text-primary font-mono">
-                        {plan.metrics?.coveragePercent}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Travel Time:</span>
-                      <span className="font-mono">{plan.metrics?.totalTravelTimeMinutes} min</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Unserved:</span>
-                      <span className="font-mono text-amber-700">{plan.unserved?.length || 0}</span>
-                    </div>
-                  </div>
-                </div>
-                <Link
-                  className="w-full py-2 rounded bg-surface-container text-center text-xs font-semibold text-on-surface hover:bg-primary hover:text-on-primary transition-colors block"
-                  href={`/operator/assignments/${plan.id}`}
-                >
-                  Inspect Plan
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Road Hazard Registration Modal */}
+      <RoadBlockageModal
+        isOpen={isRoadBlockageOpen}
+        onClose={() => setIsRoadBlockageOpen(false)}
+        onZoneCreated={() => void refresh()}
+      />
     </main>
   );
 }

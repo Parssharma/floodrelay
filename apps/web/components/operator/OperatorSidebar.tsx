@@ -13,6 +13,8 @@ export function OperatorSidebar() {
   const isRequests = pathname.startsWith('/operator/requests');
   const isMap = pathname.startsWith('/operator/map');
   const isAssignments = pathname.startsWith('/operator/assignments');
+  const isEvents = pathname.startsWith('/operator/events');
+  const isAudit = pathname.startsWith('/operator/audit');
 
   return (
     <aside className="hidden lg:block fixed top-0 left-0 h-screen w-64 z-40 bg-inverse-surface border-r border-outline-variant/20 shadow-none font-inter select-none">
@@ -135,6 +137,42 @@ export function OperatorSidebar() {
               <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-primary-fixed-dim text-on-primary-fixed">
                 24 Active
               </span>
+            </Link>
+
+            {/* Operational Events */}
+            <Link
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                isEvents
+                  ? 'bg-primary text-on-primary shadow-sm'
+                  : 'text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10'
+              }`}
+              href="/operator/events"
+            >
+              <span
+                className="material-symbols-outlined text-[18px]"
+                style={isEvents ? { fontVariationSettings: "'FILL' 1" } : undefined}
+              >
+                radar
+              </span>
+              <span>Event Stream</span>
+            </Link>
+
+            {/* Audit Log */}
+            <Link
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                isAudit
+                  ? 'bg-primary text-on-primary shadow-sm'
+                  : 'text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10'
+              }`}
+              href="/operator/audit"
+            >
+              <span
+                className="material-symbols-outlined text-[18px]"
+                style={isAudit ? { fontVariationSettings: "'FILL' 1" } : undefined}
+              >
+                history
+              </span>
+              <span>Audit History</span>
             </Link>
           </nav>
         </div>

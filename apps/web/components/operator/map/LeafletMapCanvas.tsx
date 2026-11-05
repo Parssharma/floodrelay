@@ -3,8 +3,8 @@
 import React, { useEffect, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
-import type { RescueRequest } from '@floodrelay/shared';
+import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
+import type { RescueRequest, BlockedZone } from '@floodrelay/shared';
 import type { AssignmentRecord, RouteStop } from '@/lib/api/types';
 
 export interface StagedAsset {
@@ -35,17 +35,23 @@ export type SelectedMapEntity =
   | { type: 'shelter'; item: StagedShelter }
   | null;
 
+export interface MapLayers {
+  incidents: boolean;
+  craft: boolean;
+  shelters: boolean;
+  routes: boolean;
+  blockages: boolean;
+  repairOverlay: boolean;
+}
+
 interface LeafletMapCanvasProps {
   requests: RescueRequest[];
   stagedFleet: StagedAsset[];
   stagedShelters: StagedShelter[];
   selectedAssignment: AssignmentRecord | null;
-  layers: {
-    incidents: boolean;
-    craft: boolean;
-    shelters: boolean;
-    routes: boolean;
-  };
+  blockedZones?: BlockedZone[];
+  repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
+  layers: MapLayers;
   urgencyFilter: string;
   selectedEntity: SelectedMapEntity;
   onSelectEntity: (entity: SelectedMapEntity) => void;
@@ -190,6 +196,8 @@ export default function LeafletMapCanvas({
   stagedFleet,
   stagedShelters,
   selectedAssignment,
+  blockedZones = [],
+  repairRoutePolylines = [],
   layers,
   urgencyFilter,
   selectedEntity,
@@ -371,6 +379,49 @@ export default function LeafletMapCanvas({
                 weight: 3,
                 dashArray: '6, 8',
                 opacity: 0.85,
+              }}
+            />
+          ))}
+
+        {/* 5. ROAD HAZARDS & FLOOD SURGE ZONES */}
+        {layers.blockages &&
+          blockedZones.map((zone) => (
+            <Polygon
+              key={zone.id}
+              positions={zone.polygon.map((p) => [p.lat, p.lng])}
+              pathOptions={{
+                color: zone.severity === 'BLOCKED' ? '#ef4444' : '#f59e0b',
+                fillColor: zone.severity === 'BLOCKED' ? '#ef4444' : '#f59e0b',
+                fillOpacity: 0.3,
+                weight: 2,
+                dashArray: '4, 4',
+              }}
+            >
+              <Popup>
+                <div className="text-xs p-1 space-y-1">
+                  <div className="font-bold text-red-400 font-mono">{zone.name || zone.id}</div>
+                  <div className="text-[11px] font-semibold text-slate-300">
+                    Severity: {zone.severity}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Routing engine redirects vessels away from this perimeter
+                  </div>
+                </div>
+              </Popup>
+            </Polygon>
+          ))}
+
+        {/* 6. REPAIR ROUTE COMPARISON OVERLAY */}
+        {layers.repairOverlay &&
+          repairRoutePolylines.map((route, idx) => (
+            <Polyline
+              key={`repair-${route.resourceId}-${idx}`}
+              positions={route.latlngs}
+              pathOptions={{
+                color: '#c084fc',
+                weight: 3.5,
+                dashArray: '4, 8',
+                opacity: 0.95,
               }}
             />
           ))}

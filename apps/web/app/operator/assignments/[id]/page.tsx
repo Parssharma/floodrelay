@@ -6,7 +6,9 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
+import { hasPermission } from '@/lib/auth/permissions';
 import type { AssignmentRecord } from '@/lib/api/types';
+import RepairComparison from '@/components/operator/repair/RepairComparison';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -16,10 +18,12 @@ export default function AssignmentReviewPage({ params }: PageProps) {
   const resolvedParams = React.use(params);
   const planId = resolvedParams.id;
   const { operator } = useOperatorAuth();
+  const canCommit = hasPermission(operator, 'COMMIT_ASSIGNMENT');
 
   const [plan, setPlan] = useState<AssignmentRecord | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [showRepairComparison, setShowRepairComparison] = useState<boolean>(false);
 
   // Interactive checklist states
   const [checklist, setChecklist] = useState({
@@ -79,8 +83,14 @@ export default function AssignmentReviewPage({ params }: PageProps) {
       );
     } catch (err) {
       if (err instanceof ApiClientError) {
-        if (err.code === 'ALREADY_COMMITTED') {
-          setCommitError('This assignment plan has already been committed by an operator.');
+        if (
+          err.statusCode === 409 ||
+          err.code === 'ALREADY_COMMITTED' ||
+          err.code === 'VERSION_CONFLICT'
+        ) {
+          setCommitError(
+            'Version Conflict (409): This assignment plan has already been committed or modified by another operator. Please refresh to load the latest state.',
+          );
         } else if (err.code === 'REQUEST_ALREADY_ASSIGNED') {
           setCommitError(
             'One or more requests in this plan have already been assigned to another plan. Please generate a fresh proposal.',
@@ -249,16 +259,32 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <span>All Plans</span>
             </Link>
 
+            <button
+              type="button"
+              onClick={() => setShowRepairComparison(!showRepairComparison)}
+              className="h-9 px-3 rounded bg-teal-50 border border-teal-300 text-teal-800 hover:bg-teal-100 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <span className="material-symbols-outlined text-base">alt_route</span>
+              <span>{showRepairComparison ? 'Hide Repair Comparison' : 'Compare Repair Plan'}</span>
+            </button>
+
             {isProposed ? (
               <button
                 type="button"
-                disabled={!allChecked}
+                disabled={!allChecked || !canCommit}
                 onClick={() => {
                   setCommitError(null);
                   setShowCommitModal(true);
                 }}
+                title={
+                  !canCommit
+                    ? 'Dispatcher or Admin authorization required to commit assignment plans'
+                    : !allChecked
+                      ? 'Complete all safety checklist items before committing'
+                      : 'Commit assignment plan'
+                }
                 className={`h-9 px-4 rounded text-xs font-bold transition-all flex items-center gap-2 shadow-sm ${
-                  allChecked
+                  allChecked && canCommit
                     ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/30'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
@@ -307,6 +333,39 @@ export default function AssignmentReviewPage({ params }: PageProps) {
           </div>
         </div>
       </section>
+
+      {/* Repair Comparison Section */}
+      {showRepairComparison && (
+        <section className="animate-in fade-in duration-200">
+          <RepairComparison
+            baselinePlan={
+              plan
+                ? {
+                    scenarioId: plan.scenario_id ?? plan.scenarioId ?? 'baseline',
+                    calculatedAt: plan.created_at ?? plan.createdAt,
+                    routes: plan.routes || [],
+                    unserved: plan.unserved || [],
+                    metrics: plan.metrics || {
+                      coveragePercent: 80,
+                      totalTravelTimeMinutes: 100,
+                      totalTravelDistanceKm: 30,
+                      highPriorityWaitTimeMinutes: 20,
+                      solveDurationMs: 300,
+                      servedRequestsCount: (plan.routes || []).reduce(
+                        (acc, r) => acc + (r.servedRequestIds?.length || 0),
+                        0,
+                      ),
+                      unservedRequestsCount: (plan.unserved || []).length,
+                    },
+                  }
+                : null
+            }
+            isSolverUnavailable={true}
+            isSimulated={true}
+            onClose={() => setShowRepairComparison(false)}
+          />
+        </section>
+      )}
 
       {/* Two-Column Detailed Review Layout */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">

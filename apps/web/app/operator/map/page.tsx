@@ -1,17 +1,21 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
-import type { RescueRequest, UrgencyLevel } from '@floodrelay/shared';
-import { apiClient } from '@/lib/api/client';
-import type { AssignmentRecord } from '@/lib/api/types';
+import type { UrgencyLevel, BlockedZone } from '@floodrelay/shared';
 import LeafletMapWrapper from '@/components/operator/map/LeafletMapWrapper';
 import type {
   StagedAsset,
   StagedShelter,
   SelectedMapEntity,
+  MapLayers,
 } from '@/components/operator/map/LeafletMapCanvas';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { useLiveRequests } from '@/hooks/useLiveRequests';
+import { useLiveAssignments } from '@/hooks/useLiveAssignments';
+import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
+import type { LivePollingStatus } from '@/hooks/useLivePolling';
+import { SIMULATED_REPAIR_RESULT } from '@/lib/fixtures/repairFixtures';
 
 // Designated staged sector assets for Harris County Sector 4 (Standby Roster)
 const STAGED_SECTOR_FLEET: StagedAsset[] = [
@@ -83,25 +87,102 @@ const STAGED_SECTOR_SHELTERS: StagedShelter[] = [
   },
 ];
 
+// Designated sector blocked road zones and surge hazard polygons
+const STAGED_SECTOR_BLOCKED_ZONES: BlockedZone[] = [
+  {
+    id: 'zone-heights-surge',
+    name: 'Heights Blvd Flood Surge (Zone Z-402)',
+    severity: 'BLOCKED',
+    polygon: [
+      { lat: 29.775, lng: -95.405 },
+      { lat: 29.778, lng: -95.395 },
+      { lat: 29.77, lng: -95.392 },
+      { lat: 29.768, lng: -95.402 },
+    ],
+  },
+  {
+    id: 'zone-white-oak-caution',
+    name: 'White Oak Bayou Inundation (Zone Z-405)',
+    severity: 'CAUTION',
+    polygon: [
+      { lat: 29.782, lng: -95.378 },
+      { lat: 29.785, lng: -95.368 },
+      { lat: 29.779, lng: -95.365 },
+      { lat: 29.776, lng: -95.375 },
+    ],
+  },
+];
+
 function OperatorMapContent() {
-  const [requests, setRequests] = useState<RescueRequest[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentRecord[]>([]);
+  // Live polling for requests and assignments
+  const {
+    data: requests = [],
+    status: requestsStatus,
+    lastUpdated: requestsUpdated,
+    isRefreshing: requestsRefreshing,
+    refresh: refreshRequests,
+  } = useLiveRequests({ intervalMs: 20000 });
+
+  const {
+    data: assignments = [],
+    status: assignmentsStatus,
+    lastUpdated: assignmentsUpdated,
+    isRefreshing: assignmentsRefreshing,
+    refresh: refreshAssignments,
+  } = useLiveAssignments({ intervalMs: 20000 });
+
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Sync selected assignment
+  useEffect(() => {
+    if (assignments.length > 0 && !selectedAssignmentId) {
+      setSelectedAssignmentId(assignments[0].id);
+    }
+  }, [assignments, selectedAssignmentId]);
+
+  // Aggregate live status
+  const liveStatus: LivePollingStatus =
+    requestsStatus === 'OFFLINE' || assignmentsStatus === 'OFFLINE'
+      ? 'OFFLINE'
+      : requestsStatus === 'UNAUTHORIZED' || assignmentsStatus === 'UNAUTHORIZED'
+        ? 'UNAUTHORIZED'
+        : requestsStatus === 'FORBIDDEN' || assignmentsStatus === 'FORBIDDEN'
+          ? 'FORBIDDEN'
+          : requestsStatus === 'REFRESHING' || assignmentsStatus === 'REFRESHING'
+            ? 'REFRESHING'
+            : requestsStatus === 'STALE' || assignmentsStatus === 'STALE'
+              ? 'STALE'
+              : requestsStatus === 'INITIAL_LOADING' || assignmentsStatus === 'INITIAL_LOADING'
+                ? 'INITIAL_LOADING'
+                : 'UP_TO_DATE';
+
+  const lastUpdated = requestsUpdated || assignmentsUpdated;
+  const isRefreshing = requestsRefreshing || assignmentsRefreshing;
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshRequests(), refreshAssignments()]);
+  }, [refreshRequests, refreshAssignments]);
 
   // Layers and filters
-  const [layers, setLayers] = useState({
+  const [layers, setLayers] = useState<MapLayers>({
     incidents: true,
     craft: true,
     shelters: true,
     routes: true,
+    blockages: true,
+    repairOverlay: false,
   });
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   const [tileTheme, setTileTheme] = useState<'dark' | 'standard'>('dark');
   const [selectedEntity, setSelectedEntity] = useState<SelectedMapEntity>(null);
+
+  // Set initial selected entity when requests first arrive
+  useEffect(() => {
+    if (requests.length > 0 && !selectedEntity) {
+      const firstCritical = requests.find((r) => r.urgency === 'CRITICAL') || requests[0];
+      setSelectedEntity({ type: 'incident', item: firstCritical });
+    }
+  }, [requests, selectedEntity]);
 
   // Map control trigger for programmatic movement
   const [actionTrigger, setActionTrigger] = useState<{
@@ -113,58 +194,19 @@ function OperatorMapContent() {
     setActionTrigger({ type, id: Date.now() });
   };
 
-  const toggleLayer = (layer: keyof typeof layers) => {
+  const toggleLayer = (layer: keyof MapLayers) => {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Load real backend data
-  const loadData = useCallback(
-    async (isManual = false) => {
-      try {
-        if (isManual) {
-          setIsRefreshing(true);
-        } else {
-          setIsLoading(true);
-        }
-        setError(null);
-
-        const [requestsData, assignmentsData] = await Promise.all([
-          apiClient.listRequests().catch((err) => {
-            console.error('Failed to load requests:', err);
-            throw err;
-          }),
-          apiClient.listAssignments().catch((err) => {
-            console.warn('Assignments list empty or unavailable:', err);
-            return [] as AssignmentRecord[];
-          }),
-        ]);
-
-        setRequests(requestsData || []);
-        setAssignments(assignmentsData || []);
-        if (assignmentsData && assignmentsData.length > 0 && !selectedAssignmentId) {
-          setSelectedAssignmentId(assignmentsData[0].id);
-        }
-        setLastRefreshed(new Date());
-
-        // If no entity currently selected, default to first critical request
-        if (requestsData && requestsData.length > 0) {
-          const firstCritical =
-            requestsData.find((r) => r.urgency === 'CRITICAL') || requestsData[0];
-          setSelectedEntity({ type: 'incident', item: firstCritical });
-        }
-      } catch (err) {
-        setError((err as Error).message || 'Failed to load geospatial data from backend');
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [selectedAssignmentId],
-  );
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // Repair route polyline vectors for comparison overlay
+  const repairRoutePolylines = useMemo(() => {
+    return (
+      SIMULATED_REPAIR_RESULT.proposedPlan?.routes.map((r) => ({
+        resourceId: r.resourceId,
+        latlngs: r.stops.map((s) => [s.lat, s.lng] as [number, number]),
+      })) || []
+    );
+  }, []);
 
   // Selected assignment record
   const selectedAssignment = useMemo(() => {
@@ -195,46 +237,16 @@ function OperatorMapContent() {
         <div className="flex items-center gap-3">
           <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/50 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            POSTGIS SNAPSHOT
+            POSTGIS REALTIME
           </span>
-          {lastRefreshed && (
-            <span className="text-[11px] text-slate-400 font-mono hidden lg:inline">
-              Synced {lastRefreshed.toLocaleTimeString()}
-            </span>
-          )}
-          <button
-            onClick={() => loadData(true)}
-            disabled={isRefreshing || isLoading}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors disabled:opacity-50"
-            title="Refresh map data"
-            type="button"
-          >
-            <span
-              className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin' : ''}`}
-            >
-              refresh
-            </span>
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+          <LiveStatusIndicator
+            status={liveStatus}
+            lastUpdated={lastUpdated}
+            onRefresh={refreshAll}
+            isRefreshing={isRefreshing}
+          />
         </div>
       </div>
-
-      {/* Error Alert */}
-      {error && (
-        <div className="bg-red-950/80 border-b border-red-800 text-red-200 px-4 py-2 flex items-center justify-between gap-3 text-xs z-30 shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-red-400 text-sm">error</span>
-            <span>{error}</span>
-          </div>
-          <button
-            onClick={() => loadData(false)}
-            className="px-2.5 py-1 rounded bg-red-900 hover:bg-red-800 text-white font-bold transition-colors"
-            type="button"
-          >
-            Retry Connection
-          </button>
-        </div>
-      )}
 
       {/* Main Map Canvas and Inspector Workspace */}
       <div className="flex-1 relative flex overflow-hidden">
@@ -303,6 +315,35 @@ function OperatorMapContent() {
                 />
                 <span className="material-symbols-outlined text-[14px] text-sky-400">route</span>
                 <span className="font-medium">Transit Vectors</span>
+              </label>
+
+              {/* Road Hazard Blockages Layer */}
+              <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-rose-950/40 border border-rose-500/40 text-slate-100 cursor-pointer hover:bg-rose-900/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={layers.blockages}
+                  onChange={() => toggleLayer('blockages')}
+                  className="rounded text-rose-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-400 cursor-pointer"
+                />
+                <span className="material-symbols-outlined text-[14px] text-rose-400">traffic</span>
+                <span className="font-medium">Hazard Zones</span>
+                <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
+                  {STAGED_SECTOR_BLOCKED_ZONES.length}
+                </span>
+              </label>
+
+              {/* Repair Comparison Overlay */}
+              <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-purple-950/40 border border-purple-500/40 text-slate-100 cursor-pointer hover:bg-purple-900/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={layers.repairOverlay}
+                  onChange={() => toggleLayer('repairOverlay')}
+                  className="rounded text-purple-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-purple-400 cursor-pointer"
+                />
+                <span className="material-symbols-outlined text-[14px] text-purple-400">
+                  alt_route
+                </span>
+                <span className="font-medium">Repair Overlay</span>
               </label>
             </div>
 
@@ -459,6 +500,8 @@ function OperatorMapContent() {
             stagedFleet={STAGED_SECTOR_FLEET}
             stagedShelters={STAGED_SECTOR_SHELTERS}
             selectedAssignment={selectedAssignment}
+            blockedZones={STAGED_SECTOR_BLOCKED_ZONES}
+            repairRoutePolylines={repairRoutePolylines}
             layers={layers}
             urgencyFilter={urgencyFilter}
             selectedEntity={selectedEntity}
