@@ -12,6 +12,17 @@ import type {
   RouteStop,
   OperatorProfile,
   LoginResult,
+  OperationalEvent,
+  AffectedScopeResult,
+  RepairResult,
+  ListOperationalEventsFilter,
+  ListAuditEventsFilter,
+  AuditEventRecord,
+  UpdateResourceStatusInput,
+  UpdateResourceStatusResult,
+  CreateRoadZoneInput,
+  RoadZoneOperationResult,
+  RequestRepairInput,
 } from './types';
 
 export interface ApiClientConfig {
@@ -291,6 +302,125 @@ export class FloodRelayApiClient {
       },
     );
     return res.data;
+  }
+
+  // ==========================================
+  // Phase 5 Operations & Operational Events Endpoints
+  // ==========================================
+
+  async listOperationalEvents(
+    filter?: ListOperationalEventsFilter,
+    signal?: AbortSignal,
+  ): Promise<OperationalEvent[]> {
+    const params = new URLSearchParams();
+    if (filter?.type) params.set('type', filter.type);
+    if (filter?.entityType) params.set('entityType', filter.entityType);
+    if (filter?.entityId) params.set('entityId', filter.entityId);
+    if (filter?.status) params.set('status', filter.status);
+    if (filter?.actorId) params.set('actorId', filter.actorId);
+    if (filter?.limit) params.set('limit', String(filter.limit));
+    if (filter?.offset) params.set('offset', String(filter.offset));
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.request<OperationalEvent[]>(`/operations/events${qs}`, {
+      method: 'GET',
+      signal,
+    });
+    return res.data || [];
+  }
+
+  async getOperationalEvent(id: string, signal?: AbortSignal): Promise<OperationalEvent> {
+    const res = await this.request<OperationalEvent>(
+      `/operations/events/${encodeURIComponent(id)}`,
+      {
+        method: 'GET',
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async getAffectedScope(id: string, signal?: AbortSignal): Promise<AffectedScopeResult> {
+    const res = await this.request<AffectedScopeResult>(
+      `/operations/events/${encodeURIComponent(id)}/affected-scope`,
+      {
+        method: 'GET',
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async updateResourceStatus(
+    id: string,
+    input: UpdateResourceStatusInput,
+    signal?: AbortSignal,
+  ): Promise<UpdateResourceStatusResult> {
+    const res = await this.request<UpdateResourceStatusResult>(
+      `/operations/resources/${encodeURIComponent(id)}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async createRoadZone(
+    input: CreateRoadZoneInput,
+    signal?: AbortSignal,
+  ): Promise<RoadZoneOperationResult> {
+    const res = await this.request<RoadZoneOperationResult>('/operations/road-zones', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      signal,
+    });
+    return res.data;
+  }
+
+  async reopenRoadZone(id: string, signal?: AbortSignal): Promise<RoadZoneOperationResult> {
+    const res = await this.request<RoadZoneOperationResult>(
+      `/operations/road-zones/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        signal,
+      },
+    );
+    return res.data;
+  }
+
+  async requestRepair(input: RequestRepairInput, signal?: AbortSignal): Promise<RepairResult> {
+    const res = await this.request<RepairResult>('/operations/repair', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      signal,
+    });
+    return res.data;
+  }
+
+  // ==========================================
+  // Audit Trail Endpoints
+  // ==========================================
+
+  async listAuditEvents(
+    filter?: ListAuditEventsFilter,
+    signal?: AbortSignal,
+  ): Promise<AuditEventRecord[]> {
+    const params = new URLSearchParams();
+    if (filter?.entityType) params.set('entityType', filter.entityType);
+    if (filter?.entityId) params.set('entityId', filter.entityId);
+    if (filter?.eventType) params.set('eventType', filter.eventType);
+    if (filter?.actor) params.set('actor', filter.actor);
+    if (filter?.limit) params.set('limit', String(filter.limit));
+    if (filter?.offset) params.set('offset', String(filter.offset));
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.request<AuditEventRecord[]>(`/audit/events${qs}`, {
+      method: 'GET',
+      signal,
+    });
+    return res.data || [];
   }
 }
 

@@ -2,9 +2,9 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import type { RescueRequest } from '@floodrelay/shared';
+import type { RescueRequest, BlockedZone } from '@floodrelay/shared';
 import type { AssignmentRecord } from '@/lib/api/types';
-import type { StagedAsset, StagedShelter, SelectedMapEntity } from './LeafletMapCanvas';
+import type { StagedAsset, StagedShelter, SelectedMapEntity, MapLayers } from './LeafletMapCanvas';
 
 const LeafletMapCanvas = dynamic(() => import('./LeafletMapCanvas'), {
   ssr: false,
@@ -26,12 +26,9 @@ interface LeafletMapWrapperProps {
   stagedFleet: StagedAsset[];
   stagedShelters: StagedShelter[];
   selectedAssignment: AssignmentRecord | null;
-  layers: {
-    incidents: boolean;
-    craft: boolean;
-    shelters: boolean;
-    routes: boolean;
-  };
+  blockedZones?: BlockedZone[];
+  repairRoutePolylines?: Array<{ resourceId: string; latlngs: [number, number][] }>;
+  layers: MapLayers;
   urgencyFilter: string;
   selectedEntity: SelectedMapEntity;
   onSelectEntity: (entity: SelectedMapEntity) => void;

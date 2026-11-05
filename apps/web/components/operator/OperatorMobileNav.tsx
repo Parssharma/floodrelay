@@ -105,6 +105,32 @@ export function OperatorMobileNav({ isOpen, onClose }: OperatorMobileNavProps) {
                 24 Active
               </span>
             </Link>
+
+            <Link
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${
+                pathname.startsWith('/operator/events')
+                  ? 'bg-primary text-on-primary'
+                  : 'text-surface-dim hover:bg-surface-variant/10'
+              }`}
+              href="/operator/events"
+              onClick={onClose}
+            >
+              <span className="material-symbols-outlined text-[18px]">radar</span>
+              <span>Event Stream</span>
+            </Link>
+
+            <Link
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${
+                pathname.startsWith('/operator/audit')
+                  ? 'bg-primary text-on-primary'
+                  : 'text-surface-dim hover:bg-surface-variant/10'
+              }`}
+              href="/operator/audit"
+              onClick={onClose}
+            >
+              <span className="material-symbols-outlined text-[18px]">history</span>
+              <span>Audit History</span>
+            </Link>
           </nav>
         </div>
 

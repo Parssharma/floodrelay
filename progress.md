@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-02
+**Last updated:** 2026-11-05
 
-**Current focus:** Phase 5 Part 1 Complete & Ready for Review ✅ — Backend Infrastructure, Operational Events, RBAC Authorization & Audit Log
+**Current focus:** Phase 5 Part 3 Complete & Ready for Review ✅ — Complete Live Operations Frontend Implementation
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -200,15 +200,16 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 1: Backend Infrastructure, Operational Events, Authorization and Audit (OperationalEventService, Migration 004, RBAC permission matrix, audit read API, RepairOrchestrationService interface boundary, OpenAPI 3.1 zero-drift synchronization, and comprehensive test suite with 100% pass rate).
-- **Next up:** Phase 5 Part 2 — Solver Incremental Repair Algorithms & Churn Benchmarks.
+- **Last completed:** Phase 5 Part 3: Complete Live Operations Frontend Implementation (live polling with visibility pause & exponential backoff, Operational Event Feed & Inspection Drawer, Operator Dashboard live updates, Resource Status & Road Blockage modals with RBAC enforcement, Repair Proposal Comparison UI with churn analysis and frozen stop preservation, graceful 503 fallback with deterministic preview fixtures, Live Tactical Map with blocked zones and repair route overlay, Audit History UI with role-based redaction, full monorepo verification passing 100%).
+- **Next up:** Phase 5 Part 2 — Solver Incremental Repair Algorithms & Churn Benchmarks (developed in parallel by teammate).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
 - **Phase 4:** Complete ✅.
 - **Phase 5 Part 1:** Complete ✅.
-- **Phase 5 Part 2 & Part 3:** Next up.
+- **Phase 5 Part 2:** In progress 🟡 (Solver algorithms & benchmarks).
+- **Phase 5 Part 3:** Complete ✅ (Live operations frontend).
 
 ---
 
@@ -253,6 +254,10 @@ Incoming rescue requests
 | Transactional operational events outbox                    | PostgreSQL table `operational_events` updated atomically with domain and audit writes in single transaction client; no external queue in Part 1 (ADR-27)                                                                                   |
 | Centralized RBAC and audit redaction                       | Strict permission matrix across OPERATOR, DISPATCHER, ADMIN with `requirePermission(...)` middleware; automatic redaction of sensitive metadata for OPERATOR role (ADR-28)                                                                 |
 | Incremental solver repair boundary                         | Decoupled `RepairInput`/`RepairResult` interfaces; explicit HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` signaling until Part 2 solver integration (ADR-29)                                                                                        |
+| Live Polling with Visibility API & Bounded Backoff         | 20s live polling hook with Page Visibility API pausing, bounded exponential backoff (capped at 60s), AbortController cancellation on unmount, and monotonic sequence deduplication to prevent stale overwrites (ADR-34)                    |
+| Human-in-the-Loop Repair Proposal & Churn Visualization    | Explicit side-by-side plan diff with churn percentage gauge, categorized stop status badges (FROZEN, ADDED, REMOVED, REASSIGNED, REORDERED, UNCHANGED), and SLA/wait time delta metrics (ADR-35)                                           |
+| Test Fixture Isolation & Safe 503 Solver Fallback          | When `POST /operations/repair` returns 503 during Part 2 solver development, frontend surfaces a clear status banner and provides an isolated preview fixture with database commitment strictly blocked (ADR-36)                           |
+| Authoritative Resource & GIS Layer Isolation               | Segregated reference assets from live database records, disclosed missing `GET /operations/resources` endpoint, protected against synthetic ID mutation, and isolated GIS tactical map layers (ADR-37)                                     |
 
 ---
 
