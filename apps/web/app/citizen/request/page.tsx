@@ -11,6 +11,8 @@ import type { CreateRequestInput } from '@/lib/api/types';
 export type GpsStatus =
   'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
 
+export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
+
 const WATER_LEVEL_LABELS: Record<string, string> = {
   ankle_knee: 'Ankle to Knee-deep in yard / driveway (Evacuation possible)',
   ground_floor: 'Reached ground floor interior (1 - 3 feet)',
@@ -38,9 +40,11 @@ export default function CitizenRequestPage() {
   const [lng, setLng] = useState<string>('-95.3698');
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('IDLE');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
-  const [address, setAddress] = useState<string>(
-    '1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower',
-  );
+  const [address, setAddress] = useState<string>('');
+  const [reverseGeocodeStatus, setReverseGeocodeStatus] = useState<ReverseGeocodeStatus>('IDLE');
+  const [reverseGeocodeMessage, setReverseGeocodeMessage] = useState<string | null>(null);
+  const lookupSeqRef = React.useRef<number>(0);
+  const userEditedDuringLookupRef = React.useRef<boolean>(false);
   const [waterLevel, setWaterLevel] = useState<string>('ground_floor');
   const [partyCount, setPartyCount] = useState<number>(3);
   const [specialNeeds, setSpecialNeeds] = useState<Record<string, boolean>>({
@@ -67,6 +71,82 @@ export default function CitizenRequestPage() {
     }
   };
 
+  const triggerReverseGeocode = async (latNum: number, lngNum: number) => {
+    const seq = ++lookupSeqRef.current;
+    userEditedDuringLookupRef.current = false;
+    setReverseGeocodeStatus('LOOKING_UP');
+    setReverseGeocodeMessage('Finding nearest street address...');
+
+    try {
+      const res = await fetch('/api/reverse-geocode', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ lat: latNum, lng: lngNum }),
+      });
+
+      // Reject stale response from older GPS clicks
+      if (seq !== lookupSeqRef.current) {
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+
+      // If citizen manually edited address while lookup was in-flight, do not overwrite
+      if (userEditedDuringLookupRef.current) {
+        setReverseGeocodeStatus('IDLE');
+        setReverseGeocodeMessage(null);
+        return;
+      }
+
+      if (res.ok && data?.success) {
+        if (data.address && typeof data.address === 'string' && data.address.trim()) {
+          setAddress(data.address.trim());
+          setReverseGeocodeStatus('FOUND');
+          setReverseGeocodeMessage(null);
+          markEdited();
+          // Clear address error
+          setErrors((prev) => {
+            const next = { ...prev };
+            delete next.address;
+            return next;
+          });
+        } else {
+          // Lookup succeeded but no street address found for coordinates
+          setReverseGeocodeStatus('UNAVAILABLE');
+          const baseMsg = data?.message || 'No street address found for these coordinates.';
+          setReverseGeocodeMessage(
+            baseMsg.includes('manually')
+              ? baseMsg
+              : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+          );
+        }
+      } else {
+        setReverseGeocodeStatus('ERROR');
+        const baseMsg = data?.message || 'Unable to determine street address.';
+        setReverseGeocodeMessage(
+          baseMsg.includes('manually')
+            ? baseMsg
+            : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
+        );
+      }
+    } catch {
+      if (seq !== lookupSeqRef.current) {
+        return;
+      }
+      if (userEditedDuringLookupRef.current) {
+        setReverseGeocodeStatus('IDLE');
+        setReverseGeocodeMessage(null);
+        return;
+      }
+      setReverseGeocodeStatus('ERROR');
+      setReverseGeocodeMessage(
+        'Network error looking up address. Coordinates are saved — please enter your street address or landmark manually.',
+      );
+    }
+  };
+
   const handleUseLocation = () => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGpsStatus('UNSUPPORTED');
@@ -90,6 +170,9 @@ export default function CitizenRequestPage() {
           delete next.lng;
           return next;
         });
+
+        // Trigger reverse geocoding to find nearest street address
+        void triggerReverseGeocode(pos.coords.latitude, pos.coords.longitude);
       },
       (err) => {
         // Strict real-geolocation error handling: NO mock fallback coordinates
@@ -439,6 +522,7 @@ export default function CitizenRequestPage() {
                 id="addressInput"
                 onChange={(e) => {
                   setAddress(e.target.value);
+                  userEditedDuringLookupRef.current = true;
                   markEdited();
                 }}
                 placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
@@ -446,6 +530,41 @@ export default function CitizenRequestPage() {
                 value={address}
               />
               {errors.address && <p className="text-xs text-red-600 mt-1">{errors.address}</p>}
+
+              {/* Reverse Geocode Loading Status */}
+              {reverseGeocodeStatus === 'LOOKING_UP' && (
+                <div className="flex items-center gap-2 text-xs text-primary font-medium mt-1">
+                  <span className="material-symbols-outlined text-sm animate-spin">
+                    progress_activity
+                  </span>
+                  <span>Finding nearest street address...</span>
+                </div>
+              )}
+
+              {/* Approximate Address Notice & Guidance */}
+              {reverseGeocodeStatus === 'FOUND' && address.trim().length > 0 && (
+                <div className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-800 dark:text-amber-200 mt-1">
+                  <span className="material-symbols-outlined text-base text-amber-600 shrink-0">
+                    info
+                  </span>
+                  <span>
+                    Approximate address detected. Verify it and add your floor, apartment or nearest
+                    visible landmark.
+                  </span>
+                </div>
+              )}
+
+              {/* Address Lookup Warning / Error Notice */}
+              {(reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR') &&
+                reverseGeocodeMessage && (
+                  <div className="flex items-start gap-2 p-2.5 bg-surface-container border border-outline-variant rounded-lg text-xs text-on-surface-variant mt-1">
+                    <span className="material-symbols-outlined text-base text-amber-600 shrink-0">
+                      warning
+                    </span>
+                    <span>{reverseGeocodeMessage}</span>
+                  </div>
+                )}
+
               <p className="text-xs text-on-surface-variant">
                 Include floor level, color of exterior walls, or high visibility markers for air and
                 boat crews.
