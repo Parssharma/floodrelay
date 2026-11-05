@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-05
 
-**Current focus:** Phase 5 Part 2 — Integrating incremental solver with Part 1 backend (solver algorithms implemented, backend integration in progress)
+**Current focus:** Phase 5 Part 2 Complete ✅ — Incremental solver algorithms implemented and integrated with Part 1 backend
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -183,7 +183,7 @@ Incoming rescue requests
 | Local repair contracts     | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                               |
 | Local repair algorithm     | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with frozen-stop invariant                                  |
 | Churn calculations         | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark harness                                                                                                        |
-| Solver backend integration | Part 2 | 🟡     | `RepairSolver` adapter connecting Part 2 algorithms to Part 1 orchestration service                                                                                                                    |
+| Solver backend integration | Part 2 | ✅     | `IncrementalRepairSolverAdapter` maps RepairInput to solver, injected into RepairOrchestrationService (8 unit tests)                                                                                   |
 | Live dashboard updates     | Part 3 | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
 
 ### Phase 6 — Hardening and documentation
@@ -201,15 +201,15 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 1 merged (PR #22). Part 2 solver algorithms implemented; backend integration in progress.
-- **Next up:** Phase 5 Part 2 completion (solver ↔ backend integration) → Phase 5 Part 3 (live dashboard updates).
+- **Last completed:** Phase 5 Part 2 complete (PR pending review). Part 1 merged (PR #22). Solver algorithms + backend integration done.
+- **Next up:** Phase 5 Part 3 (live dashboard updates, owned by another contributor).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
 - **Phase 4:** Complete ✅.
 - **Phase 5 Part 1:** Complete ✅ (merged PR #22).
-- **Phase 5 Part 2:** Solver algorithms complete ✅. Backend integration 🟡 in progress.
+- **Phase 5 Part 2:** Complete ✅ (solver algorithms + backend integration via IncrementalRepairSolverAdapter).
 - **Phase 5 Part 3:** Not started ⬜ (owned by another contributor).
 
 ---
