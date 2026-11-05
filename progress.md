@@ -174,17 +174,17 @@ Incoming rescue requests
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task                        | Owner  | Status | Details                                                                                                                                                                                                |
-| --------------------------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Event handlers (backend)    | Part 1 | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys |
-| Roles & Authorization       | Part 1 | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                    |
-| Audit log                   | Part 1 | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                   |
-| Frozen committed stops      | Part 1 | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                     |
-| Local repair contracts      | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                              |
-| Local repair algorithm      | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with frozen-stop invariant                                 |
-| Churn calculations          | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark harness                                                                                                        |
-| Solver backend integration  | Part 2 | 🟡     | `RepairSolver` adapter connecting Part 2 algorithms to Part 1 orchestration service                                                                                                                    |
-| Live dashboard updates      | Part 3 | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
+| Task                       | Owner  | Status | Details                                                                                                                                                                                                |
+| -------------------------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Event handlers (backend)   | Part 1 | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys |
+| Roles & Authorization      | Part 1 | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                    |
+| Audit log                  | Part 1 | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                   |
+| Frozen committed stops     | Part 1 | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                     |
+| Local repair contracts     | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                               |
+| Local repair algorithm     | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with frozen-stop invariant                                  |
+| Churn calculations         | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark harness                                                                                                        |
+| Solver backend integration | Part 2 | 🟡     | `RepairSolver` adapter connecting Part 2 algorithms to Part 1 orchestration service                                                                                                                    |
+| Live dashboard updates     | Part 3 | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
 
 ### Phase 6 — Hardening and documentation
 

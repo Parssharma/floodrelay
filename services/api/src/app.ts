@@ -10,6 +10,7 @@ import { AuthService } from './services/authService.js';
 import { OperationalEventService } from './services/operationalEventService.js';
 import { AffectedScopeService } from './services/affectedScopeService.js';
 import { RepairOrchestrationService } from './services/repairOrchestrationService.js';
+import { IncrementalRepairSolverAdapter } from './services/incrementalRepairSolverAdapter.js';
 import { createRequestsRouter } from './routes/requests.js';
 import { createAssignmentsRouter } from './routes/assignments.js';
 import { createAuthRouter } from './routes/auth.js';
@@ -103,7 +104,9 @@ export function createApp(deps?: AppDependencies): Express {
   const affectedScopeService = deps?.affectedScopeService ?? new AffectedScopeService(repo);
   const eventService =
     deps?.operationalEventService ?? new OperationalEventService(repo, affectedScopeService);
-  const repairService = deps?.repairOrchestrationService ?? new RepairOrchestrationService(repo);
+  const repairSolver = new IncrementalRepairSolverAdapter(repo);
+  const repairService =
+    deps?.repairOrchestrationService ?? new RepairOrchestrationService(repo, repairSolver);
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
