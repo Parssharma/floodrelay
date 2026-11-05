@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-05
 
-**Current focus:** Phase 5 Part 2 Complete ✅ — Incremental Solver, Local Route Repair, Frozen Stop Invariant, Assignment Churn Metric (pure solver algorithms; Part 1 backend integration pending)
+**Current focus:** Phase 5 Part 2 — Integrating incremental solver with Part 1 backend (solver algorithms implemented, backend integration in progress)
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -174,15 +174,17 @@ Incoming rescue requests
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task                   | Owner | Status | Proving test(s)                                                                                                                                                                                                                                                                                               |
-| ---------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Event handlers         | —     | ✅     | `packages/solver/src/incremental/orchestrator.test.ts` (5 passing tests: REQUEST_CREATED insertion, RESOURCE_OFFLINE local repair, REQUEST_CANCELLED removal, ROAD_BLOCKED re-routing, DUPLICATE_FLAGGED safety check)                                                                                        |
-| Local repair           | —     | ✅     | `packages/solver/src/incremental/localRepair.test.ts` (8 passing tests: offline resource mutable work reassignment, frozen-conflict detection, unserved fallback, no phantom re-assignment), `packages/solver/src/incremental/insertion.test.ts` (7 passing tests: best-feasible insertion with tie-breaking) |
-| Frozen committed stops | —     | ✅     | `packages/solver/src/incremental/frozenStops.test.ts` (6 passing tests: extraction, violation detection, immutability enforcement, NO_FEASIBLE_REPAIR on frozen conflict)                                                                                                                                     |
-| Churn metric           | —     | ✅     | `packages/solver/src/metrics/churn.test.ts` (7 passing tests: reassignment rate, unserved rate, zero-denominator guard, travel-time delta, deterministic tie-breaking), `packages/solver/src/evaluation/incrementalBenchmark.test.ts` (strategy comparison harness, frozen violations = 0 invariant)          |
-| Live dashboard updates | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
-| Roles                  | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
-| Audit log              | —     | ⬜     |                                                                                                                                                                                                                                                                                                               |
+| Task                        | Owner  | Status | Details                                                                                                                                                                                                |
+| --------------------------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Event handlers (backend)    | Part 1 | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys |
+| Roles & Authorization       | Part 1 | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                    |
+| Audit log                   | Part 1 | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                   |
+| Frozen committed stops      | Part 1 | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                     |
+| Local repair contracts      | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                              |
+| Local repair algorithm      | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with frozen-stop invariant                                 |
+| Churn calculations          | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark harness                                                                                                        |
+| Solver backend integration  | Part 2 | 🟡     | `RepairSolver` adapter connecting Part 2 algorithms to Part 1 orchestration service                                                                                                                    |
+| Live dashboard updates      | Part 3 | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
 
 ### Phase 6 — Hardening and documentation
 
@@ -199,14 +201,16 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 2 — Incremental Solver & Local Route Repair (Event handlers, best-feasible insertion, local repair, frozen stop invariant, assignment churn metric — 34 new tests, 199 passing across solver workspace, 1 live OSRM test skipped, 0 frozen-stop violations across all strategies in benchmark).
-- **Next up:** Phase 5 Part 1 (backend events, DB persistence, repair API endpoint, audit log — currently unmerged) → Phase 5 Part 3 (live dashboard updates, map polling, repair comparison frontend).
+- **Last completed:** Phase 5 Part 1 merged (PR #22). Part 2 solver algorithms implemented; backend integration in progress.
+- **Next up:** Phase 5 Part 2 completion (solver ↔ backend integration) → Phase 5 Part 3 (live dashboard updates).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
-- **Phase 4:** Complete ✅. Follow-up fixes and live OSRM Docker verification completed on `fix/phase-4-review-followup` (per-resource-type routing policy, hazard zones impedance semantics, UNREACHABLE_DUE_TO_HAZARD reason, explainable plan audit logging with SHA-256 hash, calibrated lognormal uncertainty model, 7 ADRs, and live OSRM verification on Docker Compose with BBBike New Delhi extract, with 106 tests passing across Phase 4 test suites including live integration test).
-- **Phase 5 Part 2:** Complete ✅ on branch `feature/phase5-part2-incremental-solver`. Pure solver algorithms implemented; Phase 1 backend integration not yet available (see ADR-30).
+- **Phase 4:** Complete ✅.
+- **Phase 5 Part 1:** Complete ✅ (merged PR #22).
+- **Phase 5 Part 2:** Solver algorithms complete ✅. Backend integration 🟡 in progress.
+- **Phase 5 Part 3:** Not started ⬜ (owned by another contributor).
 
 ---
 
@@ -248,6 +252,9 @@ Incoming rescue requests
 | Request-scoped hazard zones & audit hashing                | Polygon zones provided per-proposal; SHA-256 canonical JSON hash logged in ASSIGNMENT_PROPOSED audit payload; frozen stops preserved (ADR-24)                                                                                              |
 | 500-point prefetch ceiling                                 | Bound OSRM table prefetch coordinates to prevent excessive API latency; Large scenario falls back to straight-line (ADR-25)                                                                                                                |
 | Deterministic perturbation noise model                     | Uniform noise in [1-m, 1+m] deterministic per (seed, from, to) pair to benchmark route and sequence churn reproducibly (ADR-26)                                                                                                            |
+| Transactional operational events outbox                    | PostgreSQL table `operational_events` updated atomically with domain and audit writes in single transaction client; no external queue in Part 1 (ADR-27)                                                                                   |
+| Centralized RBAC and audit redaction                       | Strict permission matrix across OPERATOR, DISPATCHER, ADMIN with `requirePermission(...)` middleware; automatic redaction of sensitive metadata for OPERATOR role (ADR-28)                                                                 |
+| Incremental solver repair boundary                         | Decoupled `RepairInput`/`RepairResult` interfaces; explicit HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` signaling until Part 2 solver integration (ADR-29)                                                                                        |
 
 ---
 

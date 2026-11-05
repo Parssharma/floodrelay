@@ -12,6 +12,13 @@ import type {
   StopType,
   SolverMetrics,
   UnservedRequest,
+  BlockedZone,
+  HazardLevel,
+  OperationalEvent,
+  OperationalEventType,
+  EventEntityType,
+  EventActorType,
+  EventProcessingStatus,
 } from '@floodrelay/shared';
 
 // Verification status for citizen requests
@@ -102,6 +109,36 @@ export interface DbAuditEvent {
   created_at: Date;
 }
 
+export interface DbOperationalEvent {
+  id: string;
+  event_type: OperationalEventType;
+  entity_type: EventEntityType;
+  entity_id: string;
+  actor_id: string | null;
+  actor_type: EventActorType;
+  payload: Record<string, unknown>;
+  correlation_id: string | null;
+  idempotency_key: string | null;
+  entity_version: number;
+  processing_status: EventProcessingStatus;
+  processing_attempts: number;
+  last_error_code: string | null;
+  occurred_at: Date;
+  created_at: Date;
+  processed_at: Date | null;
+}
+
+export interface DbBlockedZone {
+  id: string;
+  name: string | null;
+  severity: HazardLevel;
+  geometry: string; // WKT: 'POLYGON((lng lat, ...))'
+  is_active: boolean;
+  created_by: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Spatial helper functions
 export function toPointWkt(geo: GeoPoint): string {
   return `POINT(${geo.lng} ${geo.lat})`;
@@ -115,6 +152,84 @@ export function parsePointWkt(wkt: string): GeoPoint {
   const lng = parseFloat(match[1]);
   const lat = parseFloat(match[2]);
   return { lat, lng };
+}
+
+export function toPolygonWkt(polygon: GeoPoint[]): string {
+  if (!polygon || polygon.length < 3) {
+    throw new Error('A polygon requires at least 3 distinct vertices');
+  }
+  const points = [...polygon];
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) {
+    throw new Error('Invalid polygon vertices');
+  }
+  if (first.lat !== last.lat || first.lng !== last.lng) {
+    points.push({ lat: first.lat, lng: first.lng });
+  }
+  const coords = points.map((p) => `${p.lng} ${p.lat}`).join(', ');
+  return `POLYGON((${coords}))`;
+}
+
+export function parsePolygonWkt(wkt: string): GeoPoint[] {
+  const match = /POLYGON\s*\(\s*\(\s*(.+?)\s*\)\s*\)/i.exec(wkt);
+  if (!match || !match[1]) {
+    throw new Error(`Invalid WKT Polygon format: "${wkt}"`);
+  }
+  const pairs = match[1].split(',').map((s) => s.trim());
+  const points: GeoPoint[] = pairs.map((pair) => {
+    const parts = pair.split(/\s+/);
+    const p0 = parts[0];
+    const p1 = parts[1];
+    if (!p0 || !p1) {
+      throw new Error(`Invalid coordinate pair in WKT: "${pair}"`);
+    }
+    const lng = parseFloat(p0);
+    const lat = parseFloat(p1);
+    return { lat, lng };
+  });
+  return points;
+}
+
+export function dbToOperationalEvent(row: DbOperationalEvent): OperationalEvent {
+  return {
+    id: row.id,
+    type: row.event_type,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    actorId: row.actor_id,
+    actorType: row.actor_type,
+    occurredAt:
+      row.occurred_at instanceof Date ? row.occurred_at.toISOString() : String(row.occurred_at),
+    recordedAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    correlationId: row.correlation_id,
+    idempotencyKey: row.idempotency_key,
+    entityVersion: row.entity_version,
+    processingStatus: row.processing_status,
+    processingAttempts: row.processing_attempts,
+    lastErrorCode: row.last_error_code,
+    processedAt:
+      row.processed_at instanceof Date
+        ? row.processed_at.toISOString()
+        : row.processed_at
+          ? String(row.processed_at)
+          : null,
+    payload: row.payload ?? {},
+  };
+}
+
+export function dbToBlockedZone(
+  row: DbBlockedZone,
+): BlockedZone & { isActive: boolean; createdBy: string } {
+  return {
+    id: row.id,
+    name: row.name ?? undefined,
+    severity: row.severity,
+    polygon: parsePolygonWkt(row.geometry),
+    isActive: row.is_active,
+    createdBy: row.created_by,
+  };
 }
 
 // Type mappers between packages/shared and database rows

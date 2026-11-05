@@ -120,7 +120,7 @@ When recording a new decision, copy this template and fill it in:
 
 - **Date:** 2026-10-20
 - **Decision:** Model vehicle capacity constraints with intermediate shelter drop-off stops. When a rescue vehicle reaches its passenger capacity (or concludes servicing a localized cluster of requests), it routes to a designated safe shelter to disembark evacuees before servicing further requests or returning to its home depot.
-- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities (typically 6–18 people). In severe flooding events with hundreds of stranded victims, a vehicle cannot execute a continuous tour without offloading evacuees. Routing models must explicitly account for intermediate shelter drop-off trips to protect passenger safety and avoid vehicle overloading.
+- **Context:** Rescue vehicles (inflatable boats, high-water trucks) have finite passenger capacities (typically 6ΓÇô18 people). In severe flooding events with hundreds of stranded victims, a vehicle cannot execute a continuous tour without offloading evacuees. Routing models must explicitly account for intermediate shelter drop-off trips to protect passenger safety and avoid vehicle overloading.
 - **Alternatives considered:**
   - Single-trip routing: Each vehicle performs at most one pickup leg from depot, offloads once, and halts. (Rejected: extremely inefficient resource utilization during large-scale operations).
   - Infinite vehicle capacity: Route vehicles purely to minimize distance without capacity boundaries or shelter drop-offs. (Rejected: physically impossible and unsafe in real flood rescues).
@@ -218,7 +218,7 @@ When recording a new decision, copy this template and fill it in:
 ### ADR-19: Deterministic resource-level locking and transactional rollback verification
 
 - **Date:** 2026-10-30
-- **Decision:** In `commitAssignment()`, acquire exclusive PostgreSQL row locks (`SELECT ... FOR UPDATE`) on the assignment row, all referenced request rows (in ascending ID order), and all referenced resource rows (in ascending ID order) within a single database transaction. Recheck for resource assignment conflicts after locks are acquired before applying status transitions. Wrap the entire workflow—assignment status update, stop freezing, request assignment, and audit event insertion—in a PostgreSQL transaction that performs full rollback on any intermediate failure.
+- **Decision:** In `commitAssignment()`, acquire exclusive PostgreSQL row locks (`SELECT ... FOR UPDATE`) on the assignment row, all referenced request rows (in ascending ID order), and all referenced resource rows (in ascending ID order) within a single database transaction. Recheck for resource assignment conflicts after locks are acquired before applying status transitions. Wrap the entire workflowΓÇöassignment status update, stop freezing, request assignment, and audit event insertionΓÇöin a PostgreSQL transaction that performs full rollback on any intermediate failure.
 - **Context:** Concurrent operator proposals may allocate the same rescue resource or request. Without deterministic row-level locking on resources, concurrent commits of different proposals using the same resource could commit simultaneously, causing double-allocation. Ordering lock acquisitions lexicographically minimizes transaction deadlocks.
 - **Alternatives considered:**
   - Optimistic concurrency control (version column): Adds retry loops and requires client-side conflict resolution.
@@ -324,50 +324,85 @@ When recording a new decision, copy this template and fill it in:
 
 ---
 
-### ADR-27: Deterministic Best-Feasible Insertion Heuristic for Incremental Requests
+### ADR-27: Transactional Operational Events over External Message Queues
+
+- **Date:** 2026-11-02
+- **Decision:** Persist operational events in PostgreSQL table `operational_events` atomically in the same database transaction client as domain state mutations (requests, resource status changes, road hazard zones). Avoid external message brokers (such as Redis/BullMQ, RabbitMQ, or Kafka) during Phase 5 Part 1.
+- **Context:** Disaster relief state mutations require absolute ACID consistency. Writing domain entities to PostgreSQL while publishing events to an external broker risks dual-write anomalies (e.g. request saved in DB but event lost due to network timeout, or event published but DB transaction aborted). An emergency dispatch platform's write throughput (tens to hundreds of operational events per second) is easily handled with high durability by PostgreSQL indexed tables and row-level locking.
+- **Alternatives considered:**
+  - _Redis / BullMQ queue_: Add BullMQ queue immediately. Rejected for Part 1 to eliminate dual-write hazards and operational dependencies until solver benchmarking proves async background execution is necessary.
+  - _Node.js EventEmitter in-memory_: Emit events via Node EventEmitter. Rejected because events are lost if the server process restarts or encounters an unhandled exception.
+- **Consequence:** Zero dual-write failures. Domain mutations, operational events, and audit logs succeed or fail together atomically. Event retry and replay are guaranteed without external queue dependencies.
+
+---
+
+### ADR-28: Centralized Role-Based Access Control (RBAC) and Audit Redaction
+
+- **Date:** 2026-11-02
+- **Decision:** Define a centralized permission matrix across the three existing operator roles (`OPERATOR`, `DISPATCHER`, `ADMIN`) mapped to specific operational actions (`VIEW_EVENTS`, `VIEW_AUDIT`, `MANAGE_RESOURCE_STATUS`, `MANAGE_BLOCKED_ZONES`, `REQUEST_REPAIR`, `COMMIT_ASSIGNMENT`, `MANAGE_OPERATORS`). Enforce permissions centrally using Express `requirePermission(...)` middleware, and apply automatic field-level redaction (e.g. client IP addresses, internal hashes) when the `OPERATOR` role queries audit logs.
+- **Context:** Phase 3 established session authentication and basic role assignment, but operational mutations in Phase 5 (taking vehicles offline, declaring road blockages, triggering replanning) require strict least-privilege enforcement. Only `DISPATCHER` and `ADMIN` should perform operational mutations, while read-only `OPERATOR` roles should inspect events and audit records without viewing sensitive metadata.
+- **Alternatives considered:**
+  - _Ad-hoc role checks in route handlers_: Duplicate `if (req.operator.role !== ...)` across routes. Rejected due to drift and maintenance hazards.
+  - _Full external authorization engine (e.g. OPA/Casbin)_: Rejected as disproportionately complex for a 3-role disaster response hierarchy.
+- **Consequence:** Clean, auditable security enforcement across all operational routes with automatic sensitive data redaction.
+
+---
+
+### ADR-29: Solver Repair Interface Boundary and Explicit 503 Signaling
+
+- **Date:** 2026-11-02
+- **Decision:** Decouple backend operational event infrastructure from solver repair algorithms via shared contracts (`RepairInput`, `RepairResult`) and a dependency-injected `RepairOrchestrationService`. In Phase 5 Part 1, when no repair solver is plugged in, invoking `POST /operations/repair` explicitly throws HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` rather than returning simulated or dummy success.
+- **Context:** Phase 5 is partitioned into Part 1 (Backend Infrastructure, Operational Events, Authorization, and Audit) and Part 2 (Solver Incremental Repair Algorithms). Backend contracts must be established, tested, and validated against OpenAPI without fabricating false solver results or coupling the database directly to optimization algorithms.
+- **Alternatives considered:**
+  - _Return fake proposed plan in Part 1_: Return a static mock plan to simulate a working solver. Rejected because returning false success violates the project principle of honest status reporting and risks misleading operators.
+  - _Omit the repair route entirely until Part 2_: Rejected because Part 1 requires stable backend API contracts for frontend and orchestration integration.
+- **Consequence:** The interface boundary for Part 2 is strictly defined and verified, with unambiguous error signaling until the repair solver is integrated.
+
+---
+
+### ADR-30: Deterministic Best-Feasible Insertion Heuristic for Incremental Requests
 
 - **Date:** 2026-11-04
-- **Decision:** Implement incremental new-request insertion as a deterministic best-feasible scan across all mutable insertion positions in existing routes. Tie-breaking is fully ordered: (1) `objectiveScore` descending (urgency × route cost × capacity fit), (2) incremental distance cost ascending, (3) `resourceId` lexicographic ascending, (4) pickup index ascending, (5) dropoff index ascending, (6) `shelterId` lexicographic ascending. A new-route activation incurs a fixed 15-minute penalty to prefer insertion into existing routes. Complexity: O(R × L² × C) where R = resources, L = route length, C = candidate shelter count.
+- **Decision:** Implement incremental new-request insertion as a deterministic best-feasible scan across all mutable insertion positions in existing routes. Tie-breaking is fully ordered: (1) `objectiveScore` descending (urgency x route cost x capacity fit), (2) incremental distance cost ascending, (3) `resourceId` lexicographic ascending, (4) pickup index ascending, (5) dropoff index ascending, (6) `shelterId` lexicographic ascending. A new-route activation incurs a fixed 15-minute penalty to prefer insertion into existing routes. Complexity: O(R x L^2 x C) where R = resources, L = route length, C = candidate shelter count.
 - **Context:** When a new rescue request arrives during active operations, a full re-solve is prohibitively expensive and disrupts already-committed allocations. A deterministic insertion heuristic that reuses existing routes avoids unnecessary plan churn while giving a reproducible, explainable assignment decision.
 - **Alternatives considered:**
-  - _Random insertion_: Rejected — non-deterministic; cannot reproduce benchmark results or audit assignments.
-  - _Full re-solve on every event_: Rejected — O(N² log N) solver re-run on every event destroys existing committed plans and creates unacceptable operator workload.
-  - _Nearest-neighbor only (no existing-route preference)_: Rejected — does not minimise churn; may replace good existing assignments unnecessarily.
+  - _Random insertion_: Rejected -- non-deterministic; cannot reproduce benchmark results or audit assignments.
+  - _Full re-solve on every event_: Rejected -- O(N^2 log N) solver re-run on every event destroys existing committed plans and creates unacceptable operator workload.
+  - _Nearest-neighbor only_: Rejected -- does not minimise churn; may replace good existing assignments unnecessarily.
 - **Consequence:** New requests are insertable in bounded time with deterministic tie-breaking; the benchmark confirms event-triggered local repair achieves equal or lower churn compared to full re-solve at a fraction of the latency.
 
 ---
 
-### ADR-28: Frozen Stop Protection Invariant
+### ADR-31: Frozen Stop Protection Invariant in Solver Layer
 
 - **Date:** 2026-11-04
-- **Decision:** Any candidate repaired plan that alters, removes, reassigns, or renumbers a stop marked `isFrozen: true` (committed stops) is immediately rejected with status `NO_FEASIBLE_REPAIR`. This invariant is enforced by `validateFrozenStopsPreserved()` in `incremental/frozenStops.ts`, called unconditionally by the orchestrator before accepting any repaired plan. DEPOT stops are excluded from frozen-stop tracking — they are structural route bookmarks that may be legitimately renumbered by a re-solver. Only PICKUP and DROPOFF stops bearing `isFrozen: true` constitute committed rescue assignments and are protected.
-- **Context:** Operators manually review and commit specific rescue assignments before resources are dispatched. Automatically overwriting a committed assignment mid-operation would cause field confusion and potentially strand survivors. The frozen-stop invariant provides a hard algorithmic barrier that makes it impossible for any repair strategy to silently violate a commitment.
+- **Decision:** Any candidate repaired plan that alters, removes, reassigns, or renumbers a stop marked `isFrozen: true` (committed stops) is immediately rejected with status `NO_FEASIBLE_REPAIR`. This invariant is enforced by `validateFrozenStopsPreserved()` in `incremental/frozenStops.ts`, called unconditionally by the orchestrator before accepting any repaired plan. DEPOT stops are excluded from frozen-stop tracking in the churn metric only. Only PICKUP and DROPOFF stops bearing `isFrozen: true` constitute committed rescue assignments and are protected.
+- **Context:** Operators manually review and commit specific rescue assignments before resources are dispatched. Automatically overwriting a committed assignment mid-operation would cause field confusion and potentially strand survivors.
 - **Alternatives considered:**
-  - _Soft warning only_: Rejected — a warning that can be silently ignored provides no safety guarantee.
-  - _Freeze entire routes_: Rejected — prevents any downstream mutable insertion after a partial commitment, reducing repair opportunity unnecessarily.
-  - _Operator confirmation per frozen conflict_: This is correct UX behaviour but belongs to Phase 3 frontend; the solver layer enforces the invariant unconditionally.
-- **Consequence:** Committed rescue dispatch decisions are guaranteed to persist across all incremental repair operations. Conflicts between repair needs and existing commitments are always surfaced explicitly as `NO_FEASIBLE_REPAIR` with descriptive warnings.
+  - _Soft warning only_: Rejected -- a warning that can be silently ignored provides no safety guarantee.
+  - _Freeze entire routes_: Rejected -- prevents any downstream mutable insertion after a partial commitment, reducing repair opportunity unnecessarily.
+- **Consequence:** Committed rescue dispatch decisions are guaranteed to persist across all incremental repair operations. Conflicts surface explicitly as `NO_FEASIBLE_REPAIR` with descriptive warnings.
 
 ---
 
-### ADR-29: Assignment Churn Metric Definition
+### ADR-32: Assignment Churn Metric Definition
 
 - **Date:** 2026-11-04
-- **Decision:** Define the incremental churn rate as `(reassignedRequestsCount + newlyUnservedRequestsCount) / comparableExistingAssignments` where the denominator is the count of distinct requests served in the **baseline plan** only. New requests introduced by a `REQUEST_CREATED` event are excluded from the denominator because they were not part of the original allocation — including them would artificially deflate the churn rate. When `comparableExistingAssignments === 0`, the rate is defined as 0.0. Frozen-stop violations in the churn metric exclude: (a) DEPOT stops (structural, legitimately renumbered), and (b) frozen stops from resources that have gone offline (route absent or empty in updated plan — this is a legitimate operational event, not a constraint violation).
-- **Context:** The churn metric drives strategy comparison in the benchmark harness and in operator-facing repair proposals. A poorly defined denominator would make strategy comparisons meaningless and mislead operators about the actual disruption caused by a repair decision.
+- **Decision:** Define the incremental churn rate as (reassignedRequestsCount + newlyUnservedRequestsCount) / comparableExistingAssignments where the denominator is the count of distinct requests served in the baseline plan only. New requests introduced by a REQUEST_CREATED event are excluded from the denominator. When comparableExistingAssignments === 0, the rate is defined as 0.0. Frozen-stop violations exclude: (a) DEPOT stops, and (b) frozen stops from resources that have gone offline (route absent from updated plan).
+- **Context:** The churn metric drives strategy comparison in the benchmark harness and in operator-facing repair proposals. A poorly defined denominator would make strategy comparisons meaningless.
 - **Alternatives considered:**
-  - _Total requests in updated plan as denominator_: Rejected — includes new requests and masks the actual reassignment rate for existing work.
-  - _Count all frozen violations regardless of resource status_: Rejected — a resource going offline legitimately empties its route; treating that as a constraint violation would incorrectly penalise the repair engine for expected operational events.
-- **Consequence:** The churn metric is comparable across strategy runs, seeds, and event types. The benchmark invariant `frozenViolationsTotal === 0` holds for all three strategies under any event sequence that the incremental engine can handle.
+  - _Total requests in updated plan as denominator_: Rejected -- includes new requests and masks the actual reassignment rate.
+  - _Count all frozen violations regardless of resource status_: Rejected -- a resource going offline legitimately empties its route.
+- **Consequence:** The churn metric is comparable across strategy runs, seeds, and event types. The benchmark invariant `frozenViolationsTotal === 0` holds for all three strategies.
 
 ---
 
-### ADR-30: Phase 1 Backend Integration Dependency
+### ADR-33: Part 2 Solver to Part 1 Backend Integration via RepairSolver Adapter
 
-- **Date:** 2026-11-04
-- **Decision:** Phase 5 Part 2 (incremental solver algorithms) is implemented entirely as pure TypeScript solver-library code in `packages/solver/src/incremental/`, with no dependency on Express, PostgreSQL, or React. The `OperationalEvent` union type, `IncrementalRepairInput`, `IncrementalRepairResult`, and `IncrementalChurnMetrics` interfaces are defined within the solver package. No `services/api` integration adapter is implemented in this phase.
-- **Context:** Phase 5 Part 1 (backend event persistence, repair API endpoints, DB audit log, role-based access control) has not been merged into `main` and no Part 1 remote branch was available at implementation time. Per the Phase 5 spec: "If Part 1 has not been merged, implement pure solver components against the reviewed contracts." The solver-layer algorithms are correct and complete; the missing piece is the HTTP layer that would call `repairIncrementally()` in response to incoming operator events, persist the resulting proposal to PostgreSQL, and stream the repair status to the operator dashboard.
+- **Date:** 2026-11-05
+- **Decision:** Phase 5 Part 2 solver algorithms are integrated with the Part 1 backend through a `RepairSolver` adapter implementing the `RepairSolver` interface defined in `@floodrelay/shared`. The adapter maps `RepairInput` to the solver's internal `IncrementalRepairInput`, invokes `repairIncrementally()`, and maps the result back to `RepairResult`. The adapter is registered in the Express app's dependency injection, replacing the 503 `REPAIR_ENGINE_UNAVAILABLE` stub. Pure solver code in `packages/solver` retains zero Express/PostgreSQL dependencies.
+- **Context:** Part 1 (PR #22, merged) established `RepairOrchestrationService` with dependency-injected `RepairSolver` and 503 signaling when no solver was registered. Part 2 implements the actual incremental repair algorithms. The adapter bridges these two layers.
 - **Alternatives considered:**
-  - _Stub a fake API endpoint_: Rejected — would create misleading surface area and production risk.
-  - _Delay Part 2 until Part 1 is merged_: Rejected — solver algorithms are independent of persistence and can be fully tested in isolation.
-- **Consequence:** All incremental solver algorithms are production-ready and fully tested (199 tests, 198 passing, 1 skipped live integration test). Integration into the Express API requires Phase 1 to be completed and merged; that work is documented as a known limitation in `docs/limitations.md`.
+  - _Direct solver call from route handler_: Rejected -- bypasses orchestration service authorization and audit responsibilities.
+  - _Solver owns its own persistence_: Rejected -- violates separation of concerns; would introduce SQL into the solver library.
+- **Consequence:** The repair endpoint produces real incremental solver proposals, persisted as PROPOSED records, while maintaining the Part 1 authorization and audit pipeline.

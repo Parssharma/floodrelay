@@ -62,6 +62,37 @@ class MockQueryable implements Queryable {
       };
     }
 
+    if (sql.includes('INSERT INTO operational_events')) {
+      const id = vals[0] as string;
+      const row = {
+        id,
+        event_type: vals[1],
+        entity_type: vals[2],
+        entity_id: vals[3],
+        actor_id: vals[4] || null,
+        actor_type: vals[5],
+        payload: JSON.parse((vals[6] as string) || '{}'),
+        correlation_id: vals[7] || null,
+        idempotency_key: vals[8] || null,
+        entity_version: vals[9] || 1,
+        processing_status: vals[10] || 'RECORDED',
+        processing_attempts: vals[11] || 0,
+        last_error_code: vals[12] || null,
+        occurred_at: vals[13] || new Date(),
+        created_at: new Date(),
+        processed_at: vals[14] || null,
+      };
+      return { rows: [row as unknown as R], command: 'INSERT', rowCount: 1, oid: 0, fields: [] };
+    }
+
+    if (sql.includes('INSERT INTO audit_events')) {
+      return { rows: [], command: 'INSERT', rowCount: 1, oid: 0, fields: [] };
+    }
+
+    if (sql.includes('BEGIN') || sql.includes('COMMIT') || sql.includes('ROLLBACK')) {
+      return { rows: [], command: 'TX', rowCount: 0, oid: 0, fields: [] };
+    }
+
     return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
   }
 }
