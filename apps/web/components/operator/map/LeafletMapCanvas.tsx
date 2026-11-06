@@ -18,6 +18,7 @@ export interface StagedAsset {
   lng: number;
   status: 'AVAILABLE' | 'ASSIGNED' | 'STANDBY';
   depotName: string;
+  source?: string;
 }
 
 export interface StagedShelter {
@@ -28,6 +29,7 @@ export interface StagedShelter {
   capacity: number;
   availableBeds: number;
   status: string;
+  source?: string;
 }
 
 export type SelectedMapEntity =
@@ -237,8 +239,8 @@ export default function LeafletMapCanvas({
     return coords;
   }, [filteredRequests, stagedFleet, stagedShelters, layers]);
 
-  // Default center: Houston Buffalo Bayou Basin
-  const defaultCenter: [number, number] = [29.7604, -95.3698];
+  // Default center: Delhi Yamuna Basin
+  const defaultCenter: [number, number] = [28.671, 77.234];
 
   // Tile layer configuration
   const tileConfig = getTileConfig(tileTheme);

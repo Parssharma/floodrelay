@@ -16,102 +16,14 @@ import { useLiveAssignments } from '@/hooks/useLiveAssignments';
 import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
 import type { LivePollingStatus } from '@/hooks/useLivePolling';
 import { SIMULATED_REPAIR_RESULT } from '@/lib/fixtures/repairFixtures';
-
-// Designated staged sector assets for Harris County Sector 4 (Standby Roster)
-const STAGED_SECTOR_FLEET: StagedAsset[] = [
-  {
-    id: 'res-alpha-4',
-    name: 'Boat Alpha-4',
-    type: 'BOAT',
-    capacity: 6,
-    speedKmH: 25,
-    lat: 29.7628,
-    lng: -95.385,
-    status: 'AVAILABLE',
-    depotName: 'Buffalo Bayou Staging Depot West',
-  },
-  {
-    id: 'res-bravo-2',
-    name: 'Boat Bravo-2',
-    type: 'BOAT',
-    capacity: 8,
-    speedKmH: 22,
-    lat: 29.754,
-    lng: -95.352,
-    status: 'AVAILABLE',
-    depotName: 'East River Staging Point',
-  },
-  {
-    id: 'res-truck-heavy',
-    name: 'Truck Heavy-2',
-    type: 'HIGH_WATER_VEHICLE',
-    capacity: 12,
-    speedKmH: 45,
-    lat: 29.771,
-    lng: -95.398,
-    status: 'AVAILABLE',
-    depotName: 'Heights Emergency Depot',
-  },
-  {
-    id: 'res-hawk-1',
-    name: 'Rotary Hawk-1',
-    type: 'HELICOPTER',
-    capacity: 4,
-    speedKmH: 180,
-    lat: 29.725,
-    lng: -95.34,
-    status: 'STANDBY',
-    depotName: 'Helipad South Standby',
-  },
-];
-
-// Designated sector relief shelters
-const STAGED_SECTOR_SHELTERS: StagedShelter[] = [
-  {
-    id: 'shelter-westchase',
-    name: 'Westchase High Shelter',
-    lat: 29.721,
-    lng: -95.558,
-    capacity: 350,
-    availableBeds: 142,
-    status: 'Open — Primary Intake',
-  },
-  {
-    id: 'shelter-nrg',
-    name: 'NRG Arena Shelter',
-    lat: 29.684,
-    lng: -95.411,
-    capacity: 800,
-    availableBeds: 310,
-    status: 'Open — Regional Hub',
-  },
-];
-
-// Designated sector blocked road zones and surge hazard polygons
-const STAGED_SECTOR_BLOCKED_ZONES: BlockedZone[] = [
-  {
-    id: 'zone-heights-surge',
-    name: 'Heights Blvd Flood Surge (Zone Z-402)',
-    severity: 'BLOCKED',
-    polygon: [
-      { lat: 29.775, lng: -95.405 },
-      { lat: 29.778, lng: -95.395 },
-      { lat: 29.77, lng: -95.392 },
-      { lat: 29.768, lng: -95.402 },
-    ],
-  },
-  {
-    id: 'zone-white-oak-caution',
-    name: 'White Oak Bayou Inundation (Zone Z-405)',
-    severity: 'CAUTION',
-    polygon: [
-      { lat: 29.782, lng: -95.378 },
-      { lat: 29.785, lng: -95.368 },
-      { lat: 29.779, lng: -95.365 },
-      { lat: 29.776, lng: -95.375 },
-    ],
-  },
-];
+import {
+  STAGED_SECTOR_FLEET,
+  STAGED_SECTOR_SHELTERS,
+  STAGED_SECTOR_BLOCKED_ZONES,
+  MAP_SCENARIO_NAME,
+  MAP_SCENARIO_COORDINATES,
+  rebaseLatLng,
+} from '@/lib/fixtures/mapReferenceData';
 
 function OperatorMapContent() {
   // Live polling for requests and assignments
@@ -198,12 +110,12 @@ function OperatorMapContent() {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Repair route polyline vectors for comparison overlay
+  // Repair route polyline vectors for comparison overlay (rebased from baseline anchor to Delhi anchor)
   const repairRoutePolylines = useMemo(() => {
     return (
       SIMULATED_REPAIR_RESULT.proposedPlan?.routes.map((r) => ({
         resourceId: r.resourceId,
-        latlngs: r.stops.map((s) => [s.lat, s.lng] as [number, number]),
+        latlngs: r.stops.map((s) => rebaseLatLng([s.lat, s.lng])),
       })) || []
     );
   }, []);
@@ -227,10 +139,10 @@ function OperatorMapContent() {
       <div className="bg-slate-900/95 border-b border-slate-700/60 px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs z-30 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-semibold text-slate-200">Sector 4 Geospatial Tactical Map</span>
+          <span className="font-semibold text-slate-200">{MAP_SCENARIO_NAME}</span>
           <span className="text-slate-500 hidden sm:inline">•</span>
           <span className="text-slate-400 font-mono text-[11px] hidden md:inline">
-            Harris County Basin Grid (29.7604° N, 95.3698° W)
+            {MAP_SCENARIO_COORDINATES}
           </span>
         </div>
 
@@ -326,7 +238,7 @@ function OperatorMapContent() {
                   className="rounded text-rose-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-400 cursor-pointer"
                 />
                 <span className="material-symbols-outlined text-[14px] text-rose-400">traffic</span>
-                <span className="font-medium">Hazard Zones (Reference Z-402/Z-405)</span>
+                <span className="font-medium">Hazard Zones (Reference)</span>
                 <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
                   {STAGED_SECTOR_BLOCKED_ZONES.length}
                 </span>
