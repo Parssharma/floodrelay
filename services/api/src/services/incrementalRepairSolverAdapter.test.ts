@@ -121,6 +121,7 @@ function makeRepo(overrides?: Partial<PostgisRepository>): PostgisRepository {
   const mockRepo = {
     getOperationalEvent: vi.fn(),
     getAssignmentWithStops: vi.fn(),
+    getLatestCommittedAssignment: vi.fn(),
     listRequests: vi.fn(),
     listResources: vi.fn(),
     listShelters: vi.fn(),
@@ -331,7 +332,7 @@ describe('IncrementalRepairSolverAdapter', () => {
     }
   });
 
-  it('maps REQUEST_FLAGGED_DUPLICATE as a cancellation (isDuplicateResolution=true)', async () => {
+  it('preserves valid rescue work and rejects automatic cancellation on REQUEST_FLAGGED_DUPLICATE', async () => {
     vi.mocked(repo.getOperationalEvent).mockResolvedValue(
       makeDbEvent('REQUEST_FLAGGED_DUPLICATE', 'req-1') as never,
     );
@@ -345,9 +346,121 @@ describe('IncrementalRepairSolverAdapter', () => {
       affectedResourceIds: [],
     };
 
-    // Should not throw — duplicate handling is mapped to REQUEST_CANCELLED internally
     const result = await adapter.solveRepair(input);
+    // Duplicate flag must NOT automatically cancel or modify assignments; requires operator triage
+    expect(result.status).toBe('NO_FEASIBLE_REPAIR');
+    expect(result.unservedRequestIds).toContain('req-1');
+    expect(result.warnings.some((w) => w.includes('suspected duplicate'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('human operator review'))).toBe(true);
+  });
+
+  it('safely handles ROAD_REOPENED by preserving baseline and emitting an unsupported warning', async () => {
+    vi.mocked(repo.getOperationalEvent).mockResolvedValue(
+      makeDbEvent('ROAD_REOPENED', 'zone-1') as never,
+    );
+
+    const input: RepairInput = {
+      eventId: 'evt-road-reopened',
+      baselineAssignmentId: null,
+      scenarioSnapshot: SCENARIO,
+      frozenStops: [],
+      affectedRequestIds: [],
+      affectedResourceIds: [],
+    };
+
+    const result = await adapter.solveRepair(input);
+    expect(result.status).toBe('NO_FEASIBLE_REPAIR');
+    expect(result.warnings.some((w) => w.includes('ROAD_REOPENED'))).toBe(true);
+  });
+
+  it('recovers authoritative committed baseline when baselineAssignmentId is omitted', async () => {
+    const mockAssignment = {
+      id: 'assign-committed-recovered',
+      scenario_id: 'scen-recovered',
+      metrics: {
+        coveragePercent: 100,
+        totalTravelTimeMinutes: 20,
+        totalTravelDistanceKm: 10,
+        highPriorityWaitTimeMinutes: 0,
+        solveDurationMs: 5,
+        servedRequestsCount: 1,
+        unservedRequestsCount: 0,
+      },
+      unserved: [],
+    };
+
+    const mockStops = [
+      {
+        id: 'stop-rec-1',
+        assignment_id: 'assign-committed-recovered',
+        resource_id: 'res-1',
+        stop_number: 1,
+        type: 'PICKUP',
+        target_id: 'req-1',
+        location: 'POINT(77.21 28.51)',
+        passengers_picked_up: 2,
+        passengers_dropped_off: 0,
+        estimated_arrival_minutes: 5,
+        is_frozen: true,
+      },
+      {
+        id: 'stop-rec-2',
+        assignment_id: 'assign-committed-recovered',
+        resource_id: 'res-1',
+        stop_number: 2,
+        type: 'DROPOFF',
+        target_id: 'shelter-1',
+        location: 'POINT(77.25 28.55)',
+        passengers_picked_up: 0,
+        passengers_dropped_off: 2,
+        estimated_arrival_minutes: 20,
+        is_frozen: true,
+      },
+    ];
+
+    vi.mocked(repo.getLatestCommittedAssignment).mockResolvedValue({
+      assignment: mockAssignment as never,
+      stops: mockStops as never,
+    });
+
+    vi.mocked(repo.getOperationalEvent).mockResolvedValue(
+      makeDbEvent('REQUEST_CREATED', 'req-2') as never,
+    );
+
+    const input: RepairInput = {
+      eventId: 'evt-recover-base',
+      baselineAssignmentId: null, // omitted
+      scenarioSnapshot: SCENARIO,
+      frozenStops: [
+        {
+          assignmentId: 'assign-committed-recovered',
+          resourceId: 'res-1',
+          stopNumber: 1,
+          targetId: 'req-1',
+          type: 'PICKUP',
+          lat: 28.51,
+          lng: 77.21,
+        },
+        {
+          assignmentId: 'assign-committed-recovered',
+          resourceId: 'res-1',
+          stopNumber: 2,
+          targetId: 'shelter-1',
+          type: 'DROPOFF',
+          lat: 28.55,
+          lng: 77.25,
+        },
+      ],
+      affectedRequestIds: ['req-2'],
+      affectedResourceIds: [],
+    };
+
+    const result = await adapter.solveRepair(input);
+    expect(repo.getLatestCommittedAssignment).toHaveBeenCalled();
     expect(['PROPOSED', 'NO_FEASIBLE_REPAIR']).toContain(result.status);
+    if (result.status === 'PROPOSED') {
+      expect(result.churn).toBeDefined();
+    }
   });
 
   it('maps RESOURCE_OFFLINE event and returns a plan proposal or infeasibility', async () => {

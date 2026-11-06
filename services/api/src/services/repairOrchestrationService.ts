@@ -166,7 +166,7 @@ export class RepairOrchestrationService {
       this.validateProposedPlanDomainRules(scenarioSnapshot, result.proposedPlan);
 
       // 3. Atomically check for TOCTOU concurrency conflicts and persist PROPOSED assignment
-      await this.persistRepairProposal({
+      const proposalId = await this.persistRepairProposal({
         plan: result.proposedPlan,
         scenarioId: scenarioSnapshot.id,
         eventId,
@@ -176,6 +176,7 @@ export class RepairOrchestrationService {
         affectedRequestIds: input.affectedRequestIds,
         resources: scenarioSnapshot.resources,
       });
+      result.proposalId = proposalId;
     }
 
     return result;

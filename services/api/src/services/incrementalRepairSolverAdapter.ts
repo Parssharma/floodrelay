@@ -27,7 +27,12 @@ import type {
 } from '@floodrelay/shared';
 import type { PostgisRepository } from '../db/repository.js';
 import { dbToRouteStop } from '../db/schema.js';
-import { repairIncrementally } from '@floodrelay/solver';
+import {
+  repairIncrementally,
+  prepareTravelTimeProvider,
+  osrmConfigFromEnv,
+  type OsrmProviderOptions,
+} from '@floodrelay/solver';
 import type {
   IncrementalRepairInput,
   OperationalEvent as SolverOperationalEvent,
@@ -47,6 +52,7 @@ function dbAssignmentToSolverPlan(
   assignment: { id: string; scenario_id: string | null; metrics: unknown; unserved: unknown },
   stops: Parameters<typeof dbToRouteStop>[0][],
   frozenStops: ReadonlyArray<FrozenStopReference>,
+  scenarioSnapshot?: RepairInput['scenarioSnapshot'],
 ): SolverPlan {
   // Build a frozen lookup keyed by resourceId:stopNumber (authoritative from Part 1)
   const frozenSet = new Set<string>(frozenStops.map((fs) => `${fs.resourceId}:${fs.stopNumber}`));
@@ -97,6 +103,38 @@ function dbAssignmentToSolverPlan(
     },
   );
 
+  const servedIds = new Set<string>();
+  for (const r of routes) {
+    for (const reqId of r.servedRequestIds) {
+      servedIds.add(reqId);
+    }
+  }
+
+  const unservedFromAssignment = Array.isArray(assignment.unserved)
+    ? (assignment.unserved as SolverPlan['unserved'])
+    : [];
+
+  const unservedMap = new Map<string, SolverPlan['unserved'][number]>();
+  for (const u of unservedFromAssignment) {
+    if (!servedIds.has(u.requestId)) {
+      unservedMap.set(u.requestId, u);
+    }
+  }
+
+  // Any request in scenarioSnapshot that is not served must be classified as unserved
+  if (scenarioSnapshot) {
+    for (const req of scenarioSnapshot.requests) {
+      if (!servedIds.has(req.id) && !unservedMap.has(req.id)) {
+        unservedMap.set(req.id, {
+          requestId: req.id,
+          reason: 'UNASSIGNED',
+        });
+      }
+    }
+  }
+
+  const unserved = Array.from(unservedMap.values());
+
   const metrics =
     typeof assignment.metrics === 'object' && assignment.metrics !== null
       ? (assignment.metrics as SolverPlan['metrics'])
@@ -107,12 +145,8 @@ function dbAssignmentToSolverPlan(
           highPriorityWaitTimeMinutes: 0,
           solveDurationMs: 0,
           servedRequestsCount: routes.reduce((acc, r) => acc + r.servedRequestIds.length, 0),
-          unservedRequestsCount: 0,
+          unservedRequestsCount: unserved.length,
         };
-
-  const unserved = Array.isArray(assignment.unserved)
-    ? (assignment.unserved as SolverPlan['unserved'])
-    : [];
 
   return {
     scenarioId: assignment.scenario_id ?? `baseline-${assignment.id}`,
@@ -195,15 +229,9 @@ function mapDbEventToSolverEvent(
     }
 
     case 'REQUEST_FLAGGED_DUPLICATE': {
-      // The solver treats a duplicate flag as a cancellation of the duplicate request
-      return {
-        id,
-        type: 'REQUEST_CANCELLED',
-        timestamp,
-        requestId: eventRow.entity_id,
-        isDuplicateResolution: true,
-        reason: 'Flagged as duplicate',
-      };
+      // Issue 1: Suspected duplicate flag requires human triage and does NOT authorize
+      // automatic cancellation or assignment mutation. Mapped to null, returning NO_FEASIBLE_REPAIR.
+      return null;
     }
 
     case 'RESOURCE_OFFLINE': {
@@ -245,13 +273,20 @@ function mapDbEventToSolverEvent(
 // Adapter class
 // ---------------------------------------------------------------------------
 
+export interface IncrementalRepairSolverAdapterOptions {
+  osrm?: OsrmProviderOptions | null;
+}
+
 /**
  * Bridges the Part 1 RepairSolver interface to the Part 2 incremental repair algorithms.
  * This adapter is instantiated by app.ts and injected into RepairOrchestrationService,
  * replacing the Part 1 503 REPAIR_ENGINE_UNAVAILABLE stub.
  */
 export class IncrementalRepairSolverAdapter implements RepairSolver {
-  constructor(private readonly repo: PostgisRepository) {}
+  constructor(
+    private readonly repo: PostgisRepository,
+    private readonly options?: IncrementalRepairSolverAdapterOptions,
+  ) {}
 
   async solveRepair(input: RepairInput): Promise<RepairResult> {
     const {
@@ -292,15 +327,57 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
         dbAssignment.assignment,
         dbAssignment.stops,
         frozenStops,
+        scenarioSnapshot,
       );
     } else {
-      baselinePlan = emptyBaselinePlan(`operational-snapshot-${eventId}`, scenarioSnapshot);
+      // Invariant: Never discard existing work because an assignment ID was omitted.
+      // If an authoritative committed baseline exists in the database, recover it.
+      let latestCommitted: {
+        assignment: Parameters<typeof dbAssignmentToSolverPlan>[0];
+        stops: Parameters<typeof dbAssignmentToSolverPlan>[1];
+      } | null = null;
+      if (typeof this.repo.getLatestCommittedAssignment === 'function') {
+        latestCommitted = await this.repo.getLatestCommittedAssignment();
+      }
+
+      if (latestCommitted && latestCommitted.stops && latestCommitted.stops.length > 0) {
+        baselinePlan = dbAssignmentToSolverPlan(
+          latestCommitted.assignment,
+          latestCommitted.stops,
+          frozenStops,
+          scenarioSnapshot,
+        );
+      } else {
+        baselinePlan = emptyBaselinePlan(`operational-snapshot-${eventId}`, scenarioSnapshot);
+      }
     }
 
     // --- 3. Map the DB event to the solver's discriminated event union ---
     const solverEvent = mapDbEventToSolverEvent(eventRow, scenarioSnapshot);
 
     if (!solverEvent) {
+      if (eventRow.event_type === 'REQUEST_FLAGGED_DUPLICATE') {
+        return {
+          status: 'NO_FEASIBLE_REPAIR',
+          unservedRequestIds: [eventRow.entity_id],
+          warnings: [
+            `Request "${eventRow.entity_id}" is flagged as a suspected duplicate; automatic replanning is suspended pending authoritative human operator review. Existing rescue assignments remain unchanged.`,
+          ],
+          baselineVersion: expectedVersion,
+        };
+      }
+
+      if (eventRow.event_type === 'ROAD_REOPENED') {
+        return {
+          status: 'NO_FEASIBLE_REPAIR',
+          unservedRequestIds: [],
+          warnings: [
+            `Event type "ROAD_REOPENED" has no Part 2 incremental repair handler; manual re-planning or full schedule recalculation is required.`,
+          ],
+          baselineVersion: expectedVersion,
+        };
+      }
+
       return {
         status: 'NO_FEASIBLE_REPAIR',
         unservedRequestIds: [],
@@ -316,7 +393,22 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       (fs) => `${fs.resourceId}:${fs.targetId}:${fs.stopNumber}`,
     );
 
-    // --- 5. Build IncrementalRepairInput ---
+    // --- 5. Prepare authoritative Travel-Time Provider ---
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    const { provider: travelTimeProvider, report: getTravelTimeReport } =
+      await prepareTravelTimeProvider(scenarioSnapshot, { osrm: osrmOptions });
+
+    const routingReport = getTravelTimeReport();
+    const routingWarnings: string[] = [...routingReport.warnings];
+    if (routingReport.effectiveSource === 'STRAIGHT_LINE' && !routingReport.osrmConfigured) {
+      routingWarnings.push(
+        'Authoritative road network routing (OSRM) is not configured; using straight-line estimates with hazard zone avoidance.',
+      );
+    }
+
+    // --- 6. Build IncrementalRepairInput ---
     const repairInput: IncrementalRepairInput = {
       event: solverEvent,
       scenario: scenarioSnapshot,
@@ -324,10 +416,10 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       frozenStopIds,
       affectedRequestIds: affectedRequestIds.length > 0 ? affectedRequestIds : undefined,
       affectedResourceIds: affectedResourceIds.length > 0 ? affectedResourceIds : undefined,
-      // travelTimeProvider defaults to StraightLineTravelTimeProvider inside repairIncrementally
+      travelTimeProvider,
     };
 
-    // --- 6. Run the pure incremental solver ---
+    // --- 7. Run the pure incremental solver ---
     let solverResult;
     try {
       solverResult = repairIncrementally(repairInput);
@@ -341,13 +433,14 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       };
     }
 
-    // --- 7. Map IncrementalRepairResult → RepairResult ---
+    // --- 8. Map IncrementalRepairResult → RepairResult ---
     if (solverResult.status === 'NO_FEASIBLE_REPAIR' || !solverResult.repairedPlan) {
       return {
         status: 'NO_FEASIBLE_REPAIR',
         unservedRequestIds: solverResult.unservedRequestIds,
-        warnings: solverResult.warnings,
+        warnings: [...routingWarnings, ...solverResult.warnings],
         baselineVersion: expectedVersion,
+        churn: solverResult.churn,
       };
     }
 
@@ -355,8 +448,9 @@ export class IncrementalRepairSolverAdapter implements RepairSolver {
       status: 'PROPOSED',
       proposedPlan: solverResult.repairedPlan,
       unservedRequestIds: solverResult.unservedRequestIds,
-      warnings: solverResult.warnings,
+      warnings: [...routingWarnings, ...solverResult.warnings],
       baselineVersion: expectedVersion,
+      churn: solverResult.churn,
     };
   }
 }
