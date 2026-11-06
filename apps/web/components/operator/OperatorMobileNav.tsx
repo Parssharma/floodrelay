@@ -131,6 +131,15 @@ export function OperatorMobileNav({ isOpen, onClose }: OperatorMobileNavProps) {
               <span className="material-symbols-outlined text-[18px]">history</span>
               <span>Audit History</span>
             </Link>
+
+            <Link
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-surface-dim hover:bg-surface-variant/10"
+              href="/limitations"
+              onClick={onClose}
+            >
+              <span className="material-symbols-outlined text-[18px]">info</span>
+              <span>Operational Limitations</span>
+            </Link>
           </nav>
         </div>
 
