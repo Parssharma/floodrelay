@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 
 export function CitizenFooter() {
   return (
@@ -18,6 +19,12 @@ export function CitizenFooter() {
           aria-label="Civic Emergency Resources"
           className="flex flex-wrap justify-center md:justify-end gap-x-6 gap-y-2 text-xs font-semibold text-on-surface-variant"
         >
+          <Link
+            href="/limitations"
+            className="text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+          >
+            Operational Limitations
+          </Link>
           <span className="text-on-surface-variant hover:text-primary transition-colors cursor-pointer">
             Crisis Helplines
           </span>

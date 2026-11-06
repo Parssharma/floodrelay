@@ -179,6 +179,16 @@ export function OperatorSidebar() {
 
         {/* Footer Identity Block */}
         <div className="pt-3 border-t border-outline-variant/15 flex flex-col gap-2">
+          <Link
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-surface-dim hover:text-inverse-on-surface hover:bg-surface-variant/10 transition-colors"
+            href="/limitations"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span className="material-symbols-outlined text-[16px]">info</span>
+            <span>Operational Limitations</span>
+          </Link>
+
           <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-surface-variant/5">
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="material-symbols-outlined text-surface-dim text-[24px]">
