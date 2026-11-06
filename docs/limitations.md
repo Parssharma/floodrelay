@@ -115,3 +115,6 @@ This file documents honest limitations of the system. Keep it updated as the pro
     | ASSUMED_HAZARD_CV_CAUTION (0.15 for CAUTION, placeholder, not measured)
     | 0.0 (otherwise)
     All terms represent heuristic uncalibrated estimates without empirical telemetry calibration. Travel times follow a lognormal distribution parameterized by planned duration and cv_effective. The inverse normal CDF uses Peter J. Acklam's rational approximation algorithm with a relative error of about 1.15e-9.
+
+- **Map Basemap Tile Provider Usage & Policy:**
+  tile.openstreetmap.org is a free community service with a usage policy for light use; a real deployment needs its own tile provider or self-hosted tiles via NEXT_PUBLIC_MAP_TILE_URL.

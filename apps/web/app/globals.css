@@ -41,3 +41,9 @@
     'GRAD' 0,
     'opsz' 24;
 }
+
+/* Operator Tactical Map dark tile filter — styles ONLY the raster tile layer */
+.dark-tactical-tiles,
+.dark-tactical-tiles .leaflet-tile {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3);
+}
