@@ -1,104 +1,170 @@
 import http from 'k6/http';
 import { check } from 'k6';
-import { Rate, Counter } from 'k6/metrics';
+import { Counter } from 'k6/metrics';
 import { getAuthHeaders } from '../helpers/auth.js';
+import { classifyRepairOutcome } from '../helpers/repairClassifier.js';
 
-export const repairWorkflowSuccessRate = new Rate('repair_workflow_success_rate');
+// Explicit outcome metrics (Issue 1 requirements)
+export const repairAttempted = new Counter('repair_attempted');
+export const repairProposed = new Counter('repair_proposed');
+export const repairNoFeasible = new Counter('repair_no_feasible');
+export const repairVersionConflict = new Counter('repair_version_conflict');
+export const repairUnavailable = new Counter('repair_unavailable');
+export const repairSkippedNoEvent = new Counter('repair_skipped_no_event');
+export const repairUnexpectedFailure = new Counter('repair_unexpected_failure');
+export const repairProposalVerified = new Counter('repair_proposal_verified');
+
 export const frozenStopViolations = new Counter('frozen_stop_violations');
 export const unauthorizedCommits = new Counter('unauthorized_commits');
 
+// Re-export classifier for module consumers
+export { classifyRepairOutcome };
+
 /**
- * Assignment Repair & Concurrency Scenario
+ * Assignment Repair Load Scenario
  *
- * Tests:
- * 1. Fetching operational events from GET /operations/events
- * 2. Invoking POST /operations/repair with a valid event
- * 3. Verifying the repair returns a proposal and NEVER auto-commits
- * 4. Verifying frozen stops safety invariants
+ * Requirements:
+ * 1. Must originate from actual authorized POST /operations/repair
+ * 2. PROPOSED response validated against actual contract
+ * 3. Proposal verified by retrieving from authoritative GET /assignments/:id
+ * 4. Verify proposal status is PROPOSED, not COMMITTED
+ * 5. Verify frozen-stop preservation
+ * 6. Missing event counts as SKIPPED, never successful repair
+ * 7. HTTP 503 counts as UNAVAILABLE
+ * 8. HTTP 409 counts as VERSION_CONFLICT
+ * 9. NO_FEASIBLE_REPAIR reported separately
+ * 10. Unexpected errors increment repairUnexpectedFailure
+ * 11. Ordinary GET requests never increment solver-repair success counters
  */
 export function runRepairWorkflow(baseUrl, username, password) {
   const { headers } = getAuthHeaders(baseUrl, username, password);
 
   // 1. Fetch recent events to identify an event eligible for repair
-  const resEvents = http.get(`${baseUrl}/operations/events?limit=10`, {
+  const resEvents = http.get(`${baseUrl}/operations/events?limit=25`, {
     headers,
     tags: { name: 'GET /operations/events (Repair Prep)' },
   });
 
   if (resEvents.status !== 200) {
-    repairWorkflowSuccessRate.add(false);
+    repairUnexpectedFailure.add(1);
     return;
   }
 
-  let eventId = null;
+  let repairableEvent = null;
   try {
     const body = JSON.parse(resEvents.body);
-    if (body.data && body.data.length > 0) {
-      eventId = body.data[0].id;
+    if (body.data && Array.isArray(body.data)) {
+      // Find an event suitable for repair
+      repairableEvent =
+        body.data.find((e) =>
+          [
+            'REQUEST_CREATED',
+            'RESOURCE_OFFLINE',
+            'ROAD_BLOCKED',
+            'REQUEST_CANCELLED',
+            'REQUEST_FLAGGED_DUPLICATE',
+          ].includes(e.event_type),
+        ) || null;
     }
   } catch (_) {
-    // ignore
+    // parse failure
   }
 
-  // If no operational events exist yet, we can check assignments list
-  if (!eventId) {
-    const resAssign = http.get(`${baseUrl}/assignments`, {
-      headers,
-      tags: { name: 'GET /assignments (Inspect)' },
-    });
-    repairWorkflowSuccessRate.add(resAssign.status === 200);
+  // If no repairable event exists, count as SKIPPED.
+  // CRITICAL: NEVER substitute GET /assignments as a "successful repair"!
+  if (!repairableEvent) {
+    repairSkippedNoEvent.add(1);
+    classifyRepairOutcome(null);
     return;
   }
 
-  // 2. Request incremental repair proposal for this event
+  repairAttempted.add(1);
+
+  // 2. Request incremental repair proposal for this specific event
   const repairPayload = JSON.stringify({
-    eventId,
+    eventId: repairableEvent.id,
   });
 
   const resRepair = http.post(`${baseUrl}/operations/repair`, repairPayload, {
     headers,
     tags: { name: 'POST /operations/repair' },
-    responseCallback: http.expectedStatuses(200, 409, 503),
+    responseCallback: http.expectedStatuses(200, 400, 404, 409, 500, 503),
   });
 
-  // Repair may return:
-  // - 200 OK with { success: true, data: { proposalId, churn, ... } }
-  // - 503 REPAIR_ENGINE_UNAVAILABLE or 409 CONFLICT if concurrent modification
-  const okRepair = check(resRepair, {
-    'repair returns 200, 409, or 503 (handled)': (r) => [200, 409, 503].includes(r.status),
-    'repair proposal is never automatically COMMITTED': (r) => {
-      if (r.status !== 200) return true;
-      try {
-        const body = JSON.parse(r.body);
-        if (body.data && body.data.assignment) {
-          const status = body.data.assignment.status;
-          if (status === 'COMMITTED') {
-            unauthorizedCommits.add(1);
-            return false;
-          }
-        }
-        return true;
-      } catch (_) {
-        return true;
+  // 3. If PROPOSED, verify persistence via GET /assignments/:id
+  let resVerify = null;
+  if (resRepair.status === 200) {
+    try {
+      const parsed = JSON.parse(resRepair.body);
+      const proposalId = parsed?.data?.proposalId;
+      if (proposalId) {
+        resVerify = http.get(`${baseUrl}/assignments/${proposalId}`, {
+          headers,
+          tags: { name: 'GET /assignments/:id (Verify Proposal)' },
+          responseCallback: http.expectedStatuses(200, 404),
+        });
       }
-    },
-    'frozen stops invariant preserved': (r) => {
-      if (r.status !== 200) return true;
-      try {
-        const body = JSON.parse(r.body);
-        if (body.data && body.data.frozenStopsCount !== undefined) {
-          // If any frozen stop violation is detected by the validator
-          if (body.data.hasFrozenViolations === true) {
-            frozenStopViolations.add(1);
-            return false;
-          }
-        }
-        return true;
-      } catch (_) {
-        return true;
-      }
-    },
-  });
+    } catch (_) {
+      // parse failure
+    }
+  }
 
-  repairWorkflowSuccessRate.add(okRepair);
+  // 4. Classify outcome
+  const outcome = classifyRepairOutcome(resRepair, resVerify);
+
+  switch (outcome.category) {
+    case 'PROPOSED_VERIFIED':
+      repairProposed.add(1);
+      repairProposalVerified.add(1);
+      check(resRepair, {
+        'repair proposal status is PROPOSED and verified': () => true,
+        'repair proposal is never automatically COMMITTED': () => outcome.isUncommitted,
+        'frozen stops invariant preserved': () => outcome.isFrozenPreserved,
+      });
+      break;
+
+    case 'PROPOSED_UNVERIFIED':
+      repairProposed.add(1);
+      check(resRepair, {
+        'repair returns proposal': () => true,
+        'repair proposal is never automatically COMMITTED': () => outcome.isUncommitted,
+        'frozen stops invariant preserved': () => outcome.isFrozenPreserved,
+      });
+      break;
+
+    case 'NO_FEASIBLE':
+      repairNoFeasible.add(1);
+      check(resRepair, {
+        'repair handled infeasible proposal gracefully': () => true,
+      });
+      break;
+
+    case 'VERSION_CONFLICT':
+      repairVersionConflict.add(1);
+      check(resRepair, {
+        'version conflict handled with 409': () => true,
+      });
+      break;
+
+    case 'UNAVAILABLE':
+      repairUnavailable.add(1);
+      check(resRepair, {
+        'solver engine unavailable handled with 503': () => true,
+      });
+      break;
+
+    case 'UNEXPECTED_FAILURE':
+    default:
+      repairUnexpectedFailure.add(1);
+      if (!outcome.isFrozenPreserved) {
+        frozenStopViolations.add(1);
+      }
+      if (!outcome.isUncommitted) {
+        unauthorizedCommits.add(1);
+      }
+      check(resRepair, {
+        'repair failed unexpectedly': () => false,
+      });
+      break;
+  }
 }

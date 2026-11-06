@@ -20,7 +20,7 @@ export default tseslint.config(
     ],
   },
   {
-    files: ['tests/load/**/*.js'],
+    files: ['tests/load/**/*.{js,ts}'],
     languageOptions: {
       globals: {
         __ENV: 'readonly',
