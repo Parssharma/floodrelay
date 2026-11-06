@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { createApp } from '../app.js';
@@ -92,6 +92,28 @@ describe.runIf(shouldRun)('Live PostGIS Incremental Repair Pipeline (Scenarios A
           ('test-res-van-2', 'Bravo HighWater', 'HIGH_WATER_VEHICLE', 6, 40, 'AVAILABLE', ST_SetSRID(ST_MakePoint(77.22, 28.52), 4326), 'SIMULATED')
         ON CONFLICT (id) DO UPDATE SET status = 'AVAILABLE';
       `);
+    } finally {
+      client.release();
+    }
+  });
+
+  beforeEach(async () => {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query(
+        "DELETE FROM audit_events WHERE entity_id LIKE 'test-%' OR entity_id LIKE 'prop-repair-%'",
+      );
+      await client.query("DELETE FROM operational_events WHERE entity_id LIKE 'test-%'");
+      await client.query(
+        "DELETE FROM assignment_stops WHERE assignment_id LIKE 'test-%' OR assignment_id LIKE 'prop-repair-%'",
+      );
+      await client.query(
+        "DELETE FROM assignments WHERE id LIKE 'test-%' OR id LIKE 'prop-repair-%'",
+      );
+      await client.query("DELETE FROM requests WHERE id LIKE 'test-%'");
+      await client.query("DELETE FROM blocked_zones WHERE id LIKE 'test-%'");
+      await client.query("UPDATE resources SET status = 'AVAILABLE' WHERE id LIKE 'test-%'");
     } finally {
       client.release();
     }

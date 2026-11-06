@@ -367,16 +367,13 @@ describe('repairIncrementally Orchestrator & Invariant Tests', () => {
       travelTimeProvider: provider,
     });
 
-    expect(result.status).toBe('PROPOSED');
-    const plan = result.repairedPlan!;
-
-    // Not served in any route
-    const servedIds = plan.routes.flatMap((r) => r.servedRequestIds);
-    expect(servedIds).not.toContain('req-huge-group');
-
-    // Present in unserved exactly once
-    const unservedMatches = plan.unserved.filter((u) => u.requestId === 'req-huge-group');
-    expect(unservedMatches.length).toBe(1);
-    expect(unservedMatches[0]!.reason).toBe('GROUP_LARGER_THAN_ANY_VEHICLE');
+    expect(result.status).toBe('NO_FEASIBLE_REPAIR');
+    expect(result.repairedPlan).toBeUndefined();
+    expect(result.unservedRequestIds).toContain('req-huge-group');
+    expect(
+      result.warnings.some(
+        (w) => w.includes('CAPACITY_EXCEEDED') || w.includes('GROUP_LARGER_THAN_ANY_VEHICLE'),
+      ),
+    ).toBe(true);
   });
 });

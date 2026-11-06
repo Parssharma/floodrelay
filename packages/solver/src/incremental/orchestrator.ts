@@ -70,15 +70,23 @@ export function repairIncrementally(input: IncrementalRepairInput): IncrementalR
         candidateUnserved = candidateUnserved.filter((u) => u.requestId !== newReq.id);
       } else {
         // Request cannot be feasibly inserted
-        candidateRoutes = [...baselinePlan.routes];
-        candidateUnserved.push({
-          requestId: newReq.id,
-          reason: insertResult.unservedReason ?? 'SHIFT_LIMIT_REACHED',
-          details: insertResult.unservedDetails ?? 'No feasible insertion position found',
-        });
+        const emptyChurn = calculateIncrementalChurn(baselinePlan, baselinePlan);
         warnings.push(
           `Request '${newReq.id}' could not be feasibly inserted into any route (${insertResult.unservedReason ?? 'SHIFT_LIMIT_REACHED'})`,
         );
+        const unservedIds = Array.from(
+          new Set([...candidateUnserved.map((u) => u.requestId), newReq.id]),
+        );
+        return {
+          status: 'NO_FEASIBLE_REPAIR',
+          affectedRouteResourceIds: [],
+          unchangedRouteResourceIds: baselinePlan.routes.map((r) => r.resourceId),
+          unservedRequestIds: unservedIds,
+          warnings,
+          churn: emptyChurn,
+          travelTimeDeltaMinutes: 0,
+          repairReason: `Infeasible insertion for ${newReq.id}: ${insertResult.unservedReason ?? 'SHIFT_LIMIT_REACHED'}`,
+        };
       }
       break;
     }
