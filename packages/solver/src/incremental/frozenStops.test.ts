@@ -212,4 +212,119 @@ describe('Frozen Stops Preservation', () => {
     const res = validateFrozenStopsPreserved(baselinePlan, reversedCandidate);
     expect(res.valid).toBe(false);
   });
+
+  it('rejects candidate plan if coordinates of a frozen stop are modified', () => {
+    const coordCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [
+        {
+          ...baselinePlan.routes[0]!,
+          stops: [
+            {
+              ...baselinePlan.routes[0]!.stops[0]!,
+              lat: baselinePlan.routes[0]!.stops[0]!.lat + 0.01, // shifted coordinates
+            },
+            baselinePlan.routes[0]!.stops[1]!,
+            baselinePlan.routes[0]!.stops[2]!,
+            baselinePlan.routes[0]!.stops[3]!,
+          ],
+        },
+      ],
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, coordCandidate);
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes('modified coordinates'))).toBe(true);
+  });
+
+  it('rejects candidate plan if stopNumber of a frozen stop is changed', () => {
+    const renumberedCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [
+        {
+          ...baselinePlan.routes[0]!,
+          stops: [
+            { ...baselinePlan.routes[0]!.stops[0]!, stopNumber: 2 }, // changed stopNumber
+            { ...baselinePlan.routes[0]!.stops[1]!, stopNumber: 1 },
+          ],
+        },
+      ],
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, renumberedCandidate);
+    expect(res.valid).toBe(false);
+  });
+
+  it('rejects candidate plan if a frozen stop type is modified', () => {
+    const wrongTypeCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [
+        {
+          ...baselinePlan.routes[0]!,
+          stops: [
+            { ...baselinePlan.routes[0]!.stops[0]!, type: 'DROPOFF' }, // pickup changed to dropoff
+            baselinePlan.routes[0]!.stops[1]!,
+          ],
+        },
+      ],
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, wrongTypeCandidate);
+    expect(res.valid).toBe(false);
+  });
+
+  it('rejects candidate plan if a frozen stop targetId is modified', () => {
+    const wrongTargetCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [
+        {
+          ...baselinePlan.routes[0]!,
+          stops: [
+            { ...baselinePlan.routes[0]!.stops[0]!, targetId: 'req-99' },
+            baselinePlan.routes[0]!.stops[1]!,
+          ],
+        },
+      ],
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, wrongTargetCandidate);
+    expect(res.valid).toBe(false);
+  });
+
+  it('rejects candidate plan if a frozen stop is duplicated on the route', () => {
+    const duplicateCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [
+        {
+          ...baselinePlan.routes[0]!,
+          stops: [
+            baselinePlan.routes[0]!.stops[0]!,
+            baselinePlan.routes[0]!.stops[1]!,
+            { ...baselinePlan.routes[0]!.stops[0]!, stopNumber: 3 }, // duplicate occurrence of req-1 pickup
+          ],
+        },
+      ],
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, duplicateCandidate);
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes('duplicated'))).toBe(true);
+  });
+
+  it('rejects candidate plan if an entire committed route with frozen stops is dropped', () => {
+    const droppedRouteCandidate: SolverPlan = {
+      ...baselinePlan,
+      routes: [], // completely empty
+    };
+
+    const res = validateFrozenStopsPreserved(baselinePlan, droppedRouteCandidate);
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes('missing entirely'))).toBe(true);
+  });
+
+  it('accepts identical frozen baseline plan', () => {
+    const res = validateFrozenStopsPreserved(baselinePlan, baselinePlan);
+    expect(res.valid).toBe(true);
+    expect(res.violationsCount).toBe(0);
+  });
 });

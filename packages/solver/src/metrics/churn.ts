@@ -113,18 +113,20 @@ export function calculateIncrementalChurn(
   }
 
   // Evaluate frozen stop violations.
-  // A frozen-stop VIOLATION means: the resource is still operational (its route exists
-  // in the updated plan) but its frozen commitment was illegally mutated, removed, or
-  // renumbered. If the resource has gone offline its route is entirely absent from the
-  // updated plan — that is a legitimate operational event, not an invariant violation.
+  // A frozen-stop violation occurs whenever a baseline frozen commitment is missing,
+  // renumbered, modified in passenger counts, relocated in coordinates, or when its
+  // entire route was dropped/omitted from the updated plan. An unavailable resource
+  // does NOT authorize deleting or silently dropping frozen rescue work.
   let frozenStopsViolated = 0;
+  const FROZEN_COORD_TOLERANCE = 1e-4;
+
   for (const [key, prevStop] of baselineFrozenStops.entries()) {
     const [resId, targetId] = key.split(':');
     const updatedRoute = updatedPlan.routes.find((r) => r.resourceId === resId);
 
-    // Resource went offline — its route is absent entirely from the updated plan.
-    // This is a legitimate operational event; do not count as a frozen-stop violation.
     if (!updatedRoute) {
+      // Entire route dropped or omitted with committed frozen stops
+      frozenStopsViolated++;
       continue;
     }
 
@@ -136,7 +138,9 @@ export function calculateIncrementalChurn(
       !updatedStop ||
       updatedStop.stopNumber !== prevStop.stopNumber ||
       updatedStop.passengersPickedUp !== prevStop.passengersPickedUp ||
-      updatedStop.passengersDroppedOff !== prevStop.passengersDroppedOff
+      updatedStop.passengersDroppedOff !== prevStop.passengersDroppedOff ||
+      Math.abs(updatedStop.lat - prevStop.lat) > FROZEN_COORD_TOLERANCE ||
+      Math.abs(updatedStop.lng - prevStop.lng) > FROZEN_COORD_TOLERANCE
     ) {
       frozenStopsViolated++;
     }
