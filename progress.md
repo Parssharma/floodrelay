@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-06
+**Last updated:** 2026-11-07
 
-**Current focus:** Phase 5 Complete ✅ — Part 1 Backend, Part 2 Incremental Solver & Part 3 Live Operations Frontend all implemented, tested, and integrated.
+**Current focus:** Phase 6 Complete ✅ — k6 Load Testing Suite, CI Pipeline Hardening, and Operational Limitations Public Page implemented, verified, and ready for peer review.
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -189,14 +189,14 @@ Incoming rescue requests
 
 ### Phase 6 — Hardening and documentation
 
-| Task                                        | Owner | Status |
-| ------------------------------------------- | ----- | ------ |
-| Redis queue only if measurements justify it | —     | ⬜     |
-| Optional flood-forecast context layer       | —     | ⬜     |
-| Load tests                                  | —     | ⬜     |
-| CI                                          | —     | ⬜     |
-| Limitations page                            | —     | ⬜     |
-| Demo script                                 | —     | ⬜     |
+| Task                                        | Owner | Status | Details |
+| ------------------------------------------- | ----- | ------ | ------- |
+| Redis queue only if measurements justify it | —     | ⬜     | Measurements show baseline p95 of 82.58ms and 69.56 req/s on PostgreSQL outbox; Redis not required (ADR-27 preserved) |
+| Optional flood-forecast context layer       | —     | ⬜     | Excluded from core safety scope per project boundaries |
+| Load tests                                  | —     | ✅     | Grafana k6 test suite in `tests/load/` with 4 profiles (`smoke`, `baseline`, `stress`, `scalability`); verified with 0 errors, 0 frozen-stop violations, p95 82.58ms at 30 VUs |
+| CI                                          | —     | ✅     | Hardened `.github/workflows/ci.yml` with security audits, secrets checks, multi-workspace production builds, and automated k6 smoke check |
+| Limitations page                            | —     | ✅     | Public `/limitations` route disclosure, responsive & WCAG AAA accessible, integrated into Citizen footer and Operator navigation with 14 unit tests |
+| Demo script                                 | —     | ⬜     | — |
 
 ---
 

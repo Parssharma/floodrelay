@@ -16,7 +16,11 @@
     "test": "npm run test --workspaces --if-present",
     "evaluate": "vitest run packages/solver/src/evaluation/benchmark.test.ts",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:load": "node tests/load/run.js",
+    "test:load:smoke": "node tests/load/run.js -e LOAD_PROFILE=smoke",
+    "test:load:baseline": "node tests/load/run.js -e LOAD_PROFILE=baseline",
+    "test:load:stress": "node tests/load/run.js -e LOAD_PROFILE=stress"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

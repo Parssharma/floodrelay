@@ -55,6 +55,17 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Security audit
+        run: npm audit --audit-level=critical
+
+      - name: Secrets hygiene check
+        run: |
+          # Verify no committed credentials or unencrypted secret tokens in tracked files
+          ! git grep -i -E "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{82}|BEGIN PRIVATE KEY)" -- ':(exclude).env.example' ':(exclude)*.test.ts'
+
       - name: Python pytest
         run: pytest tools/ortools-baseline/tests
 
@@ -78,3 +89,29 @@ jobs:
 
       - name: Format check
         run: npm run format:check
+
+      - name: Build backend API
+        run: npm run build --workspace=@floodrelay/api
+
+      - name: Build frontend web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          GEOAPIFY_API_KEY: 'ci_placeholder_key'
+        run: npm run build --workspace=@floodrelay/web
+
+      - name: Load testing smoke verification
+        env:
+          PORT: '3001'
+          DATABASE_URL: 'postgres://postgres:postgrespassword@localhost:5432/floodrelay_test'
+          API_BASE_URL: 'http://localhost:3001'
+          LOAD_PROFILE: 'smoke'
+        run: |
+          npm --workspace=@floodrelay/api run start &
+          for i in {1..30}; do
+            if curl -s http://localhost:3001/health > /dev/null; then
+              echo "API server ready on port 3001"
+              break
+            fi
+            sleep 1
+          done
+          k6 run -e LOAD_PROFILE=smoke -e API_BASE_URL=http://localhost:3001 tests/load/index.js
