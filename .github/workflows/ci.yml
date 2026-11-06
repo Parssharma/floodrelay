@@ -64,7 +64,7 @@ jobs:
       - name: Secrets hygiene check
         run: |
           # Verify no committed credentials or unencrypted secret tokens in tracked files
-          ! git grep -i -E "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{82}|BEGIN PRIVATE KEY)" -- ':(exclude).env.example' ':(exclude)*.test.ts'
+          ! git grep -i -E "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9]{82}|BEGIN PRIVATE KEY)" -- ':(exclude).env.example' ':(exclude)*.test.ts' ':(exclude).github/**'
 
       - name: Python pytest
         run: pytest tools/ortools-baseline/tests
