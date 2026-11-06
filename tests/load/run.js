@@ -31,7 +31,15 @@ if (
   }
 }
 
-console.log(`[LoadTest] Executing: ${k6Command} ${args.join(' ')}`);
+// Sanitize logged command to strictly prevent leaking credentials in stdout or CI logs
+const sanitizedArgs = args.map((arg) => {
+  if (/password|token|secret/i.test(arg)) {
+    return arg.replace(/(=)[^\s]+/i, '$1[REDACTED]');
+  }
+  return arg;
+});
+
+console.log(`[LoadTest] Executing: ${k6Command} ${sanitizedArgs.join(' ')}`);
 
 const result = spawnSync(k6Command, args, {
   stdio: 'inherit',

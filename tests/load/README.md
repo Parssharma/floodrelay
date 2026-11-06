@@ -36,15 +36,18 @@ tests/load/
 
 ## 3. Configuration & Environment Variables
 
-| Variable            | Default                 | Description                                                       |
-| :------------------ | :---------------------- | :---------------------------------------------------------------- |
-| `API_BASE_URL`      | `http://localhost:3000` | Target API host and port.                                         |
-| `LOAD_PROFILE`      | `smoke`                 | Selected profile (`smoke`, `baseline`, `stress`, `scalability`).  |
-| `SCENARIO`          | `all`                   | Specific scenario (`all`, `intake`, `polling`, `read`, `repair`). |
-| `VIRTUAL_USERS`     | _Profile default_       | Optional override for concurrent VUs.                             |
-| `TEST_DURATION`     | _Profile default_       | Optional override for test duration (e.g., `45s`, `2m`).          |
-| `OPERATOR_USERNAME` | `eoc_operator`          | Test operator credentials.                                        |
-| `OPERATOR_PASSWORD` | `RescueOps@2026!`       | Test operator password.                                           |
+| Variable             | Default                 | Description                                                                              |
+| :------------------- | :---------------------- | :--------------------------------------------------------------------------------------- |
+| `API_BASE_URL`       | `http://localhost:3000` | Target API host and port.                                                                |
+| `LOAD_PROFILE`       | `smoke`                 | Selected profile (`smoke`, `baseline`, `stress`, `scalability`).                         |
+| `SCENARIO`           | `all`                   | Specific scenario (`all`, `intake`, `polling`, `read`, `repair`).                        |
+| `VIRTUAL_USERS`      | _Profile default_       | Optional override for concurrent VUs.                                                    |
+| `TEST_DURATION`      | _Profile default_       | Optional override for test duration (e.g., `45s`, `2m`).                                 |
+| `LOAD_TEST_USERNAME` | _(None)_                | Test operator username (required for authenticated scenarios).                           |
+| `LOAD_TEST_PASSWORD` | _(None)_                | Test operator password (required for authenticated scenarios — zero hardcoded defaults). |
+
+> [!IMPORTANT]
+> **Credential Security**: Hardcoded passwords are strictly prohibited. Authenticated scenarios and profiles (`baseline`, `stress`, `scalability`, `polling`, `repair`) require credentials explicitly provided via `LOAD_TEST_USERNAME` and `LOAD_TEST_PASSWORD`. Unauthenticated smoke testing remains functional without credentials.
 
 ---
 
@@ -64,15 +67,17 @@ npm run test:load:smoke
 k6 run -e LOAD_PROFILE=smoke tests/load/index.js
 ```
 
-### B. Run Baseline Test
+### B. Run Baseline Test (Requires Operator Credentials)
 
 ```bash
-npm run test:load:baseline
+# Provide disposable operator credentials via environment variables:
+LOAD_TEST_USERNAME=test_operator LOAD_TEST_PASSWORD=<secure_password> npm run test:load:baseline
 ```
 
 ### C. Run Specific Scenario (e.g. Citizen Intake only)
 
 ```bash
+# Public unauthenticated intake:
 k6 run -e LOAD_PROFILE=smoke -e SCENARIO=intake tests/load/index.js
 ```
 
@@ -95,3 +100,4 @@ k6 run -e LOAD_PROFILE=smoke --summary-export=load-summary.json tests/load/index
 | **Data Integrity Violations**             | `0`         | Idempotent replays & duplicate flags verified |
 | **Frozen Committed Stop Violations**      | `0`         | Frozen stops preserved across replans         |
 | **Unauthorized Commits**                  | `0`         | Repair proposals never auto-committed         |
+| **Repair Unexpected Failures**            | `0`         | Solver errors, invalid states rejected        |

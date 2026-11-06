@@ -105,6 +105,10 @@ jobs:
           DATABASE_URL: 'postgres://postgres:postgrespassword@localhost:5432/floodrelay_test'
           API_BASE_URL: 'http://localhost:3001'
           LOAD_PROFILE: 'smoke'
+          LOAD_TEST_USERNAME: 'ci_operator'
+          LOAD_TEST_PASSWORD: 'ci_temp_password_2026!#'
+          INITIAL_OPERATOR_USERNAME: 'ci_operator'
+          INITIAL_OPERATOR_PASSWORD: 'ci_temp_password_2026!#'
         run: |
           npm --workspace=@floodrelay/api run start &
           for i in {1..30}; do
@@ -114,4 +118,7 @@ jobs:
             fi
             sleep 1
           done
-          k6 run -e LOAD_PROFILE=smoke -e API_BASE_URL=http://localhost:3001 tests/load/index.js
+          # Verify unauthenticated smoke profile works without credentials
+          k6 run -e LOAD_PROFILE=smoke -e TEST_DURATION=15s -e API_BASE_URL=http://localhost:3001 tests/load/index.js
+          # Verify authenticated load execution with disposable CI credentials
+          k6 run -e LOAD_PROFILE=smoke -e TEST_DURATION=15s -e API_BASE_URL=http://localhost:3001 -e LOAD_TEST_USERNAME=ci_operator -e LOAD_TEST_PASSWORD=ci_temp_password_2026!# tests/load/index.js

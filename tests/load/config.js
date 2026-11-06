@@ -12,9 +12,9 @@ export const BASE_URL = __ENV.API_BASE_URL || 'http://localhost:3000';
 export const LOAD_PROFILE = (__ENV.LOAD_PROFILE || 'smoke').toLowerCase();
 export const TEST_DATASET_ID = __ENV.TEST_DATASET_ID || 'delhi-yamuna-basin';
 
-// Default Operator Credentials (seeded for test/dev)
-export const OPERATOR_USERNAME = __ENV.OPERATOR_USERNAME || 'eoc_operator';
-export const OPERATOR_PASSWORD = __ENV.OPERATOR_PASSWORD || 'RescueOps@2026!';
+// Operator Credentials (read ONLY from environment variables; zero hardcoded defaults)
+export const OPERATOR_USERNAME = __ENV.LOAD_TEST_USERNAME || __ENV.OPERATOR_USERNAME || '';
+export const OPERATOR_PASSWORD = __ENV.LOAD_TEST_PASSWORD || __ENV.OPERATOR_PASSWORD || '';
 
 /**
  * Returns k6 execution options based on LOAD_PROFILE
@@ -94,9 +94,11 @@ export function getStandardThresholds() {
     http_req_failed: ['rate<0.01'],
     // Baseline API read p95 < 1000ms
     http_req_duration: ['p(95)<1000', 'p(99)<2000'],
-    // Custom domain rates
+    // Custom domain rates & invariants
     citizen_intake_success_rate: ['rate>0.98'],
     data_integrity_violations: ['count==0'],
     frozen_stop_violations: ['count==0'],
+    unauthorized_commits: ['count==0'],
+    repair_unexpected_failure: ['count==0'],
   };
 }
