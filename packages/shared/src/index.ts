@@ -521,8 +521,10 @@ export interface RepairInput {
 
 export interface RepairResult {
   status: 'PROPOSED' | 'NO_FEASIBLE_REPAIR';
+  proposalId?: string;
   proposedPlan?: SolverPlan;
   unservedRequestIds: string[];
   warnings: string[];
   baselineVersion?: number;
+  churn?: unknown;
 }

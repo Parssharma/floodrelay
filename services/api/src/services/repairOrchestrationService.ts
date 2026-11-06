@@ -166,7 +166,7 @@ export class RepairOrchestrationService {
       this.validateProposedPlanDomainRules(scenarioSnapshot, result.proposedPlan);
 
       // 3. Atomically check for TOCTOU concurrency conflicts and persist PROPOSED assignment
-      await this.persistRepairProposal({
+      const proposalId = await this.persistRepairProposal({
         plan: result.proposedPlan,
         scenarioId: scenarioSnapshot.id,
         eventId,
@@ -176,6 +176,7 @@ export class RepairOrchestrationService {
         affectedRequestIds: input.affectedRequestIds,
         resources: scenarioSnapshot.resources,
       });
+      result.proposalId = proposalId;
     }
 
     return result;
@@ -255,17 +256,36 @@ export class RepairOrchestrationService {
       }
 
       // Check duplicates
-      const duplicates = route.stops.filter(
-        (s) => s.targetId === fs.targetId && s.type === fs.type,
-      );
-      if (duplicates.length > 1) {
-        const err = new Error(
-          `Solver output validation failure: frozen stop for target "${fs.targetId}" is duplicated ${duplicates.length} times on resource "${fs.resourceId}"`,
+      if (fs.type === 'PICKUP') {
+        const duplicates = route.stops.filter(
+          (s) => s.targetId === fs.targetId && s.type === fs.type,
         );
-        (err as unknown as { code: string; statusCode: number }).code =
-          'FROZEN_STOP_INVARIANT_VIOLATED';
-        (err as unknown as { code: string; statusCode: number }).statusCode = 500;
-        throw err;
+        if (duplicates.length > 1) {
+          const err = new Error(
+            `Solver output validation failure: frozen stop for target "${fs.targetId}" is duplicated ${duplicates.length} times on resource "${fs.resourceId}"`,
+          );
+          (err as unknown as { code: string; statusCode: number }).code =
+            'FROZEN_STOP_INVARIANT_VIOLATED';
+          (err as unknown as { code: string; statusCode: number }).statusCode = 500;
+          throw err;
+        }
+      } else {
+        const otherFrozen = route.stops.filter(
+          (s) =>
+            Boolean(s.isFrozen) &&
+            s.stopNumber !== fs.stopNumber &&
+            s.targetId === fs.targetId &&
+            s.type === fs.type,
+        );
+        if (otherFrozen.length > 0) {
+          const err = new Error(
+            `Solver output validation failure: frozen stop for target "${fs.targetId}" is duplicated across multiple frozen positions on resource "${fs.resourceId}"`,
+          );
+          (err as unknown as { code: string; statusCode: number }).code =
+            'FROZEN_STOP_INVARIANT_VIOLATED';
+          (err as unknown as { code: string; statusCode: number }).statusCode = 500;
+          throw err;
+        }
       }
 
       const matchingStop = route.stops.find(

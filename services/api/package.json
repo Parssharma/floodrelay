@@ -10,7 +10,7 @@
     "start": "tsx src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --fileParallelism=false",
     "migrate": "tsx src/db/migrator.ts up",
     "migrate:down": "tsx src/db/migrator.ts down",
     "seed": "tsx src/scripts/seedScenario.ts",
