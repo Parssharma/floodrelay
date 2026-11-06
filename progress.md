@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-06
 
-**Current focus:** Phase 5 Part 2 Finalized & Safety Verified ✅ — Incremental solver algorithms finalized, safety invariants enforced, travel-time providers integrated, PostGIS live workflow tested across Scenarios A-G, ready for PR merge.
+**Current focus:** Phase 5 Complete ✅ — Part 1 Backend, Part 2 Incremental Solver & Part 3 Live Operations Frontend all implemented, tested, and integrated.
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -202,16 +202,16 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 2 Finalized & Safety Verified ✅. Part 1 merged (PR #22). Solver algorithms + backend integration verified across unit, live PostGIS, and benchmark suites.
-- **Next up:** Phase 5 Part 3 (live dashboard updates, submitted as PR #23).
+- **Last completed:** Phase 5 Part 2 Finalized & Safety Verified ✅ (PR #25). Phase 5 Part 3 merged (PR #23). Phase 5 Part 1 merged (PR #22).
+- **Next up:** Phase 6 — Hardening, load tests, and faculty demo preparation.
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
 - **Phase 4:** Complete ✅.
 - **Phase 5 Part 1:** Complete ✅ (merged PR #22).
-- **Phase 5 Part 2:** Complete ✅ (deterministic incremental solver, complete frozen-stop physical invariants, OSRM/hazard routing, live PostGIS integration tested).
-- **Phase 5 Part 3:** Implemented 🟡 (submitted as PR #23).
+- **Phase 5 Part 2:** Complete ✅ (PR #25).
+- **Phase 5 Part 3:** Complete ✅ (merged PR #23).
 
 ---
 
@@ -260,9 +260,13 @@ Incoming rescue requests
 | Frozen-stop physical invariants in solver layer            | Immediate rejection with NO_FEASIBLE_REPAIR if candidate alters, removes, reassigns or shifts coords of isFrozen stops (ADR-31)                                                                                                            |
 | Assignment churn metric definition                         | Churn rate evaluated over baseline served requests only; benchmark proves 0 frozen violations for event-triggered repair (ADR-32)                                                                                                          |
 | Incremental repair adapter integration                     | Pure solver decoupled from Express/SQL; adapter maps inputs, recovers baselines, persists proposals (ADR-33)                                                                                                                               |
-| Duplicate flag triage safety policy                        | Flagging duplicate preserves mutable and committed stops intact; returns NO_FEASIBLE_REPAIR with triage warning awaiting human review (ADR-34)                                                                                             |
-| Hazard-aware travel-time routing in repair                 | Incremental solver uses asynchronous road-aware / hazard-aware travel times; falls back to straight-line with explicit warning (ADR-35)                                                                                                    |
-| Authoritative baseline reconstruction & repair comparison  | Recovers latest committed assignment if baselineId omitted; returns proposalId, churn, warnings for Part 3 UI comparison (ADR-36)                                                                                                          |
+| Live Polling with Visibility API & Bounded Backoff         | 20s live polling hook with Page Visibility API pausing, bounded exponential backoff (capped at 60s), AbortController cancellation on unmount, and monotonic sequence deduplication to prevent stale overwrites (ADR-34)                    |
+| Human-in-the-Loop Repair Proposal & Churn Visualization    | Explicit side-by-side plan diff with churn percentage gauge, categorized stop status badges (FROZEN, ADDED, REMOVED, REASSIGNED, REORDERED, UNCHANGED), and SLA/wait time delta metrics (ADR-35)                                           |
+| Test Fixture Isolation & Safe 503 Solver Fallback          | When `POST /operations/repair` returns 503 during Part 2 solver development, frontend surfaces a clear status banner and provides an isolated preview fixture with database commitment strictly blocked (ADR-36)                           |
+| Authoritative Resource & GIS Layer Isolation               | Segregated reference assets from live database records, disclosed missing `GET /operations/resources` endpoint, protected against synthetic ID mutation, and isolated GIS tactical map layers (ADR-37)                                     |
+| Duplicate flag triage safety policy                        | Flagging duplicate preserves mutable and committed stops intact; returns NO_FEASIBLE_REPAIR with triage warning awaiting human review (ADR-38)                                                                                             |
+| Hazard-aware travel-time routing in repair                 | Incremental solver uses asynchronous road-aware / hazard-aware travel times; falls back to straight-line with explicit warning (ADR-39)                                                                                                    |
+| Authoritative baseline reconstruction & repair comparison  | Recovers latest committed assignment if baselineId omitted; returns proposalId, churn, warnings for Part 3 UI comparison (ADR-40)                                                                                                          |
 
 ---
 

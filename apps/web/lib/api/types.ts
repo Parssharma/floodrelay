@@ -4,12 +4,25 @@ import type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceStatus,
   Shelter,
   RouteStop,
   ResourceRoute,
   UnservedRequest,
   SolverMetrics,
   ScenarioProvenance,
+  OperationalEvent,
+  OperationalEventType,
+  EventEntityType,
+  EventActorType,
+  EventProcessingStatus,
+  AffectedScopeResult,
+  RepairInput,
+  RepairResult,
+  FrozenStopReference,
+  BlockedZone,
+  HazardLevel,
+  SolverPlan,
 } from '@floodrelay/shared';
 
 export type {
@@ -18,12 +31,25 @@ export type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceStatus,
   Shelter,
   RouteStop,
   ResourceRoute,
   UnservedRequest,
   SolverMetrics,
   ScenarioProvenance,
+  OperationalEvent,
+  OperationalEventType,
+  EventEntityType,
+  EventActorType,
+  EventProcessingStatus,
+  AffectedScopeResult,
+  RepairInput,
+  RepairResult,
+  FrozenStopReference,
+  BlockedZone,
+  HazardLevel,
+  SolverPlan,
 };
 
 export interface CreateRequestInput {
@@ -121,4 +147,68 @@ export interface LoginResult {
   token: string;
   operator: OperatorProfile;
   expiresAt: string;
+}
+
+export interface ListOperationalEventsFilter {
+  type?: OperationalEventType;
+  entityType?: EventEntityType;
+  entityId?: string;
+  status?: EventProcessingStatus;
+  actorId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAuditEventsFilter {
+  entityType?: string;
+  entityId?: string;
+  eventType?: string;
+  actor?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditEventRecord {
+  id?: string;
+  entityType?: string;
+  entity_type?: string;
+  entityId?: string;
+  entity_id?: string;
+  eventType?: string;
+  event_type?: string;
+  actor: string;
+  timestamp?: string;
+  createdAt?: string;
+  created_at?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface UpdateResourceStatusInput {
+  status: ResourceStatus;
+  reason?: string;
+}
+
+export interface UpdateResourceStatusResult {
+  resource: RescueResource;
+  event: OperationalEvent | null;
+  affectedScope: AffectedScopeResult | null;
+}
+
+export interface CreateRoadZoneInput {
+  name: string;
+  severity: HazardLevel;
+  polygon: { lat: number; lng: number }[];
+  reason?: string;
+}
+
+export interface RoadZoneOperationResult {
+  zone: BlockedZone | null;
+  event: OperationalEvent;
+  affectedScope: AffectedScopeResult;
+}
+
+export interface RequestRepairInput {
+  eventId: string;
+  baselineAssignmentId?: string | null;
+  expectedVersion?: number;
 }
