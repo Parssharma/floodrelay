@@ -8,7 +8,7 @@ import { validateFrozenStopsPreserved } from './frozenStops.js';
 import { insertRequestBestFeasible } from './insertion.js';
 import { repairResourceOffline } from './localRepair.js';
 import { repairRoadBlockage } from './roadBlockage.js';
-import type { IncrementalRepairInput, IncrementalRepairResult, RepairStatus } from './types.js';
+import type { IncrementalRepairInput, IncrementalRepairResult } from './types.js';
 
 /**
  * Pure Incremental Optimization and Local Repair Engine.
@@ -33,7 +33,7 @@ export function repairIncrementally(input: IncrementalRepairInput): IncrementalR
   const toleranceMinutes = input.toleranceMinutes ?? 0.1;
 
   const warnings: string[] = [];
-  let candidateRoutes: ResourceRoute[] = [];
+  let candidateRoutes: ResourceRoute[];
   let candidateUnserved: UnservedRequest[] = [...baselinePlan.unserved];
   let affectedResourceIds: string[] = [];
   let updatedScenario: Scenario = { ...scenario };
@@ -66,6 +66,8 @@ export function repairIncrementally(input: IncrementalRepairInput): IncrementalR
         if (!baselinePlan.routes.some((r) => r.resourceId === insertResult.resourceId)) {
           candidateRoutes.push(insertResult.updatedRoute);
         }
+        // Invariant: successful insertion must remove the request from the unserved collection
+        candidateUnserved = candidateUnserved.filter((u) => u.requestId !== newReq.id);
       } else {
         // Request cannot be feasibly inserted
         candidateRoutes = [...baselinePlan.routes];
@@ -266,18 +268,69 @@ export function repairIncrementally(input: IncrementalRepairInput): IncrementalR
     }
   }
 
-  // Remove duplicate entries in unserved list
-  const seenUnserved = new Set<string>();
+  // Filter out any routes that have become completely empty (0 stops)
+  const activeRoutes = candidateRoutes.filter((r) => r.stops.length > 0);
+
+  // 1. Gather all served requests across active routes and check for duplicate allocations
+  const servedRequestIds = new Set<string>();
+  const duplicateServedIds = new Set<string>();
+  for (const route of activeRoutes) {
+    for (const stop of route.stops) {
+      if (stop.type === 'PICKUP' && stop.targetId) {
+        if (servedRequestIds.has(stop.targetId)) {
+          duplicateServedIds.add(stop.targetId);
+        }
+        servedRequestIds.add(stop.targetId);
+      }
+    }
+  }
+
+  if (duplicateServedIds.size > 0) {
+    const emptyChurn = calculateIncrementalChurn(baselinePlan, baselinePlan);
+    return {
+      status: 'NO_FEASIBLE_REPAIR',
+      affectedRouteResourceIds: affectedResourceIds,
+      unchangedRouteResourceIds: baselinePlan.routes
+        .map((r) => r.resourceId)
+        .filter((id) => !affectedResourceIds.includes(id)),
+      unservedRequestIds: baselinePlan.unserved.map((u) => u.requestId),
+      warnings: [
+        `Duplicate request allocation detected: [${[...duplicateServedIds].join(', ')}] allocated more than once`,
+      ],
+      churn: emptyChurn,
+      travelTimeDeltaMinutes: 0,
+      repairReason: 'Integrity violation: duplicate request allocation',
+    };
+  }
+
+  // 2. Invariant: Maintain one consistent classification for each request.
+  // A request must never be counted as simultaneously served and unserved.
+  // Filter out any served requests from candidateUnserved.
   const finalUnserved: UnservedRequest[] = [];
+  const seenUnserved = new Set<string>();
+
   for (const u of candidateUnserved) {
+    if (servedRequestIds.has(u.requestId)) {
+      // Successfully served; cannot be in unserved list
+      continue;
+    }
     if (!seenUnserved.has(u.requestId)) {
       seenUnserved.add(u.requestId);
       finalUnserved.push(u);
     }
   }
 
-  // Filter out any routes that have become completely empty (0 stops)
-  const activeRoutes = candidateRoutes.filter((r) => r.stops.length > 0);
+  // Ensure every unserved request in updatedScenario is cataloged
+  for (const req of updatedScenario.requests) {
+    if (!servedRequestIds.has(req.id) && !seenUnserved.has(req.id)) {
+      seenUnserved.add(req.id);
+      finalUnserved.push({
+        requestId: req.id,
+        reason: 'UNASSIGNED',
+        details: 'Unassigned request in scenario snapshot',
+      });
+    }
+  }
 
   // Compute metrics for the proposed candidate plan
   const solveDuration = Date.now() - startTime;

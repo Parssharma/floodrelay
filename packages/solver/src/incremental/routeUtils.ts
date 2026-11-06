@@ -1,10 +1,4 @@
-import type {
-  GeoPoint,
-  RescueResource,
-  ResourceRoute,
-  RouteStop,
-  Shelter,
-} from '@floodrelay/shared';
+import type { GeoPoint, RescueResource, RouteStop, Shelter } from '@floodrelay/shared';
 import type { TravelTimeProvider } from '../routing/travelTime.js';
 import type { FeasibleRouteEvaluation } from './types.js';
 

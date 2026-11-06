@@ -8,7 +8,6 @@ import type {
 } from '@floodrelay/shared';
 import type { TravelTimeProvider } from '../routing/travelTime.js';
 import { insertRequestBestFeasible } from './insertion.js';
-import { recomputeAndValidateRoute } from './routeUtils.js';
 
 export interface ResourceOfflineRepairResult {
   success: boolean;

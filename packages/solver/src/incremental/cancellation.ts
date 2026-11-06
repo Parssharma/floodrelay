@@ -98,7 +98,7 @@ export function repairRequestCancellation(
   // If remainingStops has only dropoffs without pickups, or ends without dropoff:
   // Check if any pickups remain
   const hasRemainingPickups = remainingStops.some((s) => s.type === 'PICKUP');
-  let finalStops: RouteStop[] = [];
+  let finalStops: RouteStop[];
 
   if (!hasRemainingPickups) {
     // Route is now empty

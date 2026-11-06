@@ -1,10 +1,8 @@
 import type {
   RescueRequest,
-  RescueResource,
   ResourceRoute,
   RouteStop,
   Scenario,
-  Shelter,
   UnservedReason,
 } from '@floodrelay/shared';
 import type { TravelTimeProvider } from '../routing/travelTime.js';
@@ -233,7 +231,6 @@ export function insertRequestBestFeasible(
                 estimatedArrivalMinutes: 0,
                 isFrozen: false,
               });
-              dropoffInserted = true;
             }
 
             // Must terminate at shelter

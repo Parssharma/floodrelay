@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ResourceRoute, Scenario, SolverPlan } from '@floodrelay/shared';
+import type { Scenario, SolverPlan } from '@floodrelay/shared';
 import { StraightLineTravelTimeProvider } from '../routing/travelTime.js';
 import { repairRequestCancellation } from './cancellation.js';
 import { repairResourceOffline } from './localRepair.js';

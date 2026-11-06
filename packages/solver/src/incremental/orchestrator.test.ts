@@ -65,8 +65,8 @@ describe('repairIncrementally Orchestrator & Invariant Tests', () => {
     routes: [
       {
         resourceId: 'res-A',
-        totalTravelDistanceKm: 15,
-        totalDurationMinutes: 30,
+        totalTravelDistanceKm: 9.62,
+        totalDurationMinutes: 19.24,
         servedRequestIds: ['req-1'],
         stops: [
           {
@@ -77,7 +77,7 @@ describe('repairIncrementally Orchestrator & Invariant Tests', () => {
             lng: 77.21,
             passengersPickedUp: 2,
             passengersDroppedOff: 0,
-            estimatedArrivalMinutes: 10,
+            estimatedArrivalMinutes: 3.85,
             isFrozen: false,
           },
           {
@@ -88,7 +88,7 @@ describe('repairIncrementally Orchestrator & Invariant Tests', () => {
             lng: 77.25,
             passengersPickedUp: 0,
             passengersDroppedOff: 2,
-            estimatedArrivalMinutes: 30,
+            estimatedArrivalMinutes: 19.24,
             isFrozen: false,
           },
         ],
@@ -289,5 +289,94 @@ describe('repairIncrementally Orchestrator & Invariant Tests', () => {
         expect(load).toBe(0);
       }
     }
+  });
+
+  it('removes inserted request from unserved collection and prevents dual-state presence', () => {
+    const newReq: RescueRequest = {
+      id: 'req-inserted-clean',
+      lat: 28.52,
+      lng: 77.22,
+      peopleCount: 1,
+      urgency: 'HIGH',
+      createdAt: new Date().toISOString(),
+      source: 'SIMULATED',
+    };
+
+    // Baseline plan where this request is listed in unserved
+    const baseWithUnserved: SolverPlan = {
+      ...baselinePlan,
+      unserved: [{ requestId: 'req-inserted-clean', reason: 'UNASSIGNED' }],
+    };
+
+    const result = repairIncrementally({
+      event: {
+        id: 'evt-insert-clean',
+        type: 'REQUEST_CREATED',
+        timestamp: new Date().toISOString(),
+        request: newReq,
+      },
+      scenario: {
+        ...baseScenario,
+        requests: [...baseScenario.requests, newReq],
+      },
+      baselinePlan: baseWithUnserved,
+      travelTimeProvider: provider,
+    });
+
+    expect(result.status).toBe('PROPOSED');
+    const plan = result.repairedPlan!;
+
+    // Must be served in routes
+    const servedIds = plan.routes.flatMap((r) => r.servedRequestIds);
+    expect(servedIds).toContain('req-inserted-clean');
+
+    // Must NOT be in unserved
+    const unservedIds = plan.unserved.map((u) => u.requestId);
+    expect(unservedIds).not.toContain('req-inserted-clean');
+
+    // No request is simultaneously served and unserved
+    for (const sid of servedIds) {
+      expect(unservedIds).not.toContain(sid);
+    }
+  });
+
+  it('keeps failed insertion request cleanly in unserved list without duplicate entries', () => {
+    // Request with capacity exceeding all vehicles
+    const hugeReq: RescueRequest = {
+      id: 'req-huge-group',
+      lat: 28.52,
+      lng: 77.22,
+      peopleCount: 999, // exceeds capacity
+      urgency: 'CRITICAL',
+      createdAt: new Date().toISOString(),
+      source: 'SIMULATED',
+    };
+
+    const result = repairIncrementally({
+      event: {
+        id: 'evt-insert-fail',
+        type: 'REQUEST_CREATED',
+        timestamp: new Date().toISOString(),
+        request: hugeReq,
+      },
+      scenario: {
+        ...baseScenario,
+        requests: [...baseScenario.requests, hugeReq],
+      },
+      baselinePlan,
+      travelTimeProvider: provider,
+    });
+
+    expect(result.status).toBe('PROPOSED');
+    const plan = result.repairedPlan!;
+
+    // Not served in any route
+    const servedIds = plan.routes.flatMap((r) => r.servedRequestIds);
+    expect(servedIds).not.toContain('req-huge-group');
+
+    // Present in unserved exactly once
+    const unservedMatches = plan.unserved.filter((u) => u.requestId === 'req-huge-group');
+    expect(unservedMatches.length).toBe(1);
+    expect(unservedMatches[0]!.reason).toBe('GROUP_LARGER_THAN_ANY_VEHICLE');
   });
 });
