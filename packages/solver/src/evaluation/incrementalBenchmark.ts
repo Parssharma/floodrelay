@@ -9,7 +9,6 @@ import { generateScenario } from '../generator.js';
 import { solveClusterAllocation } from '../heuristics/clusterAllocation.js';
 import { repairIncrementally } from '../incremental/orchestrator.js';
 import type { OperationalEvent } from '../incremental/types.js';
-import { calculatePlanMetrics } from '../metrics.js';
 import { calculateIncrementalChurn } from '../metrics/churn.js';
 import { StraightLineTravelTimeProvider } from '../routing/travelTime.js';
 
@@ -129,8 +128,6 @@ export function generateDeterministicEvents(
   const urgencies: RescueRequest['urgency'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
   for (let i = 0; i < eventsCount; i++) {
-    const eventTypeRoll = nextRand();
-
     if (i === 1 && initialScenario.resources.length > 2) {
       // One deterministic resource offline event
       const res = initialScenario.resources[1]!;
@@ -201,6 +198,50 @@ export function generateDeterministicEvents(
 }
 
 /**
+ * Applies an operational event to evolve a scenario state deterministically.
+ */
+export function applyEventToScenario(scenario: Scenario, event: OperationalEvent): Scenario {
+  if (event.type === 'REQUEST_CREATED') {
+    if (!scenario.requests.some((r) => r.id === event.request.id)) {
+      return {
+        ...scenario,
+        requests: [...scenario.requests, event.request],
+      };
+    }
+    return scenario;
+  }
+  if (event.type === 'RESOURCE_OFFLINE') {
+    return {
+      ...scenario,
+      resources: scenario.resources.map((r) =>
+        r.id === event.resourceId ? { ...r, status: 'OFFLINE' } : r,
+      ),
+    };
+  }
+  if (event.type === 'REQUEST_CANCELLED') {
+    return {
+      ...scenario,
+      requests: scenario.requests.filter((r) => r.id !== event.requestId),
+    };
+  }
+  if (event.type === 'ROAD_BLOCKED') {
+    return {
+      ...scenario,
+      blockedZones: [...(scenario.blockedZones ?? []), event.blockedZone],
+    };
+  }
+  if (event.type === 'RESOURCE_AVAILABLE') {
+    return {
+      ...scenario,
+      resources: scenario.resources.map((r) =>
+        r.id === event.resourceId ? { ...r, status: 'AVAILABLE' } : r,
+      ),
+    };
+  }
+  return scenario;
+}
+
+/**
  * Runs a single benchmark strategy on a scenario and event sequence.
  */
 export function runStrategyBenchmark(
@@ -217,11 +258,17 @@ export function runStrategyBenchmark(
     travelTimeProvider: provider,
   });
 
-  // 2. Freeze the first stop of each route in the baseline plan to establish realistic committed work
+  // 2. Freeze genuine committed PICKUP/DROPOFF stops in the baseline plan
   const frozenBaselineRoutes: ResourceRoute[] = baselinePlan.routes.map((route) => {
     if (route.stops.length === 0) return route;
+    const firstPickupIdx = route.stops.findIndex((s) => s.type === 'PICKUP');
+    if (firstPickupIdx === -1) return route;
+    const firstDropoffIdx = route.stops.findIndex(
+      (s, idx) => idx > firstPickupIdx && s.type === 'DROPOFF',
+    );
+    const endFreezeIdx = firstDropoffIdx !== -1 ? firstDropoffIdx : firstPickupIdx;
     const newStops = route.stops.map((stop, idx) =>
-      idx === 0 ? { ...stop, isFrozen: true } : stop,
+      idx <= endFreezeIdx ? { ...stop, isFrozen: true } : stop,
     );
     return { ...route, stops: newStops };
   });
@@ -241,12 +288,15 @@ export function runStrategyBenchmark(
 
   for (let eventIdx = 0; eventIdx < events.length; eventIdx++) {
     const event = events[eventIdx]!;
+    // Consistently evaluate candidate scenario for this event
+    const candidateScenario = applyEventToScenario(currentScenario, event);
+
     const evStart = performance.now();
 
     if (strategy === 'Event-Triggered Local Repair') {
       const repairRes = repairIncrementally({
         event,
-        scenario: currentScenario,
+        scenario: candidateScenario,
         baselinePlan: currentPlan,
         travelTimeProvider: provider,
       });
@@ -260,43 +310,18 @@ export function runStrategyBenchmark(
         newlyUnservedCount += repairRes.churn.newlyUnservedRequestsCount;
         frozenViolationsCount += repairRes.churn.frozenStopsViolated;
         currentPlan = repairRes.repairedPlan;
+        currentScenario = candidateScenario;
       } else {
         infeasibleRepairsCount++;
       }
     } else if (strategy === 'Full Re-solve (Cluster-Allocation)') {
       // Re-solve full scenario with existing frozen stops preserved
-      // Update scenario with the event
-      if (event.type === 'REQUEST_CREATED') {
-        currentScenario = {
-          ...currentScenario,
-          requests: [...currentScenario.requests, event.request],
-        };
-      } else if (event.type === 'RESOURCE_OFFLINE') {
-        currentScenario = {
-          ...currentScenario,
-          resources: currentScenario.resources.map((r) =>
-            r.id === event.resourceId ? { ...r, status: 'OFFLINE' } : r,
-          ),
-        };
-      } else if (event.type === 'REQUEST_CANCELLED') {
-        currentScenario = {
-          ...currentScenario,
-          requests: currentScenario.requests.filter((r) => r.id !== event.requestId),
-        };
-      } else if (event.type === 'ROAD_BLOCKED') {
-        currentScenario = {
-          ...currentScenario,
-          blockedZones: [...(currentScenario.blockedZones ?? []), event.blockedZone],
-        };
-      }
-
-      // Extract frozen routes
       const frozenRoutes = currentPlan.routes.map((r) => ({
         ...r,
         stops: r.stops.filter((s) => s.isFrozen),
       }));
 
-      const newPlan = solveClusterAllocation(currentScenario, {
+      const newPlan = solveClusterAllocation(candidateScenario, {
         travelTimeProvider: provider,
         existingFrozenRoutes: frozenRoutes,
       });
@@ -310,11 +335,12 @@ export function runStrategyBenchmark(
       newlyUnservedCount += churn.newlyUnservedRequestsCount;
       frozenViolationsCount += churn.frozenStopsViolated;
       currentPlan = newPlan;
+      currentScenario = candidateScenario;
     } else if (strategy === 'Insertion + Periodic Reopt (k=5)') {
       // Incremental repair for events; every 5 events run reoptimization
       const repairRes = repairIncrementally({
         event,
-        scenario: currentScenario,
+        scenario: candidateScenario,
         baselinePlan: currentPlan,
         travelTimeProvider: provider,
       });
@@ -322,7 +348,9 @@ export function runStrategyBenchmark(
       if (repairRes.status === 'PROPOSED' && repairRes.repairedPlan) {
         cumulativeChurn += repairRes.churn.reassignedRequestsCount;
         newlyUnservedCount += repairRes.churn.newlyUnservedRequestsCount;
+        frozenViolationsCount += repairRes.churn.frozenStopsViolated;
         currentPlan = repairRes.repairedPlan;
+        currentScenario = candidateScenario;
       } else {
         infeasibleRepairsCount++;
       }
@@ -338,6 +366,7 @@ export function runStrategyBenchmark(
         });
         const reoptChurn = calculateIncrementalChurn(currentPlan, reoptPlan);
         cumulativeChurn += reoptChurn.reassignedRequestsCount;
+        frozenViolationsCount += reoptChurn.frozenStopsViolated;
         currentPlan = reoptPlan;
       }
 
@@ -483,4 +512,44 @@ export function formatIncrementalMarkdownTable(summaries: IncrementalStrategySum
   );
 
   return [headerLine, sepLine, ...dataLines].join('\n');
+}
+
+export function exportBenchmarkSummariesToCsv(summaries: IncrementalStrategySummary[]): string {
+  const headers = [
+    'strategy',
+    'caseName',
+    'seedsRun',
+    'coverageMean',
+    'travelTimeMean',
+    'travelTimeSpread',
+    'highPriorityWaitMean',
+    'totalSolveTimeMsMean',
+    'p50LatencyMsMean',
+    'p95LatencyMsMean',
+    'cumulativeChurnMean',
+    'newlyUnservedMean',
+    'frozenViolationsTotal',
+    'infeasibleRatePercent',
+  ];
+  const rows = summaries.map((s) => [
+    `"${s.strategy}"`,
+    `"${s.caseName}"`,
+    s.seedsRun,
+    s.coverageMean,
+    s.travelTimeMean,
+    s.travelTimeSpread,
+    s.highPriorityWaitMean,
+    s.totalSolveTimeMsMean,
+    s.p50LatencyMsMean,
+    s.p95LatencyMsMean,
+    s.cumulativeChurnMean,
+    s.newlyUnservedMean,
+    s.frozenViolationsTotal,
+    s.infeasibleRatePercent,
+  ]);
+  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+}
+
+export function exportBenchmarkSummariesToJson(summaries: IncrementalStrategySummary[]): string {
+  return JSON.stringify(summaries, null, 2);
 }

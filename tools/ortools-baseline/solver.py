@@ -21,7 +21,8 @@ from typing import Any
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 def _get_status_code(name: str, fallback: int) -> int:
-    val = getattr(pywrapcp.RoutingModel, name, getattr(routing_enums_pb2.RoutingSearchStatus, name, None))
+    search_status_enum = getattr(routing_enums_pb2, "RoutingSearchStatus", None)
+    val = getattr(pywrapcp.RoutingModel, name, getattr(search_status_enum, name, None) if search_status_enum else None)
     return fallback if val is None else val
 
 ROUTING_STATUS_NAMES: dict[int, str] = {
