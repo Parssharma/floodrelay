@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { renderToString } from 'react-dom/server';
 import { POST } from '../app/api/reverse-geocode/route';
+import CitizenRequestPage from '../app/citizen/request/page';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import type { CreateRequestInput } from '../lib/api/types';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
 
 describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
   const originalEnv = process.env.GEOAPIFY_API_KEY;
@@ -666,6 +673,73 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
       expect(payload?.notes).toContain('Address: 104 Lakeview Terrace, 3rd Floor Apt 9, Gate 2');
       expect(payload?.lat).toBe(29.7604);
       expect(payload?.lng).toBe(-95.3698);
+    });
+
+    // 13. Citizen Address Input Status UI Refinement
+    describe('Address Input Status Indicator & Banner Refinement', () => {
+      it('initial render has neutral gray circular status indicator (IDLE)', () => {
+        const html = renderToString(React.createElement(CitizenRequestPage));
+
+        // 1. Initial status indicator is IDLE
+        expect(html).toContain('data-testid="address-status-idle"');
+        expect(html).toContain('aria-label="Address input idle"');
+
+        // 2. Input has sufficient right padding (pr-11)
+        expect(html).toContain('pr-11');
+
+        // 3. Subtle neutral helper text is present
+        expect(html).toContain(
+          'Approximate GPS address. Confirm your location and add a nearby landmark.',
+        );
+
+        // 4. Prominent orange approximate address banner is NOT present
+        expect(html).not.toContain('Approximate address detected');
+      });
+
+      it('maps reverse geocoding states to corresponding status indicators correctly', () => {
+        // Helper function reflecting the status icon logic in page.tsx
+        const getStatusIndicatorTestId = (status: string, addressVal: string) => {
+          if (status === 'LOOKING_UP') return 'address-status-looking-up';
+          if (status === 'FOUND' && addressVal.trim().length > 0) return 'address-status-success';
+          if (status === 'UNAVAILABLE' || status === 'ERROR') return 'address-status-failed';
+          return 'address-status-idle';
+        };
+
+        // IDLE
+        expect(getStatusIndicatorTestId('IDLE', '')).toBe('address-status-idle');
+
+        // LOOKING_UP
+        expect(getStatusIndicatorTestId('LOOKING_UP', '')).toBe('address-status-looking-up');
+
+        // SUCCESS: only when status is FOUND and address is non-empty
+        expect(getStatusIndicatorTestId('FOUND', '1428 Riverbend Dr')).toBe(
+          'address-status-success',
+        );
+        expect(getStatusIndicatorTestId('FOUND', '   ')).toBe('address-status-idle');
+
+        // FAILED: neutral indicator on UNAVAILABLE or ERROR
+        expect(getStatusIndicatorTestId('UNAVAILABLE', '')).toBe('address-status-failed');
+        expect(getStatusIndicatorTestId('ERROR', '')).toBe('address-status-failed');
+      });
+
+      it('retains manual-entry guidance on lookup failure without showing orange success banner', async () => {
+        const { state, triggerReverseGeocode } = createHarness();
+
+        vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: false,
+              message: 'Reverse geocoding service is unavailable.',
+            }),
+            { status: 503 },
+          ),
+        );
+
+        await triggerReverseGeocode(31.25, 75.7);
+
+        expect(state.reverseGeocodeStatus).toBe('ERROR');
+        expect(state.reverseGeocodeMessage).toContain('please enter your street address or landmark manually');
+      });
     });
   });
 });

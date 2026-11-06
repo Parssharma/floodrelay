@@ -516,45 +516,76 @@ export default function CitizenRequestPage() {
                 Street Address / Apartment / Structural Landmark{' '}
                 <span className="text-tertiary">*</span>
               </label>
-              <input
-                className="w-full h-12 px-3.5 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
-                disabled={isSubmitting}
-                id="addressInput"
-                onChange={(e) => {
-                  setAddress(e.target.value);
-                  userEditedDuringLookupRef.current = true;
-                  markEdited();
-                }}
-                placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
-                type="text"
-                value={address}
-              />
+              <div className="relative flex items-center">
+                <input
+                  className="w-full h-12 pl-3.5 pr-11 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                  disabled={isSubmitting}
+                  id="addressInput"
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    userEditedDuringLookupRef.current = true;
+                    markEdited();
+                  }}
+                  placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
+                  type="text"
+                  value={address}
+                />
+                <div className="absolute right-3.5 flex items-center justify-center pointer-events-none" aria-live="polite">
+                  {reverseGeocodeStatus === 'LOOKING_UP' ? (
+                    <span
+                      data-testid="address-status-looking-up"
+                      role="status"
+                      aria-label="Looking up address"
+                      title="Looking up address..."
+                      className="w-5 h-5 rounded-full border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 animate-spin shrink-0"
+                    />
+                  ) : reverseGeocodeStatus === 'FOUND' && address.trim().length > 0 ? (
+                    <span
+                      data-testid="address-status-success"
+                      role="status"
+                      aria-label="Address detected successfully"
+                      title="Address detected"
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
+                      style={{ backgroundColor: '#2E7D32' }}
+                    >
+                      <svg
+                        className="w-3 h-3 stroke-current"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M2.5 6.2L4.8 8.5L9.5 3.5" />
+                      </svg>
+                    </span>
+                  ) : reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR' ? (
+                    <span
+                      data-testid="address-status-failed"
+                      role="status"
+                      aria-label="Address lookup unavailable"
+                      title="Address lookup unavailable; manual entry required"
+                      className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 inline-flex items-center justify-center shrink-0"
+                    />
+                  ) : (
+                    <span
+                      data-testid="address-status-idle"
+                      role="status"
+                      aria-label="Address input idle"
+                      title="Address input idle"
+                      className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 inline-flex items-center justify-center shrink-0"
+                    />
+                  )}
+                </div>
+              </div>
               {errors.address && <p className="text-xs text-red-600 mt-1">{errors.address}</p>}
 
-              {/* Reverse Geocode Loading Status */}
-              {reverseGeocodeStatus === 'LOOKING_UP' && (
-                <div className="flex items-center gap-2 text-xs text-primary font-medium mt-1">
-                  <span className="material-symbols-outlined text-sm animate-spin">
-                    progress_activity
-                  </span>
-                  <span>Finding nearest street address...</span>
-                </div>
-              )}
+              {/* Helper text beneath address field */}
+              <p className="text-xs text-on-surface-variant">
+                Approximate GPS address. Confirm your location and add a nearby landmark.
+              </p>
 
-              {/* Approximate Address Notice & Guidance */}
-              {reverseGeocodeStatus === 'FOUND' && address.trim().length > 0 && (
-                <div className="flex items-start gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-800 dark:text-amber-200 mt-1">
-                  <span className="material-symbols-outlined text-base text-amber-600 shrink-0">
-                    info
-                  </span>
-                  <span>
-                    Approximate address detected. Verify it and add your floor, apartment or nearest
-                    visible landmark.
-                  </span>
-                </div>
-              )}
-
-              {/* Address Lookup Warning / Error Notice */}
+              {/* Address Lookup Warning / Error Notice (Retained for manual-entry guidance on failure) */}
               {(reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR') &&
                 reverseGeocodeMessage && (
                   <div className="flex items-start gap-2 p-2.5 bg-surface-container border border-outline-variant rounded-lg text-xs text-on-surface-variant mt-1">
@@ -565,7 +596,7 @@ export default function CitizenRequestPage() {
                   </div>
                 )}
 
-              <p className="text-xs text-on-surface-variant">
+              <p className="text-xs text-on-surface-variant/80">
                 Include floor level, color of exterior walls, or high visibility markers for air and
                 boat crews.
               </p>
