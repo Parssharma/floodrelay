@@ -406,3 +406,39 @@ When recording a new decision, copy this template and fill it in:
   - _Direct solver call from route handler_: Rejected -- bypasses orchestration service authorization and audit responsibilities.
   - _Solver owns its own persistence_: Rejected -- violates separation of concerns; would introduce SQL into the solver library.
 - **Consequence:** The repair endpoint produces real incremental solver proposals, persisted as PROPOSED records, while maintaining the Part 1 authorization and audit pipeline.
+
+---
+
+### ADR-34: Duplicate Flag Triage Safety Policy
+
+- **Date:** 2026-11-06
+- **Decision:** When a `REQUEST_FLAGGED_DUPLICATE` event occurs, the system preserves all existing mutable and committed stops intact. The incremental repair adapter returns status `NO_FEASIBLE_REPAIR` with an explicit human triage warning, requiring an authorized dispatcher to confirm whether the request is genuinely duplicate or a distinct distress call. No rescue requests or route stops are cancelled automatically.
+- **Context:** An automated or crowd-sourced duplicate flag is a triage indicator, not an authorized cancellation. In emergency rescue operations, automatically dropping or cancelling a request on a duplicate flag could abandon real flood victims if the flag was mistaken or inaccurate.
+- **Alternatives considered:**
+  - _Automatically treat duplicate flag as request cancellation_: Rejected -- catastrophic safety hazard; would strip assigned rescue vehicles from citizens in distress without human authorization.
+  - _Silently ignore the event_: Rejected -- fails to inform operators that human triage is required.
+- **Consequence:** Zero accidental drop of real rescue requests. Audit events and operator warnings explicitly record that human review is required before any cancellation can be authorized.
+
+---
+
+### ADR-35: Hazard-Aware Travel-Time Routing in Incremental Repair
+
+- **Date:** 2026-11-06
+- **Decision:** Incremental repair operations must use the asynchronous hazard-aware road network travel-time provider (`prepareTravelTimeProvider`) constructed from active PostgreSQL blocked zones and OSRM configurations, rather than defaulting unconditionally to straight-line Euclidean distance. When OSRM is unreachable or prefetch thresholds are exceeded, the engine falls back gracefully to `StraightLineTravelTimeProvider` while logging an explicit operational warning.
+- **Context:** If incremental repair re-routed vehicles using Euclidean straight-line distance during active floods, proposed routes could traverse flooded road sections or active hazard zones, placing rescue crews and vehicles in danger.
+- **Alternatives considered:**
+  - _Synchronous Euclidean straight-line only in adapter_: Rejected -- ignores physical road closures and active flood hazards.
+  - _Fail hard if OSRM is down_: Rejected -- in a disaster, network partitions happen; falling back with explicit warnings allows life-saving operations to continue.
+- **Consequence:** Repaired routes respect active road blockages and flood polygons. System logs warnings whenever fallback estimates are used.
+
+---
+
+### ADR-36: Authoritative Baseline Reconstruction and Repair Comparison Contract
+
+- **Date:** 2026-11-06
+- **Decision:** When `baselineAssignmentId` is omitted from a repair request, `IncrementalRepairSolverAdapter` queries `getLatestCommittedAssignment()` from PostgreSQL to reconstruct the authoritative operational baseline rather than defaulting to an empty plan. The repair result returned to the client and persisted in PostgreSQL exposes `proposalId`, `proposedPlan`, `unservedRequestIds`, `warnings`, and `churn` (including `reassignedRequestsCount`, `newlyUnservedRequestsCount`, `churnRate`, and `frozenStopsViolated`).
+- **Context:** Frontend operators reviewing proposed repairs (Phase 5 Part 3) need an authoritative comparison against the live committed operational plan to visualize route churn and confirm zero frozen-stop violations. An empty baseline would produce 100% false churn and mask changes.
+- **Alternatives considered:**
+  - _Require baselineAssignmentId in every request_: Rejected -- complicates frontend call sites and breaks when the frontend only tracks the event ID.
+  - _Omit churn from API response_: Rejected -- prevents the UI from displaying reassignment churn and safety validation metrics to the dispatcher.
+- **Consequence:** Handshakes smoothly with Part 3 Next.js frontend; dispatchers receive complete comparison diffs with authoritative baseline data.

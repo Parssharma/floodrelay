@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-05
+**Last updated:** 2026-11-06
 
-**Current focus:** Phase 5 Part 2 Complete ✅ — Incremental solver algorithms implemented and integrated with Part 1 backend
+**Current focus:** Phase 5 Part 2 Finalized & Safety Verified ✅ — Incremental solver algorithms finalized, safety invariants enforced, travel-time providers integrated, PostGIS live workflow tested across Scenarios A-G, ready for PR merge.
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -174,17 +174,18 @@ Incoming rescue requests
 
 ### Phase 5 — Incremental updates and live operations
 
-| Task                       | Owner  | Status | Details                                                                                                                                                                                                |
-| -------------------------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Event handlers (backend)   | Part 1 | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys |
-| Roles & Authorization      | Part 1 | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                    |
-| Audit log                  | Part 1 | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                   |
-| Frozen committed stops     | Part 1 | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                     |
-| Local repair contracts     | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                               |
-| Local repair algorithm     | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with frozen-stop invariant                                  |
-| Churn calculations         | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark harness                                                                                                        |
-| Solver backend integration | Part 2 | ✅     | `IncrementalRepairSolverAdapter` maps RepairInput to solver, injected into RepairOrchestrationService (8 unit tests)                                                                                   |
-| Live dashboard updates     | Part 3 | ⬜     | Slated for Phase 5 Part 3                                                                                                                                                                              |
+| Task                       | Owner  | Status | Details                                                                                                                                                                                                                                                    |
+| -------------------------- | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Event handlers (backend)   | Part 1 | ✅     | `OperationalEventService`, `operational_events` table (migration 004), 7 validated event types, atomic transactional writes with domain entities and audit records, deduplication via idempotency keys                                                     |
+| Roles & Authorization      | Part 1 | ✅     | Centralized RBAC matrix across `OPERATOR`, `DISPATCHER`, `ADMIN` with `requirePermission(...)` middleware; role-based redaction of sensitive metadata in audit logs                                                                                        |
+| Audit log                  | Part 1 | ✅     | Paginated and filtered `GET /audit/events` endpoint, atomic audit recording on all domain operations                                                                                                                                                       |
+| Frozen committed stops     | Part 1 | ✅     | Invariant preserved across all operational events; cancellation and status updates reject tampering with active committed missions                                                                                                                         |
+| Local repair contracts     | Part 1 | ✅     | `RepairInput`, `RepairResult`, and `RepairOrchestrationService` interface boundary established; 503 `REPAIR_ENGINE_UNAVAILABLE` until solver integration                                                                                                   |
+| Local repair algorithm     | Part 2 | ✅     | `insertRequestBestFeasible`, `repairResourceOffline`, `repairRequestCancellation`, `repairRoadBlockage` — deterministic incremental repair with complete frozen-stop physical invariants (coords <= 1e-4, stop numbers, passenger counts, route retention) |
+| Churn calculations         | Part 2 | ✅     | `calculateIncrementalChurn()` with deterministic tie-breaking, three-strategy benchmark CLI harness (`runIncrementalBenchmarkCli.ts`, exported to JSON/CSV/Markdown)                                                                                       |
+| Solver backend integration | Part 2 | ✅     | `IncrementalRepairSolverAdapter` passes hazard-aware travel times, recovers authoritative committed baselines, exposes `proposalId` and `churn`, safely triages duplicate flags (10 unit tests)                                                            |
+| Live PostGIS verification  | Part 2 | ✅     | `incrementalRepairIntegration.test.ts` (7 live integration tests across Scenarios A-G: REQUEST_CREATED, RESOURCE_OFFLINE, ROAD_BLOCKED, REQUEST_FLAGGED_DUPLICATE, concurrency 409, infeasible, RBAC)                                                      |
+| Live dashboard updates     | Part 3 | ⬜     | Implemented in PR #23                                                                                                                                                                                                                                      |
 
 ### Phase 6 — Hardening and documentation
 
@@ -201,16 +202,16 @@ Incoming rescue requests
 
 ## 9. Current status
 
-- **Last completed:** Phase 5 Part 2 complete (PR pending review). Part 1 merged (PR #22). Solver algorithms + backend integration done.
-- **Next up:** Phase 5 Part 3 (live dashboard updates, owned by another contributor).
+- **Last completed:** Phase 5 Part 2 Finalized & Safety Verified ✅. Part 1 merged (PR #22). Solver algorithms + backend integration verified across unit, live PostGIS, and benchmark suites.
+- **Next up:** Phase 5 Part 3 (live dashboard updates, submitted as PR #23).
 - **Phase 0:** Complete ✅.
 - **Phase 1:** Complete (8 of 8 tasks complete ✅).
 - **Phase 2:** Complete (PR #17 review fixes merged ✅).
 - **Phase 3:** Complete (All 6 tasks complete ✅).
 - **Phase 4:** Complete ✅.
 - **Phase 5 Part 1:** Complete ✅ (merged PR #22).
-- **Phase 5 Part 2:** Complete ✅ (solver algorithms + backend integration via IncrementalRepairSolverAdapter).
-- **Phase 5 Part 3:** Not started ⬜ (owned by another contributor).
+- **Phase 5 Part 2:** Complete ✅ (deterministic incremental solver, complete frozen-stop physical invariants, OSRM/hazard routing, live PostGIS integration tested).
+- **Phase 5 Part 3:** Implemented 🟡 (submitted as PR #23).
 
 ---
 
@@ -255,6 +256,13 @@ Incoming rescue requests
 | Transactional operational events outbox                    | PostgreSQL table `operational_events` updated atomically with domain and audit writes in single transaction client; no external queue in Part 1 (ADR-27)                                                                                   |
 | Centralized RBAC and audit redaction                       | Strict permission matrix across OPERATOR, DISPATCHER, ADMIN with `requirePermission(...)` middleware; automatic redaction of sensitive metadata for OPERATOR role (ADR-28)                                                                 |
 | Incremental solver repair boundary                         | Decoupled `RepairInput`/`RepairResult` interfaces; explicit HTTP 503 `REPAIR_ENGINE_UNAVAILABLE` signaling until Part 2 solver integration (ADR-29)                                                                                        |
+| Deterministic best-feasible insertion                      | Ordered tie-breaking across objectiveScore, incremental distance, resource ID, and stop indices; 15-minute new-route penalty (ADR-30)                                                                                                      |
+| Frozen-stop physical invariants in solver layer            | Immediate rejection with NO_FEASIBLE_REPAIR if candidate alters, removes, reassigns or shifts coords of isFrozen stops (ADR-31)                                                                                                            |
+| Assignment churn metric definition                         | Churn rate evaluated over baseline served requests only; benchmark proves 0 frozen violations for event-triggered repair (ADR-32)                                                                                                          |
+| Incremental repair adapter integration                     | Pure solver decoupled from Express/SQL; adapter maps inputs, recovers baselines, persists proposals (ADR-33)                                                                                                                               |
+| Duplicate flag triage safety policy                        | Flagging duplicate preserves mutable and committed stops intact; returns NO_FEASIBLE_REPAIR with triage warning awaiting human review (ADR-34)                                                                                             |
+| Hazard-aware travel-time routing in repair                 | Incremental solver uses asynchronous road-aware / hazard-aware travel times; falls back to straight-line with explicit warning (ADR-35)                                                                                                    |
+| Authoritative baseline reconstruction & repair comparison  | Recovers latest committed assignment if baselineId omitted; returns proposalId, churn, warnings for Part 3 UI comparison (ADR-36)                                                                                                          |
 
 ---
 
