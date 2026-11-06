@@ -530,7 +530,10 @@ export default function CitizenRequestPage() {
                   type="text"
                   value={address}
                 />
-                <div className="absolute right-3.5 flex items-center justify-center pointer-events-none" aria-live="polite">
+                <div
+                  className="absolute right-3.5 flex items-center justify-center pointer-events-none"
+                  aria-live="polite"
+                >
                   {reverseGeocodeStatus === 'LOOKING_UP' ? (
                     <span
                       data-testid="address-status-looking-up"

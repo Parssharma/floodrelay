@@ -738,7 +738,9 @@ describe('Citizen GPS Address Autofill & Reverse Geocoding', () => {
         await triggerReverseGeocode(31.25, 75.7);
 
         expect(state.reverseGeocodeStatus).toBe('ERROR');
-        expect(state.reverseGeocodeMessage).toContain('please enter your street address or landmark manually');
+        expect(state.reverseGeocodeMessage).toContain(
+          'please enter your street address or landmark manually',
+        );
       });
     });
   });
