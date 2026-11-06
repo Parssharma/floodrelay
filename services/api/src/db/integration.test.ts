@@ -178,12 +178,13 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
 
   describe('3. Idempotent Insert & Unique-Violation Concurrency Race', () => {
     it('returns original on replay, rejects changed payload with 409, and handles concurrent race', async () => {
+      const testKey1 = `race_test_key_1_${Date.now()}`;
       const payload1 = CreateRequestSchema.parse({
         lat: 28.704,
         lng: 77.21,
         peopleCount: 4,
         urgency: 'MEDIUM',
-        idempotencyKey: 'race_test_key_1',
+        idempotencyKey: testKey1,
       });
 
       // 1. Initial insert
@@ -207,12 +208,13 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       });
 
       // 4. Concurrent insert race with same key
+      const testKey2 = `concurrent_race_key_${Date.now()}`;
       const racePayload = CreateRequestSchema.parse({
         lat: 28.71,
         lng: 77.22,
         peopleCount: 2,
         urgency: 'LOW',
-        idempotencyKey: 'concurrent_race_key',
+        idempotencyKey: testKey2,
       });
 
       const [race1, race2] = await Promise.all([
