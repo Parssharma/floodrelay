@@ -116,6 +116,9 @@ This file documents honest limitations of the system. Keep it updated as the pro
     | 0.0 (otherwise)
     All terms represent heuristic uncalibrated estimates without empirical telemetry calibration. Travel times follow a lognormal distribution parameterized by planned duration and cv_effective. The inverse normal CDF uses Peter J. Acklam's rational approximation algorithm with a relative error of about 1.15e-9.
 
+- **Map Basemap Tile Provider Usage & Policy:**
+  tile.openstreetmap.org is a free community service with a usage policy for light use; a real deployment needs its own tile provider or self-hosted tiles via NEXT_PUBLIC_MAP_TILE_URL.
+
 - **Phase 6 Operational Limitations, Decision-Support Perimeter & Emergency Guidance:**
   - **Public Limitations Disclosure:** The web platform publishes an accessible, unauthenticated disclosure page at `/limitations` detailing all 8 core technical boundaries: decision-support scope, GPS variance, OSRM road graph vs flooded impassability, synthetic data labeling, shift limit exhaustion, human-only commitment, technical availability, and emergency safety directives.
   - **Decision-Support Perimeter:** FloodRelay operates solely as a resource allocation decision-support platform. The optimization engine generates advisory `PROPOSED` assignments; it possesses zero autonomous commitment authority.

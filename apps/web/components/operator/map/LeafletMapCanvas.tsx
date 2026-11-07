@@ -6,6 +6,7 @@ import L from 'leaflet';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, Popup, useMap } from 'react-leaflet';
 import type { RescueRequest, BlockedZone } from '@floodrelay/shared';
 import type { AssignmentRecord, RouteStop } from '@/lib/api/types';
+import { getTileConfig } from './tileConfig';
 
 export interface StagedAsset {
   id: string;
@@ -17,6 +18,7 @@ export interface StagedAsset {
   lng: number;
   status: 'AVAILABLE' | 'ASSIGNED' | 'STANDBY';
   depotName: string;
+  source?: string;
 }
 
 export interface StagedShelter {
@@ -27,6 +29,7 @@ export interface StagedShelter {
   capacity: number;
   availableBeds: number;
   status: string;
+  source?: string;
 }
 
 export type SelectedMapEntity =
@@ -236,19 +239,11 @@ export default function LeafletMapCanvas({
     return coords;
   }, [filteredRequests, stagedFleet, stagedShelters, layers]);
 
-  // Default center: Houston Buffalo Bayou Basin
-  const defaultCenter: [number, number] = [29.7604, -95.3698];
+  // Default center: Delhi Yamuna Basin
+  const defaultCenter: [number, number] = [28.671, 77.234];
 
   // Tile layer configuration
-  const tileUrl =
-    tileTheme === 'dark'
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-  const tileAttribution =
-    tileTheme === 'dark'
-      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-      : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const tileConfig = getTileConfig(tileTheme);
 
   // Assignment polyline vectors
   const routePolylines = useMemo(() => {
@@ -275,7 +270,12 @@ export default function LeafletMapCanvas({
         style={{ width: '100%', height: '100%', backgroundColor: '#0b1320' }}
         zoomControl={false}
       >
-        <TileLayer attribution={tileAttribution} url={tileUrl} maxZoom={19} />
+        <TileLayer
+          attribution={tileConfig.attribution}
+          url={tileConfig.url}
+          className={tileConfig.className}
+          maxZoom={tileConfig.maxZoom}
+        />
 
         <MapMovementController
           allCoordinates={allCoordinates}

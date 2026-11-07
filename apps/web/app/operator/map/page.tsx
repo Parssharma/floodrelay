@@ -1,117 +1,23 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
-import type { UrgencyLevel, BlockedZone } from '@floodrelay/shared';
+import type { UrgencyLevel } from '@floodrelay/shared';
 import LeafletMapWrapper from '@/components/operator/map/LeafletMapWrapper';
-import type {
-  StagedAsset,
-  StagedShelter,
-  SelectedMapEntity,
-  MapLayers,
-} from '@/components/operator/map/LeafletMapCanvas';
-import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import type { SelectedMapEntity, MapLayers } from '@/components/operator/map/LeafletMapCanvas';
+import { MapInspectorDrawer } from '@/components/operator/map/MapInspectorDrawer';
 import { useLiveRequests } from '@/hooks/useLiveRequests';
 import { useLiveAssignments } from '@/hooks/useLiveAssignments';
 import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
 import type { LivePollingStatus } from '@/hooks/useLivePolling';
 import { SIMULATED_REPAIR_RESULT } from '@/lib/fixtures/repairFixtures';
-
-// Designated staged sector assets for Harris County Sector 4 (Standby Roster)
-const STAGED_SECTOR_FLEET: StagedAsset[] = [
-  {
-    id: 'res-alpha-4',
-    name: 'Boat Alpha-4',
-    type: 'BOAT',
-    capacity: 6,
-    speedKmH: 25,
-    lat: 29.7628,
-    lng: -95.385,
-    status: 'AVAILABLE',
-    depotName: 'Buffalo Bayou Staging Depot West',
-  },
-  {
-    id: 'res-bravo-2',
-    name: 'Boat Bravo-2',
-    type: 'BOAT',
-    capacity: 8,
-    speedKmH: 22,
-    lat: 29.754,
-    lng: -95.352,
-    status: 'AVAILABLE',
-    depotName: 'East River Staging Point',
-  },
-  {
-    id: 'res-truck-heavy',
-    name: 'Truck Heavy-2',
-    type: 'HIGH_WATER_VEHICLE',
-    capacity: 12,
-    speedKmH: 45,
-    lat: 29.771,
-    lng: -95.398,
-    status: 'AVAILABLE',
-    depotName: 'Heights Emergency Depot',
-  },
-  {
-    id: 'res-hawk-1',
-    name: 'Rotary Hawk-1',
-    type: 'HELICOPTER',
-    capacity: 4,
-    speedKmH: 180,
-    lat: 29.725,
-    lng: -95.34,
-    status: 'STANDBY',
-    depotName: 'Helipad South Standby',
-  },
-];
-
-// Designated sector relief shelters
-const STAGED_SECTOR_SHELTERS: StagedShelter[] = [
-  {
-    id: 'shelter-westchase',
-    name: 'Westchase High Shelter',
-    lat: 29.721,
-    lng: -95.558,
-    capacity: 350,
-    availableBeds: 142,
-    status: 'Open — Primary Intake',
-  },
-  {
-    id: 'shelter-nrg',
-    name: 'NRG Arena Shelter',
-    lat: 29.684,
-    lng: -95.411,
-    capacity: 800,
-    availableBeds: 310,
-    status: 'Open — Regional Hub',
-  },
-];
-
-// Designated sector blocked road zones and surge hazard polygons
-const STAGED_SECTOR_BLOCKED_ZONES: BlockedZone[] = [
-  {
-    id: 'zone-heights-surge',
-    name: 'Heights Blvd Flood Surge (Zone Z-402)',
-    severity: 'BLOCKED',
-    polygon: [
-      { lat: 29.775, lng: -95.405 },
-      { lat: 29.778, lng: -95.395 },
-      { lat: 29.77, lng: -95.392 },
-      { lat: 29.768, lng: -95.402 },
-    ],
-  },
-  {
-    id: 'zone-white-oak-caution',
-    name: 'White Oak Bayou Inundation (Zone Z-405)',
-    severity: 'CAUTION',
-    polygon: [
-      { lat: 29.782, lng: -95.378 },
-      { lat: 29.785, lng: -95.368 },
-      { lat: 29.779, lng: -95.365 },
-      { lat: 29.776, lng: -95.375 },
-    ],
-  },
-];
+import {
+  STAGED_SECTOR_FLEET,
+  STAGED_SECTOR_SHELTERS,
+  STAGED_SECTOR_BLOCKED_ZONES,
+  MAP_SCENARIO_NAME,
+  MAP_SCENARIO_COORDINATES,
+  rebaseLatLng,
+} from '@/lib/fixtures/mapReferenceData';
 
 function OperatorMapContent() {
   // Live polling for requests and assignments
@@ -198,12 +104,12 @@ function OperatorMapContent() {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Repair route polyline vectors for comparison overlay
+  // Repair route polyline vectors for comparison overlay (rebased from baseline anchor to Delhi anchor)
   const repairRoutePolylines = useMemo(() => {
     return (
       SIMULATED_REPAIR_RESULT.proposedPlan?.routes.map((r) => ({
         resourceId: r.resourceId,
-        latlngs: r.stops.map((s) => [s.lat, s.lng] as [number, number]),
+        latlngs: r.stops.map((s) => rebaseLatLng([s.lat, s.lng])),
       })) || []
     );
   }, []);
@@ -227,10 +133,10 @@ function OperatorMapContent() {
       <div className="bg-slate-900/95 border-b border-slate-700/60 px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs z-30 shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="font-semibold text-slate-200">Sector 4 Geospatial Tactical Map</span>
+          <span className="font-semibold text-slate-200">{MAP_SCENARIO_NAME}</span>
           <span className="text-slate-500 hidden sm:inline">•</span>
           <span className="text-slate-400 font-mono text-[11px] hidden md:inline">
-            Harris County Basin Grid (29.7604° N, 95.3698° W)
+            {MAP_SCENARIO_COORDINATES}
           </span>
         </div>
 
@@ -326,7 +232,7 @@ function OperatorMapContent() {
                   className="rounded text-rose-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-rose-400 cursor-pointer"
                 />
                 <span className="material-symbols-outlined text-[14px] text-rose-400">traffic</span>
-                <span className="font-medium">Hazard Zones (Reference Z-402/Z-405)</span>
+                <span className="font-medium">Hazard Zones (Reference)</span>
                 <span className="ml-0.5 px-1.5 py-0.2 rounded bg-rose-700 text-white font-mono text-[10px] font-bold">
                   {STAGED_SECTOR_BLOCKED_ZONES.length}
                 </span>
@@ -539,257 +445,10 @@ function OperatorMapContent() {
               : 'translate-y-full lg:translate-x-full'
           } fixed lg:static bottom-0 right-0 max-h-[85vh] lg:max-h-full`}
         >
-          {selectedEntity ? (
-            <div className="p-5 space-y-4 text-xs">
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-outline-variant">
-                <div>
-                  <span className="font-mono text-[10px] uppercase font-bold text-primary block">
-                    {selectedEntity.type === 'incident'
-                      ? 'DISTRESS TICKET'
-                      : selectedEntity.type === 'craft'
-                        ? 'SECTOR CRAFT ASSET'
-                        : 'RELIEF FACILITY'}
-                  </span>
-                  <h3 className="font-mono text-base font-bold text-on-surface">
-                    {'id' in selectedEntity.item ? selectedEntity.item.id : 'Selected Asset'}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedEntity(null)}
-                  className="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-                  title="Close Inspector"
-                >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
-                </button>
-              </div>
-
-              {/* ------------------ INCIDENT DETAILS ------------------ */}
-              {selectedEntity.type === 'incident' && (
-                <div className="space-y-3.5">
-                  <div className="flex items-center gap-2">
-                    <UrgencyBadge urgency={selectedEntity.item.urgency} />
-                    <StatusBadge status={selectedEntity.item.status || 'PENDING'} />
-                    {selectedEntity.item.medicalNeeds && (
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-red-100 text-red-900 font-bold flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[12px]">
-                          medical_services
-                        </span>
-                        Medical Assistance Required
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Headcount Awaiting Rescue
-                      </span>
-                      <span className="font-bold text-on-surface text-base">
-                        {selectedEntity.item.peopleCount} Passengers
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Intake Source
-                      </span>
-                      <span className="font-mono font-bold text-on-surface text-xs">
-                        {selectedEntity.item.source || 'REPORTED'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-                      Precise Geographic Coordinates
-                    </span>
-                    <div className="p-2 rounded-lg bg-surface font-mono text-on-surface border border-outline-variant/40 flex items-center justify-between">
-                      <span>
-                        {selectedEntity.item.lat.toFixed(6)}° N,{' '}
-                        {selectedEntity.item.lng.toFixed(6)}° W
-                      </span>
-                      <span className="material-symbols-outlined text-primary text-base">
-                        pin_drop
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-                      Caller Situation &amp; Notes
-                    </span>
-                    <p className="p-3 rounded-lg bg-surface border border-outline-variant/40 text-on-surface leading-relaxed">
-                      {selectedEntity.item.notes || 'No specific caller instructions logged.'}
-                    </p>
-                  </div>
-
-                  {selectedEntity.item.isFlaggedDuplicate && (
-                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950">
-                      <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-800">
-                        <span className="material-symbols-outlined text-[16px]">warning</span>
-                        <span>Potential Duplicate Report</span>
-                      </div>
-                      <p className="text-[11px] mt-1 text-amber-900">
-                        Proximity match with ticket #
-                        {selectedEntity.item.duplicateOfId || 'associated ticket'}.
-                      </p>
-                    </div>
-                  )}
-
-                  <div>
-                    <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-                      Logged Timestamp
-                    </span>
-                    <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
-                      {selectedEntity.item.createdAt
-                        ? new Date(selectedEntity.item.createdAt).toLocaleString()
-                        : 'Unknown'}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ------------------ CRAFT DETAILS ------------------ */}
-              {selectedEntity.type === 'craft' && (
-                <div className="space-y-3.5">
-                  <div className="p-3 rounded-lg bg-teal-50 border border-teal-200 text-teal-950">
-                    <div className="font-bold text-xs text-teal-900 flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px]">directions_boat</span>
-                      <span>{selectedEntity.item.name}</span>
-                    </div>
-                    <div className="text-[11px] text-teal-800 mt-0.5">
-                      Stationary Staged Asset • Sector 4 Basin Standby
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Passenger Cap
-                      </span>
-                      <span className="font-bold text-on-surface text-base">
-                        {selectedEntity.item.capacity} Pax
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Max Transit Speed
-                      </span>
-                      <span className="font-bold text-on-surface text-base">
-                        {selectedEntity.item.speedKmH} km/h
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-                      Staging Depot Location
-                    </span>
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/40 text-on-surface">
-                      <div className="font-semibold">{selectedEntity.item.depotName}</div>
-                      <div className="font-mono text-[11px] text-on-surface-variant mt-0.5">
-                        {selectedEntity.item.lat.toFixed(4)}° N,{' '}
-                        {selectedEntity.item.lng.toFixed(4)}° W
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
-                    <span className="font-bold block text-on-surface">Provenance Notice:</span>
-                    <span>
-                      Staged sector asset inventory. Real-time GPS vessel transponders connect
-                      during active deployment in Milestone 5.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* ------------------ SHELTER DETAILS ------------------ */}
-              {selectedEntity.type === 'shelter' && (
-                <div className="space-y-3.5">
-                  <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950">
-                    <div className="font-bold text-xs text-emerald-900 flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px]">night_shelter</span>
-                      <span>{selectedEntity.item.name}</span>
-                    </div>
-                    <div className="text-[11px] text-emerald-800 mt-0.5">
-                      {selectedEntity.item.status}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Available Beds
-                      </span>
-                      <span className="font-bold text-emerald-700 text-base">
-                        {selectedEntity.item.availableBeds} Beds
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                      <span className="text-[10px] text-on-surface-variant block">
-                        Total Capacity
-                      </span>
-                      <span className="font-bold text-on-surface text-base">
-                        {selectedEntity.item.capacity} Beds
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-1">
-                      Shelter Coordinates
-                    </span>
-                    <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
-                      {selectedEntity.item.lat.toFixed(6)}° N, {selectedEntity.item.lng.toFixed(6)}°
-                      W
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Milestone 5 Disabled Action Strip */}
-              <div className="pt-3 border-t border-outline-variant space-y-2">
-                <div className="p-2 rounded bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
-                  <span className="font-bold text-on-surface block">
-                    Dispatch Mutation Disabled:
-                  </span>
-                  <span>
-                    Human-supervised solver route generation and craft assignment will be enabled in
-                    Milestone 5.
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    className="py-2 px-3 rounded bg-surface-container text-on-surface text-xs font-semibold opacity-60 cursor-not-allowed"
-                    disabled
-                    type="button"
-                  >
-                    Assign Vehicle (M5)
-                  </button>
-                  <button
-                    className="py-2 px-3 rounded bg-primary text-on-primary text-xs font-semibold opacity-60 cursor-not-allowed"
-                    disabled
-                    type="button"
-                  >
-                    Dispatch Craft (M5)
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-8 text-center text-on-surface-variant text-xs space-y-2 my-auto">
-              <span className="material-symbols-outlined text-4xl text-outline">
-                location_searching
-              </span>
-              <p className="font-bold text-on-surface">Tactical Map Inspector</p>
-              <p className="text-[11px]">
-                Click any distress ticket, rescue craft, or shelter marker on the map to inspect
-                full telemetry and caller records.
-              </p>
-            </div>
-          )}
+          <MapInspectorDrawer
+            selectedEntity={selectedEntity}
+            onClose={() => setSelectedEntity(null)}
+          />
         </aside>
       </div>
     </div>
