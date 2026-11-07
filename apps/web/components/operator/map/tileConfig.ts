@@ -7,7 +7,7 @@ export interface TileConfig {
   maxZoom: number;
 }
 
-export const DEFAULT_OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const DEFAULT_OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const DEFAULT_OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export const DARK_TACTICAL_TILE_CLASS = 'dark-tactical-tiles';

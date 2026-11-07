@@ -34,7 +34,7 @@ describe('Operator Map Tile Configuration (tileConfig)', () => {
   it('provides OpenStreetMap default url for dark theme with dark tactical CSS class', () => {
     const config = getTileConfig('dark');
     expect(config.url).toBe(DEFAULT_OSM_TILE_URL);
-    expect(config.url).toBe('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(config.url).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
     expect(config.className).toBe(DARK_TACTICAL_TILE_CLASS);
     expect(config.maxZoom).toBe(19);
     expect(config.attribution).toBe(DEFAULT_OSM_ATTRIBUTION);
