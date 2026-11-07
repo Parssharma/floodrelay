@@ -83,4 +83,22 @@ describe('Operator Map Tile Configuration (tileConfig)', () => {
     expect(source.toLowerCase()).not.toContain('cartocdn');
     expect(source.toLowerCase()).not.toContain('carto.com');
   });
+
+  it('asserts globals.css has exactly one rule block for the dark-tactical-tiles filter without targeting .leaflet-tile', () => {
+    const globalsCssPath = path.resolve(__dirname, '../app/globals.css');
+    const cssContent = fs.readFileSync(globalsCssPath, 'utf8');
+
+    // Find rule blocks containing dark-tactical-tiles and filter:
+    const ruleBlocks = cssContent
+      .split('}')
+      .map((block) => block.trim())
+      .filter((block) => block.includes('dark-tactical-tiles') && block.includes('filter:'));
+
+    expect(ruleBlocks).toHaveLength(1);
+
+    const [selectorPart] = ruleBlocks[0].split('{');
+    expect(selectorPart).toBeDefined();
+    expect(selectorPart).toContain('.dark-tactical-tiles');
+    expect(selectorPart).not.toContain('.leaflet-tile');
+  });
 });
