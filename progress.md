@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-07
+**Last updated:** 2026-11-08
 
-**Current focus:** Phase 6 Complete ✅ — k6 Load Testing Suite, CI Pipeline Hardening, and Operational Limitations Public Page implemented, verified, and ready for peer review.
+**Current focus:** Phase 6 Final Delivery Complete ✅ — River Flood Forecast Context Layer (GloFAS 4.0), Deterministic Demonstration System (8-step walkthrough & presentation script), and Redis/BullMQ Evaluation & Deferral (ADR-41/ADR-42).
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
@@ -35,17 +35,17 @@ Citizens (or helpers) submit rescue requests with location, number of people and
 
 ## 4. Tech stack
 
-| Layer                | Choice                                                             | Why                                                                           | Status  |
-| -------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------- |
-| Frontend (mandatory) | Next.js (App Router) + React + TypeScript                          | Citizen request form, operator dashboard, field-team view                     | Planned |
-| Map                  | react-leaflet loaded with dynamic import and SSR disabled          | Leaflet needs the browser `window` object                                     | Planned |
-| Backend              | Separate Node.js service, Express + TypeScript (strict mode)       | Intake, assignment, auth, live updates                                        | Planned |
-| Database             | PostgreSQL + PostGIS                                               | Spatial queries and a built-in DBSCAN to verify our own clustering            | Planned |
-| Queue and pub/sub    | Redis (BullMQ)                                                     | Added only if measurements show the solver must run outside the request cycle | Planned |
-| Routing              | OSRM in Docker                                                     | Travel-time matrix from OpenStreetMap data                                    | Planned |
-| Live updates         | Polling first, Socket.IO when the dashboard needs it               | —                                                                             | Planned |
-| Deployment           | docker-compose for the backend stack, frontend on any Next.js host | —                                                                             | Planned |
-| Testing and CI       | Jest/Supertest, k6 for load tests, GitHub Actions                  | —                                                                             | Planned |
+| Layer                | Choice                                                             | Why                                                                                                                    | Status       |
+| -------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Frontend (mandatory) | Next.js (App Router) + React + TypeScript                          | Citizen request form, operator dashboard, field-team view                                                              | Planned      |
+| Map                  | react-leaflet loaded with dynamic import and SSR disabled          | Leaflet needs the browser `window` object                                                                              | Planned      |
+| Backend              | Separate Node.js service, Express + TypeScript (strict mode)       | Intake, assignment, auth, live updates                                                                                 | Planned      |
+| Database             | PostgreSQL + PostGIS                                               | Spatial queries and a built-in DBSCAN to verify our own clustering                                                     | Planned      |
+| Queue and pub/sub    | PostgreSQL ACID Outbox (Redis Deferred)                            | Evaluated & deferred via empirical benchmarks (< 2.7 ms repair, < 21 ms event-loop lag, zero dual-write risk) (ADR-42) | ✅ Evaluated |
+| Routing              | OSRM in Docker                                                     | Travel-time matrix from OpenStreetMap data                                                                             | Planned      |
+| Live updates         | Polling first, Socket.IO when the dashboard needs it               | —                                                                                                                      | Planned      |
+| Deployment           | docker-compose for the backend stack, frontend on any Next.js host | —                                                                                                                      | Planned      |
+| Testing and CI       | Jest/Supertest, k6 for load tests, GitHub Actions                  | —                                                                                                                      | Planned      |
 
 ---
 
@@ -267,6 +267,8 @@ Incoming rescue requests
 | Duplicate flag triage safety policy                        | Flagging duplicate preserves mutable and committed stops intact; returns NO_FEASIBLE_REPAIR with triage warning awaiting human review (ADR-38)                                                                                             |
 | Hazard-aware travel-time routing in repair                 | Incremental solver uses asynchronous road-aware / hazard-aware travel times; falls back to straight-line with explicit warning (ADR-39)                                                                                                    |
 | Authoritative baseline reconstruction & repair comparison  | Recovers latest committed assignment if baselineId omitted; returns proposalId, churn, warnings for Part 3 UI comparison (ADR-40)                                                                                                          |
+| River discharge flood forecast context layer               | ECMWF Copernicus GloFAS 4.0 gridded river discharge context via Open-Meteo for Delhi Yamuna corridor; informational only; zero autonomous dispatch (ADR-41)                                                                                |
+| Asynchronous queue evaluation & deferral                   | Benchmarked solver repair (< 2.7 ms) and event-loop lag (< 21 ms); deferred Redis/BullMQ in favor of PostgreSQL ACID outbox (ADR-42)                                                                                                       |
 
 ---
 
