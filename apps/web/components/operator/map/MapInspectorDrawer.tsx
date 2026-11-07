@@ -140,7 +140,7 @@ export function MapInspectorDrawer({ selectedEntity, onClose }: MapInspectorDraw
               <span>{selectedEntity.item.name}</span>
             </div>
             <div className="text-[11px] text-teal-800 mt-0.5">
-              Stationary Staged Asset • Sector 4 Basin Standby
+              Reference asset (simulated) • Yamuna basin standby
             </div>
           </div>
 

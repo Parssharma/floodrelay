@@ -127,6 +127,10 @@ describe('Operator Map Reference Data & Coordinate Translation Invariants', () =
       /95\.36/i,
       /cartocdn/i,
       /carto\.com/i,
+      /Sector 4/i,
+      /Standby Roster/i,
+      /Z-402/i,
+      /Z-405/i,
     ];
 
     const filesToScan: string[] = [];
