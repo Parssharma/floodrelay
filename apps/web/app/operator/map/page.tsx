@@ -7,6 +7,7 @@ import type { SelectedMapEntity, MapLayers } from '@/components/operator/map/Lea
 import { MapInspectorDrawer } from '@/components/operator/map/MapInspectorDrawer';
 import { useLiveRequests } from '@/hooks/useLiveRequests';
 import { useLiveAssignments } from '@/hooks/useLiveAssignments';
+import { useFloodForecast } from '@/hooks/useFloodForecast';
 import { LiveStatusIndicator } from '@/components/operator/LiveStatusIndicator';
 import type { LivePollingStatus } from '@/hooks/useLivePolling';
 import { SIMULATED_REPAIR_RESULT } from '@/lib/fixtures/repairFixtures';
@@ -36,6 +37,12 @@ function OperatorMapContent() {
     isRefreshing: assignmentsRefreshing,
     refresh: refreshAssignments,
   } = useLiveAssignments({ intervalMs: 20000 });
+
+  const {
+    data: forecastContext,
+    status: forecastStatus,
+    error: forecastError,
+  } = useFloodForecast();
 
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('');
 
@@ -77,6 +84,7 @@ function OperatorMapContent() {
     routes: true,
     blockages: true,
     repairOverlay: false,
+    floodForecast: false,
   });
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   const [tileTheme, setTileTheme] = useState<'dark' | 'standard'>('dark');
@@ -251,7 +259,89 @@ function OperatorMapContent() {
                 </span>
                 <span className="font-medium">Repair Overlay</span>
               </label>
+
+              {/* Flood Forecast Context Layer (Phase 6) */}
+              <label
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-950/40 border border-cyan-500/40 text-slate-100 cursor-pointer hover:bg-cyan-900/40 transition-colors"
+                data-testid="layer-toggle-forecast"
+              >
+                <input
+                  type="checkbox"
+                  checked={layers.floodForecast}
+                  onChange={() => toggleLayer('floodForecast')}
+                  className="rounded text-cyan-400 focus:ring-0 w-3.5 h-3.5 bg-transparent border-cyan-400 cursor-pointer"
+                />
+                <span className="material-symbols-outlined text-[14px] text-cyan-400">waves</span>
+                <span className="font-medium">Flood Forecast</span>
+                {forecastContext && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold">
+                    {forecastContext.currentDischargeM3S} m³/s
+                  </span>
+                )}
+              </label>
             </div>
+
+            {/* Flood Forecast Information Floating Card */}
+            {layers.floodForecast && (
+              <div
+                className="bg-slate-900/95 backdrop-blur-md border border-cyan-500/60 p-3 rounded-xl shadow-2xl space-y-2 text-xs text-slate-200 animate-in fade-in"
+                data-testid="forecast-info-card"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-slate-700/60 pb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-cyan-400 text-base">waves</span>
+                    <span className="font-bold text-slate-100">
+                      Yamuna River Discharge Forecast
+                    </span>
+                  </div>
+                  {forecastContext && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-500/50 text-cyan-300">
+                      {forecastContext.riskCategory} • {forecastContext.freshness}
+                    </span>
+                  )}
+                </div>
+
+                {forecastStatus === 'ERROR' || (!forecastContext && forecastError) ? (
+                  <div className="text-amber-300 text-[11px] bg-amber-950/40 border border-amber-600/40 p-2 rounded">
+                    Flood forecast provider temporarily unavailable. Operational rescue map and
+                    routing remain fully interactive.
+                  </div>
+                ) : forecastContext ? (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="bg-slate-800/80 p-2 rounded border border-slate-700/60">
+                        <div className="text-[10px] text-slate-400 uppercase font-mono">
+                          Current Discharge
+                        </div>
+                        <div className="text-sm font-bold font-mono text-cyan-300 mt-0.5">
+                          {forecastContext.currentDischargeM3S} {forecastContext.variable.unit}
+                        </div>
+                      </div>
+                      <div className="bg-slate-800/80 p-2 rounded border border-slate-700/60">
+                        <div className="text-[10px] text-slate-400 uppercase font-mono">
+                          7-Day Peak Forecast
+                        </div>
+                        <div className="text-sm font-bold font-mono text-amber-300 mt-0.5">
+                          {forecastContext.peakForecastM3S} {forecastContext.variable.unit}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[10.5px] text-slate-400 font-mono">
+                      Cell: Lat {forecastContext.region.stationLat.toFixed(3)}°N, Lng{' '}
+                      {forecastContext.region.stationLng.toFixed(3)}°E • Issued:{' '}
+                      {forecastContext.issuedAt.split('T')[0]}
+                    </div>
+
+                    <div className="text-[9.5px] text-slate-400 italic border-t border-slate-800 pt-1 leading-tight">
+                      {forecastContext.attribution}. {forecastContext.disclaimer}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-slate-400 text-[11px]">Loading hydrological context...</div>
+                )}
+              </div>
+            )}
 
             {/* Simulated Repair Preview Notice Banner */}
             {layers.repairOverlay && (
@@ -415,6 +505,12 @@ function OperatorMapContent() {
                 </span>
                 <span className="text-slate-200">Designated Relief Shelter</span>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 rounded-full bg-cyan-600 border border-cyan-300 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[10px] text-white">waves</span>
+                </span>
+                <span className="text-slate-200">River Discharge Station (Context)</span>
+              </div>
             </div>
           </div>
 
@@ -426,6 +522,7 @@ function OperatorMapContent() {
             selectedAssignment={selectedAssignment}
             blockedZones={STAGED_SECTOR_BLOCKED_ZONES}
             repairRoutePolylines={repairRoutePolylines}
+            forecastContext={forecastContext}
             layers={layers}
             urgencyFilter={urgencyFilter}
             selectedEntity={selectedEntity}

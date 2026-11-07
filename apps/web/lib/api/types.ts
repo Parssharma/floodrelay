@@ -212,3 +212,5 @@ export interface RequestRepairInput {
   baselineAssignmentId?: string | null;
   expectedVersion?: number;
 }
+
+export type { FloodForecastContext } from '@floodrelay/shared';
