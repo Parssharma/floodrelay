@@ -15,7 +15,8 @@
     "migrate": "tsx src/db/migrator.ts up",
     "migrate:down": "tsx src/db/migrator.ts down",
     "seed": "tsx src/scripts/seedScenario.ts",
-    "create-operator": "tsx src/scripts/createOperator.ts"
+    "create-operator": "tsx src/scripts/createOperator.ts",
+    "provision:test-db": "tsx src/scripts/provisionTestDb.ts"
   },
   "dependencies": {
     "@floodrelay/shared": "*",

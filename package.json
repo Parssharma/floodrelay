@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present && vitest run tests/load",
     "test:repair-integration": "npm --workspace=@floodrelay/api run test:repair-integration",
+    "provision:test-db": "npm --workspace=@floodrelay/api run provision:test-db",
     "evaluate": "vitest run packages/solver/src/evaluation/benchmark.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

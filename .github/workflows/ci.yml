@@ -85,6 +85,9 @@ jobs:
       - name: Re-apply migrations up for integration tests
         run: npm --workspace=@floodrelay/api run migrate
 
+      - name: Provision disposable test database marker
+        run: npm run provision:test-db
+
       - name: Test
         run: npm test
 

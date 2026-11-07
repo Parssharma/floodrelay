@@ -4,28 +4,59 @@ import pg from 'pg';
 export interface VerifiedTestDbInfo {
   databaseName: string;
   serverAddr: string;
+  dbUser: string;
 }
 
+export const STRICT_ALLOWED_TEST_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'postgres']);
+
+export const STRICT_ALLOWED_TEST_DB_NAME = 'floodrelay_test';
+
 /**
- * Verifies that the connected PostgreSQL database is a verified disposable test/dev database.
+ * Verifies that the connected PostgreSQL database is a verified disposable test database.
  * Fails closed before any table operations or fixture mutations if the database cannot be
- * verified or matches a production/shared staging environment.
+ * verified, lacks the required test identity marker, or does not match strict allowlists.
  */
 export async function assertDisposableTestDatabase(pool: pg.Pool): Promise<VerifiedTestDbInfo> {
-  // 1. Require explicit authorization flag
-  const isAuthorized =
-    process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === '1' ||
-    process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB === 'true' ||
-    process.env.CI === 'true';
+  // 1. Require explicit authorization flag (CI=true alone does NOT authorize destructive tests)
+  const authFlag = process.env.ALLOW_DISPOSABLE_REPAIR_TEST_DB;
+  const isAuthorized = authFlag === '1' || authFlag === 'true';
 
   if (!isAuthorized) {
     throw new Error(
       'UNAUTHORIZED_TEST_EXECUTION: Destructive repair integration suite requires explicit authorization. ' +
-        'Set ALLOW_DISPOSABLE_REPAIR_TEST_DB=1 in a dedicated disposable test environment.',
+        'Set ALLOW_DISPOSABLE_REPAIR_TEST_DB=1 in a dedicated disposable test environment. ' +
+        '(CI=true alone does not authorize destructive tests).',
     );
   }
 
-  // 2. Query actual connected database identity directly from PostgreSQL
+  // 2. Validate host in DATABASE_URL if present against strict allowlist
+  if (process.env.DATABASE_URL) {
+    try {
+      const parsedUrl = new URL(process.env.DATABASE_URL);
+      const urlHost = parsedUrl.hostname.trim().toLowerCase();
+      if (!STRICT_ALLOWED_TEST_HOSTS.has(urlHost)) {
+        throw new Error(
+          `UNAPPROVED_TEST_HOST: Host "${urlHost}" in DATABASE_URL is not in the test-only host allowlist. ` +
+            `Approved hosts: [${Array.from(STRICT_ALLOWED_TEST_HOSTS).join(', ')}].`,
+        );
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith('UNAPPROVED_TEST_HOST')) {
+        throw err;
+      }
+    }
+  }
+
+  // 3. Validate host in connection pool options against strict allowlist
+  const poolHost = (pool.options.host || '').trim().toLowerCase();
+  if (poolHost && !STRICT_ALLOWED_TEST_HOSTS.has(poolHost)) {
+    throw new Error(
+      `UNAPPROVED_TEST_HOST: Host "${poolHost}" in connection pool options is not in the test-only host allowlist. ` +
+        `Approved hosts: [${Array.from(STRICT_ALLOWED_TEST_HOSTS).join(', ')}].`,
+    );
+  }
+
+  // 4. Connect to database to query runtime server identity
   let client: pg.PoolClient;
   try {
     client = await pool.connect();
@@ -37,73 +68,95 @@ export async function assertDisposableTestDatabase(pool: pg.Pool): Promise<Verif
   }
 
   try {
-    const res = await client.query<{ db_name: string; server_addr: string | null }>(`
+    const res = await client.query<{
+      db_name: string;
+      db_user: string;
+      server_addr: string | null;
+    }>(`
       SELECT 
         current_database() AS db_name,
+        current_user AS db_user,
         inet_server_addr()::text AS server_addr
     `);
 
     const firstRow = res.rows[0];
     if (!firstRow) {
-      throw new Error('DATABASE_IDENTITY_VERIFICATION_FAILED: Query returned no rows.');
+      throw new Error(
+        'DATABASE_IDENTITY_VERIFICATION_FAILED: Database identity query returned no rows.',
+      );
     }
 
     const dbName = String(firstRow.db_name || '')
+      .trim()
+      .toLowerCase();
+    const dbUser = String(firstRow.db_user || '')
       .trim()
       .toLowerCase();
     const serverAddr = String(firstRow.server_addr || '')
       .trim()
       .toLowerCase();
 
-    // 3. Reject forbidden production or shared staging database names
-    const forbiddenPatterns = ['prod', 'production', 'staging', 'live', 'shared'];
-    for (const forbidden of forbiddenPatterns) {
-      if (dbName.includes(forbidden)) {
-        throw new Error(
-          `UNSAFE_DATABASE_DETECTED: Database name "${dbName}" matches forbidden production/staging pattern "${forbidden}". Refusing to run destructive suite.`,
-        );
-      }
-    }
+    // 5. Permit ONLY explicitly configured, dedicated disposable database name (default: floodrelay_test)
+    const allowedDbName = (process.env.DISPOSABLE_TEST_DB_NAME || STRICT_ALLOWED_TEST_DB_NAME)
+      .trim()
+      .toLowerCase();
 
-    // 4. Validate that database matches allowed test database patterns
-    const isAllowedTestDb =
-      dbName === 'floodrelay_test' ||
-      dbName === 'floodrelay_dev' ||
-      dbName === 'floodrelay' ||
-      dbName.endsWith('_test') ||
-      dbName.includes('test');
-
-    if (!isAllowedTestDb) {
+    if (dbName !== allowedDbName) {
       throw new Error(
-        `UNRECOGNIZED_TEST_DATABASE: Connected to database "${dbName}", which is not an authorized test/dev database for this repository.`,
+        `UNAUTHORIZED_DATABASE_NAME: Connected to database "${dbName}", but only dedicated disposable test database "${allowedDbName}" is permitted. ` +
+          'Generic development (e.g. "floodrelay"), arbitrary test names, staging, or production databases are strictly prohibited.',
       );
     }
 
-    // 5. Host validation: verify host is local / container
-    const poolHost = (pool.options.host || '').toLowerCase();
-    const isLocalOrContainerHost =
-      !poolHost ||
-      poolHost === 'localhost' ||
-      poolHost === '127.0.0.1' ||
-      poolHost === '::1' ||
-      poolHost === 'postgres';
+    // 6. Verify dedicated test-database identity marker provisioned during test-environment setup
+    try {
+      const markerRes = await client.query<{
+        marker_key: string;
+        marker_value: string;
+        is_disposable: boolean;
+        database_name?: string;
+      }>(`
+        SELECT marker_key, marker_value, is_disposable, database_name 
+        FROM test_environment_metadata 
+        WHERE marker_key = 'DISPOSABLE_TEST_ENVIRONMENT';
+      `);
 
-    if (
-      !isLocalOrContainerHost &&
-      (poolHost.includes('prod') ||
-        poolHost.includes('staging') ||
-        poolHost.includes('rds') ||
-        poolHost.includes('neon') ||
-        poolHost.includes('supabase'))
-    ) {
+      const markerRow = markerRes.rows[0];
+      if (
+        !markerRow ||
+        markerRow.marker_value !== 'FLOODRELAY_VERIFIED_TEST_DB' ||
+        markerRow.is_disposable !== true
+      ) {
+        throw new Error(
+          `INVALID_TEST_DB_MARKER: Database "${dbName}" has an invalid test identity marker in "test_environment_metadata". Expected marker_value "FLOODRELAY_VERIFIED_TEST_DB" and is_disposable=true.`,
+        );
+      }
+
+      if (markerRow.database_name && markerRow.database_name.toLowerCase() !== dbName) {
+        throw new Error(
+          `TEST_DB_MARKER_MISMATCH: Marker database_name "${markerRow.database_name}" does not match connected database "${dbName}".`,
+        );
+      }
+    } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        (err.message.startsWith('INVALID_TEST_DB_MARKER') ||
+          err.message.startsWith('TEST_DB_MARKER_MISMATCH'))
+      ) {
+        throw err;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `UNSAFE_HOST_DETECTED: Host "${poolHost}" is not a recognized local or container test host.`,
+        `MISSING_TEST_DB_MARKER: Database "${dbName}" is missing the dedicated test-database identity marker table "test_environment_metadata" (${msg}). ` +
+          'Run "npm run provision:test-db" during test-environment setup.',
+        { cause: err },
       );
     }
 
     return {
       databaseName: dbName,
       serverAddr: serverAddr || 'local/socket',
+      dbUser,
     };
   } finally {
     client.release();
@@ -154,6 +207,7 @@ export class FixtureRegistry {
   /**
    * Deletes all explicitly tracked fixtures in a single transaction in foreign-key safe order.
    * Parameterized queries ensure no unintended rows are ever deleted.
+   * Only clears in-memory tracking collections after COMMIT succeeds.
    */
   public async cleanup(pool: pg.Pool): Promise<void> {
     const client = await pool.connect();
@@ -252,12 +306,8 @@ export class FixtureRegistry {
       }
 
       await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-      // Clear in-memory sets after successful cleanup
+
+      // CRITICAL: Clear in-memory sets ONLY after COMMIT succeeds
       this.auditEventIds.clear();
       this.operationalEventIds.clear();
       this.assignmentStopIds.clear();
@@ -267,6 +317,15 @@ export class FixtureRegistry {
       this.shelterIds.clear();
       this.operatorSessionTokens.clear();
       this.operatorUsernames.clear();
+    } catch (err: unknown) {
+      await client.query('ROLLBACK').catch(() => {});
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `FIXTURE_CLEANUP_FAILED: Database cleanup transaction failed and was rolled back. Tracked fixtures preserved for retry: ${msg}`,
+        { cause: err },
+      );
+    } finally {
+      client.release();
     }
   }
 }
