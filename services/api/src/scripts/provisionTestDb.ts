@@ -21,9 +21,7 @@ export async function provisionDisposableTestMarker(pool: pg.Pool): Promise<void
       .trim()
       .toLowerCase();
 
-    const expectedDbName = (process.env.DISPOSABLE_TEST_DB_NAME || STRICT_ALLOWED_TEST_DB_NAME)
-      .trim()
-      .toLowerCase();
+    const expectedDbName = STRICT_ALLOWED_TEST_DB_NAME;
 
     if (dbName !== expectedDbName) {
       throw new Error(

@@ -96,10 +96,8 @@ export async function assertDisposableTestDatabase(pool: pg.Pool): Promise<Verif
       .trim()
       .toLowerCase();
 
-    // 5. Permit ONLY explicitly configured, dedicated disposable database name (default: floodrelay_test)
-    const allowedDbName = (process.env.DISPOSABLE_TEST_DB_NAME || STRICT_ALLOWED_TEST_DB_NAME)
-      .trim()
-      .toLowerCase();
+    // 5. Permit ONLY dedicated disposable test database name (floodrelay_test)
+    const allowedDbName = STRICT_ALLOWED_TEST_DB_NAME;
 
     if (dbName !== allowedDbName) {
       throw new Error(
