@@ -148,4 +148,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work) for our full development and 
 - [Contributing guidelines](CONTRIBUTING.md)
 - [Architecture decisions](docs/decisions.md)
 - [Known limitations](docs/limitations.md)
+- [Operational Limitations & Boundaries Page](docs/limitations.md) (Web route: `/limitations`)
 - [OSRM routing guide](docs/osrm.md)

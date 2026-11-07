@@ -1,0 +1,325 @@
+{
+  "metrics": {
+    "http_req_duration": {
+      "p(90)": 56.76975,
+      "p(95)": 82.5838,
+      "avg": 35.14279592123763,
+      "min": 0,
+      "med": 11.2817,
+      "max": 1716.5565,
+      "thresholds": {
+        "p(95)<1000": false,
+        "p(99)<2000": false
+      }
+    },
+    "http_req_waiting": {
+      "med": 11.12205,
+      "max": 1716.5565,
+      "p(90)": 54.0488,
+      "p(95)": 79.9501,
+      "avg": 34.16484683544311,
+      "min": 0
+    },
+    "operator_polling_success_rate": {
+      "passes": 790,
+      "fails": 0,
+      "value": 1
+    },
+    "frozen_stop_violations": {
+      "count": 0,
+      "rate": 0,
+      "thresholds": {
+        "count==0": false
+      }
+    },
+    "http_req_tls_handshaking": {
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "avg": 0,
+      "min": 0
+    },
+    "http_req_receiving": {
+      "avg": 0.9387577824660098,
+      "min": 0,
+      "med": 0,
+      "max": 30.5839,
+      "p(90)": 3.01555,
+      "p(95)": 4.530200000000001
+    },
+    "vus_max": {
+      "value": 30,
+      "min": 30,
+      "max": 30
+    },
+    "data_integrity_violations": {
+      "count": 0,
+      "rate": 0,
+      "thresholds": {
+        "count==0": false
+      }
+    },
+    "checks": {
+      "passes": 8213,
+      "fails": 0,
+      "value": 1
+    },
+    "http_req_duration{expected_response:true}": {
+      "min": 0,
+      "med": 11.2817,
+      "max": 1716.5565,
+      "p(90)": 56.76975,
+      "p(95)": 82.5838,
+      "avg": 35.14279592123763
+    },
+    "data_received": {
+      "count": 1088717816,
+      "rate": 17752970.458978
+    },
+    "data_sent": {
+      "count": 1326752,
+      "rate": 21634.429708267016
+    },
+    "api_read_success_rate": {
+      "passes": 128,
+      "fails": 0,
+      "value": 1
+    },
+    "citizen_intake_success_rate": {
+      "passes": 358,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.98": false
+      },
+      "value": 1
+    },
+    "http_reqs": {
+      "count": 4266,
+      "rate": 69.56271943473014
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 4266,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "iteration_duration": {
+      "avg": 1333.4299132600747,
+      "min": 504.1742,
+      "med": 1216.9268,
+      "max": 4133.4777,
+      "p(90)": 1657.28642,
+      "p(95)": 2087.35054
+    },
+    "http_req_blocked": {
+      "p(95)": 0,
+      "avg": 0.037475550867323015,
+      "min": 0,
+      "med": 0,
+      "max": 5.5245,
+      "p(90)": 0
+    },
+    "iterations": {
+      "count": 1365,
+      "rate": 22.25811346188623
+    },
+    "http_req_sending": {
+      "max": 4.5206,
+      "p(90)": 0,
+      "p(95)": 0,
+      "avg": 0.039191303328645066,
+      "min": 0,
+      "med": 0
+    },
+    "vus": {
+      "min": 10,
+      "max": 30,
+      "value": 10
+    },
+    "repair_workflow_success_rate": {
+      "passes": 89,
+      "fails": 0,
+      "value": 1
+    },
+    "http_req_connecting": {
+      "avg": 0.00779493670886076,
+      "min": 0,
+      "med": 0,
+      "max": 1.5112,
+      "p(90)": 0,
+      "p(95)": 0
+    }
+  },
+  "root_group": {
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {},
+    "checks": {
+      "GET /health returns 200 OK": {
+        "name": "GET /health returns 200 OK",
+        "path": "::GET /health returns 200 OK",
+        "id": "79113ce251f236e7d79cf6a00d909df5",
+        "passes": 128,
+        "fails": 0
+      },
+      "GET /health status is ok": {
+        "name": "GET /health status is ok",
+        "path": "::GET /health status is ok",
+        "id": "c7954a9881d520c07caffd75eef350ab",
+        "passes": 128,
+        "fails": 0
+      },
+      "GET /health contains no-store cache headers": {
+        "name": "GET /health contains no-store cache headers",
+        "path": "::GET /health contains no-store cache headers",
+        "id": "822240b6bf34d89727e50653e09a5d27",
+        "passes": 128,
+        "fails": 0
+      },
+      "GET /openapi.json returns 200 OK": {
+        "name": "GET /openapi.json returns 200 OK",
+        "path": "::GET /openapi.json returns 200 OK",
+        "id": "8e79a3bee643b0f6f6db8c44e7554a3e",
+        "passes": 128,
+        "fails": 0
+      },
+      "GET /openapi.json is valid OpenAPI 3.1": {
+        "fails": 0,
+        "name": "GET /openapi.json is valid OpenAPI 3.1",
+        "path": "::GET /openapi.json is valid OpenAPI 3.1",
+        "id": "584575887df3346e347ce344909fb944",
+        "passes": 128
+      },
+      "auth login succeeded (200)": {
+        "path": "::auth login succeeded (200)",
+        "id": "05f86981c712f8336c413ff77bbc36e2",
+        "passes": 30,
+        "fails": 0,
+        "name": "auth login succeeded (200)"
+      },
+      "auth returns session token": {
+        "name": "auth returns session token",
+        "path": "::auth returns session token",
+        "id": "18666ba65f9ab5b1563090fb247dd79f",
+        "passes": 30,
+        "fails": 0
+      },
+      "intake returns 201 Created": {
+        "name": "intake returns 201 Created",
+        "path": "::intake returns 201 Created",
+        "id": "f6284e1d306dcc058f31c84cd82002e0",
+        "passes": 358,
+        "fails": 0
+      },
+      "intake returns valid request ID": {
+        "name": "intake returns valid request ID",
+        "path": "::intake returns valid request ID",
+        "id": "1563ad4637ed8390f3c72f0e0daedac3",
+        "passes": 358,
+        "fails": 0
+      },
+      "GET /requests returns 200 OK": {
+        "fails": 0,
+        "name": "GET /requests returns 200 OK",
+        "path": "::GET /requests returns 200 OK",
+        "id": "2101222e79e33208281f81a06d61054d",
+        "passes": 790
+      },
+      "GET /requests returns array": {
+        "name": "GET /requests returns array",
+        "path": "::GET /requests returns array",
+        "id": "7f39562c44e71338d378293ab4796715",
+        "passes": 790,
+        "fails": 0
+      },
+      "idempotent replay returns 200 OK": {
+        "path": "::idempotent replay returns 200 OK",
+        "id": "4ce5e00d439ad006ae0af3f80683949c",
+        "passes": 358,
+        "fails": 0,
+        "name": "idempotent replay returns 200 OK"
+      },
+      "idempotent replay returns idempotent: true": {
+        "name": "idempotent replay returns idempotent: true",
+        "path": "::idempotent replay returns idempotent: true",
+        "id": "2177aca63a6de7be1ef6fbe1cdf24cb8",
+        "passes": 358,
+        "fails": 0
+      },
+      "GET /assignments returns 200 OK": {
+        "name": "GET /assignments returns 200 OK",
+        "path": "::GET /assignments returns 200 OK",
+        "id": "98c9b0675c8444503213aaffaff8228c",
+        "passes": 790,
+        "fails": 0
+      },
+      "GET /assignments returns data": {
+        "name": "GET /assignments returns data",
+        "path": "::GET /assignments returns data",
+        "id": "66769b4ce94de93fb2ca3b8e66a18fb1",
+        "passes": 790,
+        "fails": 0
+      },
+      "GET /operations/events returns 200 OK": {
+        "name": "GET /operations/events returns 200 OK",
+        "path": "::GET /operations/events returns 200 OK",
+        "id": "c34b047669841aea5ba01f334eea130a",
+        "passes": 790,
+        "fails": 0
+      },
+      "suspected duplicate returns 201 Created": {
+        "id": "1da4f35329c1d1274f8d8a9767a03325",
+        "passes": 358,
+        "fails": 0,
+        "name": "suspected duplicate returns 201 Created",
+        "path": "::suspected duplicate returns 201 Created"
+      },
+      "suspected duplicate is flagged without dropping": {
+        "passes": 358,
+        "fails": 0,
+        "name": "suspected duplicate is flagged without dropping",
+        "path": "::suspected duplicate is flagged without dropping",
+        "id": "276cab12d6cf52d45e18e2e0ade16037"
+      },
+      "GET /operations/events returns array": {
+        "name": "GET /operations/events returns array",
+        "path": "::GET /operations/events returns array",
+        "id": "51ff7df4691303bb6d3a49adbfbc8e50",
+        "passes": 790,
+        "fails": 0
+      },
+      "invalid request rejected with 400 Bad Request": {
+        "id": "ab1954d0bf73ab1e7ad5ef92dccb118e",
+        "passes": 358,
+        "fails": 0,
+        "name": "invalid request rejected with 400 Bad Request",
+        "path": "::invalid request rejected with 400 Bad Request"
+      },
+      "repair returns 200, 409, or 503 (handled)": {
+        "name": "repair returns 200, 409, or 503 (handled)",
+        "path": "::repair returns 200, 409, or 503 (handled)",
+        "id": "83fb7f5eb929e144f990c0a29188abca",
+        "passes": 89,
+        "fails": 0
+      },
+      "repair proposal is never automatically COMMITTED": {
+        "fails": 0,
+        "name": "repair proposal is never automatically COMMITTED",
+        "path": "::repair proposal is never automatically COMMITTED",
+        "id": "8b6132fc07573cf10ee2cfbe0048a134",
+        "passes": 89
+      },
+      "frozen stops invariant preserved": {
+        "path": "::frozen stops invariant preserved",
+        "id": "19da06080408dc8007a544a8d4348194",
+        "passes": 89,
+        "fails": 0,
+        "name": "frozen stops invariant preserved"
+      }
+    },
+    "name": ""
+  }
+}

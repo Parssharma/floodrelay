@@ -118,3 +118,9 @@ This file documents honest limitations of the system. Keep it updated as the pro
 
 - **Map Basemap Tile Provider Usage & Policy:**
   tile.openstreetmap.org is a free community service with a usage policy for light use; a real deployment needs its own tile provider or self-hosted tiles via NEXT_PUBLIC_MAP_TILE_URL.
+
+- **Phase 6 Operational Limitations, Decision-Support Perimeter & Emergency Guidance:**
+  - **Public Limitations Disclosure:** The web platform publishes an accessible, unauthenticated disclosure page at `/limitations` detailing all 8 core technical boundaries: decision-support scope, GPS variance, OSRM road graph vs flooded impassability, synthetic data labeling, shift limit exhaustion, human-only commitment, technical availability, and emergency safety directives.
+  - **Decision-Support Perimeter:** FloodRelay operates solely as a resource allocation decision-support platform. The optimization engine generates advisory `PROPOSED` assignments; it possesses zero autonomous commitment authority.
+  - **Commitment != Dispatch:** Administrative commitment (`POST /assignments/:id/commit`) updates database status to `COMMITTED`, freezes stops, and assigns requests. It records an authorized planning decision and does not trigger physical vehicle ignition, physical vessel departure, or automated radio dispatch.
+  - **Immediate Emergency Safety Guidance:** Persons in immediate, life-threatening danger must contact official local emergency services directly (e.g., 911 in North America, 112 in Europe/India). FloodRelay does not replace or supersede national emergency telephone dispatch.
