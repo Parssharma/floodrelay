@@ -29,6 +29,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/floodrelay_test
       REQUIRE_DB: '1'
+      ALLOW_DISPOSABLE_REPAIR_TEST_DB: '1'
 
     steps:
       - name: Checkout
