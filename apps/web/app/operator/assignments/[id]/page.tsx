@@ -168,7 +168,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
     : null;
 
   return (
-    <div className="max-w-[1440px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Top Banner Notice */}
       <div className="bg-slate-900 text-white rounded-xl p-3.5 sm:p-4 border border-slate-800 flex items-start gap-3 shadow-sm">
         <span className="material-symbols-outlined text-teal-400 text-xl shrink-0 mt-0.5">

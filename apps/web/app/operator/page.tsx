@@ -188,8 +188,8 @@ export default function OperatorOverviewPage() {
   const latestAssignment = assignments[0] || null;
 
   return (
-    <main
-      className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto"
+    <div
+      className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6"
       data-testid="operator-dashboard"
     >
       {/* Top Banner Notice: Live Polling Status Strip */}
@@ -686,6 +686,6 @@ export default function OperatorOverviewPage() {
         onClose={() => setIsRoadBlockageOpen(false)}
         onZoneCreated={() => void refresh()}
       />
-    </main>
+    </div>
   );
 }
