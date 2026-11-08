@@ -1,13 +1,21 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import type { AssignmentRecord, ProposeAssignmentInput } from '@/lib/api/types';
+import type { UrgencyLevel } from '@floodrelay/shared';
 
-export default function OperatorAssignmentsPage() {
+function OperatorAssignmentsContent() {
+  const searchParams = useSearchParams();
+  const requestId = searchParams.get('requestId');
+  const requestUrgency = searchParams.get('urgency');
+  const requestPeopleCount = searchParams.get('peopleCount');
+
   const [plans, setPlans] = useState<AssignmentRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +35,7 @@ export default function OperatorAssignmentsPage() {
   const [isSubmittingProposal, setIsSubmittingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const [newlyCreatedPlanId, setNewlyCreatedPlanId] = useState<string | null>(null);
+  const [lastGeneratedPlan, setLastGeneratedPlan] = useState<AssignmentRecord | null>(null);
 
   const fetchAssignments = useCallback(async () => {
     try {
@@ -67,6 +76,7 @@ export default function OperatorAssignmentsPage() {
 
       const result = await apiClient.proposeAssignment(input);
       setNewlyCreatedPlanId(result.id);
+      setLastGeneratedPlan(result);
       await fetchAssignments();
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -78,6 +88,47 @@ export default function OperatorAssignmentsPage() {
       setIsSubmittingProposal(false);
     }
   };
+
+  // Inspect whether the selected/focused request was served in the newly generated proposal
+  const requestInclusionResult = useMemo(() => {
+    if (!requestId || !lastGeneratedPlan) return null;
+
+    for (const route of lastGeneratedPlan.routes || []) {
+      if (route.servedRequestIds?.includes(requestId)) {
+        return {
+          status: 'SERVED' as const,
+          resourceId: route.resourceId,
+          message: `Request #${requestId} was included in proposed routes for Craft "${route.resourceId}".`,
+        };
+      }
+      const stop = route.stops?.find((s) => s.targetId === requestId && s.type === 'PICKUP');
+      if (stop) {
+        return {
+          status: 'SERVED' as const,
+          resourceId: route.resourceId,
+          message: `Request #${requestId} was included in proposed routes for Craft "${route.resourceId}" (Stop #${stop.stopNumber}).`,
+        };
+      }
+    }
+
+    const isUnserved = lastGeneratedPlan.unserved?.some(
+      (u) =>
+        (typeof u === 'string' && u === requestId) ||
+        (typeof u === 'object' && u !== null && 'requestId' in u && u.requestId === requestId),
+    );
+
+    if (isUnserved) {
+      return {
+        status: 'UNSERVED' as const,
+        message: `Request #${requestId} could not be served under the current scenario constraints (craft capacity or shift limits).`,
+      };
+    }
+
+    return {
+      status: 'NOT_IN_SCENARIO' as const,
+      message: `Request #${requestId} was not included in active scenario "${lastGeneratedPlan.scenarioId || scenarioId}".`,
+    };
+  }, [requestId, lastGeneratedPlan, scenarioId]);
 
   const filteredPlans = plans.filter((plan) => {
     if (filterTab !== 'ALL' && plan.status !== filterTab) {
@@ -102,9 +153,9 @@ export default function OperatorAssignmentsPage() {
   );
 
   return (
-    <div className="max-w-[1440px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Top Banner Notice */}
-      <div className="bg-slate-900 text-white rounded-xl p-3.5 sm:p-4 border border-slate-800 flex items-start gap-3 shadow-sm">
+      <div className="bg-slate-900 text-white rounded-xl p-3.5 sm:p-4 border border-slate-800 flex items-start gap-3 shadow-xs">
         <span className="material-symbols-outlined text-teal-400 text-xl shrink-0 mt-0.5">
           verified_user
         </span>
@@ -117,6 +168,66 @@ export default function OperatorAssignmentsPage() {
           </p>
         </div>
       </div>
+
+      {/* Focused Request Context Banner (When navigated from Requests) */}
+      {requestId && (
+        <div className="bg-white border-2 border-[#0066CC] rounded-xl p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#0066CC] animate-pulse" />
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0066CC]">
+                Focused Request Planning Context
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold bg-slate-100 px-2.5 py-1 rounded text-slate-800">
+                #{requestId}
+              </span>
+              {requestUrgency && <UrgencyBadge urgency={requestUrgency as UrgencyLevel} />}
+              {requestPeopleCount && (
+                <span className="text-xs font-bold font-mono text-slate-700 bg-slate-100 px-2.5 py-1 rounded">
+                  {requestPeopleCount} {Number(requestPeopleCount) === 1 ? 'Person' : 'People'}
+                </span>
+              )}
+              <Link
+                href="/operator/assignments"
+                className="text-xs text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100 transition-colors ml-2"
+                title="Clear focused request context"
+              >
+                <span className="material-symbols-outlined text-base">close</span>
+              </Link>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+            <p>
+              <strong>Scenario-Wide VRP Optimization:</strong> The FloodRelay deterministic solver
+              evaluates all eligible pending requests across the operational scenario. Generating a
+              proposal optimizes fleet tours across the entire basin; it does not assign only this
+              single request in isolation.
+            </p>
+          </div>
+
+          <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[11px] text-slate-500 font-mono">
+              Active Scenario: <strong>{scenarioId}</strong> • Shift Limit:{' '}
+              <strong>{maxShiftMinutes}m</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setNewlyCreatedPlanId(null);
+                setProposalError(null);
+                setShowGenerateModal(true);
+              }}
+              className="h-8 px-4 rounded bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+            >
+              <span className="material-symbols-outlined text-base">psychology</span>
+              <span>Configure &amp; Generate Solver Proposal</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header and Actions */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 border-b border-slate-200">
@@ -151,7 +262,7 @@ export default function OperatorAssignmentsPage() {
               setProposalError(null);
               setShowGenerateModal(true);
             }}
-            className="h-9 px-4 rounded bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+            className="h-9 px-4 rounded bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
           >
             <span className="material-symbols-outlined text-base">add_circle</span>
             <span>[+] Generate New VRP Solver Proposal</span>
@@ -162,7 +273,7 @@ export default function OperatorAssignmentsPage() {
       {/* Metric Summary Cards */}
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Metric 1: Active Committed Plans */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between border-l-4 border-l-teal-600">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between border-l-4 border-l-teal-600">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-xs uppercase font-mono tracking-wider font-semibold">
               Active Committed Plans
@@ -187,7 +298,7 @@ export default function OperatorAssignmentsPage() {
         </div>
 
         {/* Metric 2: Pending Solver Proposals */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between border-l-4 border-l-amber-500">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-xs uppercase font-mono tracking-wider font-semibold">
               Pending Solver Proposals
@@ -212,7 +323,7 @@ export default function OperatorAssignmentsPage() {
         </div>
 
         {/* Metric 3: Total Unserved Backlog */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between border-l-4 border-l-red-600">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between border-l-4 border-l-red-600">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-xs uppercase font-mono tracking-wider font-semibold">
               Unserved Demand Across Plans
@@ -237,7 +348,7 @@ export default function OperatorAssignmentsPage() {
         </div>
 
         {/* Metric 4: Total Requests Allocated */}
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between border-l-4 border-l-slate-600">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between border-l-4 border-l-slate-600">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-xs uppercase font-mono tracking-wider font-semibold">
               Requests Allocated
@@ -250,27 +361,28 @@ export default function OperatorAssignmentsPage() {
               <span className="text-sm text-slate-500 font-normal">Served Targets</span>
             </div>
             <p className="text-xs text-slate-600 mt-1">
-              Assigned across {plans.length} operational plans
+              Planned pickups matched to available relief fleet
             </p>
           </div>
           <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-700 font-semibold">Fleet Utilization</span>
-            <span className="text-slate-500 font-mono">{plans.length} Plans Recorded</span>
+            <span className="text-slate-700 font-semibold">Active Invariant</span>
+            <span className="text-slate-400">Strict Capacity Safe</span>
           </div>
         </div>
       </section>
 
-      {/* Tabs & Search Controls */}
-      <section className="space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200 pb-1">
-          <div className="flex items-center gap-1">
+      {/* Main Table Workspace */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+        {/* Table Filters Strip */}
+        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+          <div className="flex items-center gap-1 border border-slate-300 p-0.5 rounded-lg bg-white">
             <button
               type="button"
               onClick={() => setFilterTab('ALL')}
-              className={`px-3 py-2 text-xs font-semibold rounded-t transition-colors border-b-2 ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
                 filterTab === 'ALL'
-                  ? 'border-teal-700 text-teal-800 bg-white shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               All Plans ({plans.length})
@@ -278,275 +390,189 @@ export default function OperatorAssignmentsPage() {
             <button
               type="button"
               onClick={() => setFilterTab('PROPOSED')}
-              className={`px-3 py-2 text-xs font-semibold rounded-t transition-colors border-b-2 flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                 filterTab === 'PROPOSED'
-                  ? 'border-amber-600 text-amber-900 bg-white shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
+                  ? 'bg-amber-600 text-white'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span>Pending Review &amp; Commit</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+              <span>Proposed</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 text-amber-900 font-bold">
                 {proposedCount}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setFilterTab('COMMITTED')}
-              className={`px-3 py-2 text-xs font-semibold rounded-t transition-colors border-b-2 flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5 ${
                 filterTab === 'COMMITTED'
-                  ? 'border-teal-700 text-teal-800 bg-white shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
+                  ? 'bg-teal-700 text-white'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <span>Committed Plans</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+              <span>Committed</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-teal-100 text-teal-900 font-bold">
                 {committedCount}
               </span>
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="w-full sm:w-72">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-base">
+              <span className="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-lg">
                 search
               </span>
               <input
                 type="text"
+                placeholder="Search plan ID, scenario, notes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search plan ID or scenario..."
-                className="h-8 pl-8 pr-3 rounded border border-slate-300 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-700 focus:border-teal-700 w-48 sm:w-64"
+                className="w-full h-8.5 pl-9 pr-3 rounded-lg border border-slate-300 bg-white text-xs placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-slate-900 focus:border-slate-900"
               />
             </div>
           </div>
         </div>
 
-        {/* Loading / Error / Empty States */}
-        {isLoading && (
-          <div className="bg-white rounded-xl p-12 text-center border border-slate-200 space-y-3">
-            <div className="w-8 h-8 border-3 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto" />
-            <div className="text-sm font-semibold text-slate-800 font-mono">
-              Loading assignment plans from database...
+        {/* Error Banner */}
+        {error && (
+          <div className="p-4 bg-red-50 border-b border-red-200 text-red-700 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-base">error</span>
+              <span>{error}</span>
             </div>
-          </div>
-        )}
-
-        {error && !isLoading && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center space-y-3">
-            <div className="text-red-700 font-bold text-sm">Failed to Load Assignment Plans</div>
-            <p className="text-xs text-red-600">{error}</p>
             <button
               type="button"
               onClick={fetchAssignments}
-              className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white text-xs font-semibold rounded-lg transition-colors"
+              className="font-bold underline hover:no-underline"
             >
               Retry
             </button>
           </div>
         )}
 
-        {!isLoading && !error && filteredPlans.length === 0 && (
-          <div className="bg-white rounded-xl p-12 text-center border border-slate-200 space-y-4 shadow-sm">
-            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
-              <span className="material-symbols-outlined text-2xl">route</span>
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">No Assignment Plans Found</h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                {plans.length === 0
-                  ? 'There are currently no solver proposals or committed plans stored in the database. Generate a proposal using the solver to allocate resources to pending rescue requests.'
-                  : 'No plans match the selected filter or search query.'}
-              </p>
-            </div>
-            {plans.length === 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setNewlyCreatedPlanId(null);
-                  setProposalError(null);
-                  setShowGenerateModal(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg shadow-sm transition-colors"
-              >
-                <span className="material-symbols-outlined text-base">add_circle</span>
-                <span>Generate First Solver Proposal</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Proposals & Committed Cards List */}
-        {!isLoading && !error && filteredPlans.length > 0 && (
-          <div className="space-y-4">
-            {filteredPlans.map((plan) => {
-              const isProposed = plan.status === 'PROPOSED';
-              const createdDate = new Date(plan.created_at ?? plan.createdAt);
-              const formattedDate = !isNaN(createdDate.getTime())
-                ? createdDate.toLocaleString([], {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : 'Just now';
-
-              const scenarioDisplay =
-                plan.scenario_id ?? plan.scenarioId ?? 'scenario-delhi-yamuna-demo';
-              const servedCount = plan.metrics?.servedRequestsCount ?? 0;
-              const coveragePct = Math.round(plan.metrics?.coveragePercent ?? 0);
-              const unservedCount = plan.unserved?.length ?? 0;
-              const travelTime = Math.round(plan.metrics?.totalTravelTimeMinutes ?? 0);
-              const waitTime = Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0);
-
-              return (
-                <div
-                  key={plan.id}
-                  className={`bg-white rounded-xl shadow-sm overflow-hidden transition-all border-2 ${
-                    isProposed
-                      ? 'border-amber-400 hover:border-amber-500'
-                      : 'border-teal-500 hover:border-teal-600'
-                  }`}
-                >
-                  {/* Header Strip */}
-                  <div
-                    className={`px-4 sm:px-6 py-2.5 border-b flex flex-wrap items-center justify-between gap-2 ${
-                      isProposed
-                        ? 'bg-amber-50/80 border-amber-200'
-                        : 'bg-teal-50/70 border-teal-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <StatusBadge status={plan.status} />
-                      <div className="h-4 w-px bg-slate-300" />
-                      <h2 className="text-base font-bold text-slate-900 font-mono">{plan.id}</h2>
-                      <span className="text-xs text-slate-600 hidden sm:inline">
-                        Scenario: <strong className="font-mono">{scenarioDisplay}</strong>
-                      </span>
+        {/* Table Content */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-mono text-slate-500 uppercase tracking-wider">
+                <th className="py-3 px-4 font-semibold">Plan Identifier</th>
+                <th className="py-3 px-4 font-semibold">Scenario</th>
+                <th className="py-3 px-4 font-semibold">Status</th>
+                <th className="py-3 px-4 font-semibold">Assigned Fleet</th>
+                <th className="py-3 px-4 font-semibold">Served Requests</th>
+                <th className="py-3 px-4 font-semibold">Unserved</th>
+                <th className="py-3 px-4 font-semibold">Travel Time / Distance</th>
+                <th className="py-3 px-4 font-semibold">Created / Updated</th>
+                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {isLoading && plans.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading assignment plans from database...</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-mono">
-                      <span className="text-slate-500">{formattedDate}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded ${
-                          isProposed
-                            ? 'bg-amber-200/60 text-amber-900'
-                            : 'bg-teal-100 text-teal-900'
-                        }`}
-                      >
-                        {isProposed ? 'Awaiting Human Commit' : 'Operator Committed'}
-                      </span>
-                    </div>
-                  </div>
+                  </td>
+                </tr>
+              ) : filteredPlans.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                    <span className="material-symbols-outlined text-4xl text-slate-300 block mb-1">
+                      inbox
+                    </span>
+                    <p className="font-semibold text-slate-700">No assignment plans found</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {searchQuery || filterTab !== 'ALL'
+                        ? 'Try clearing the search or filter tab.'
+                        : 'Generate a new solver proposal to begin fleet assignment.'}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredPlans.map((plan) => {
+                  const routesCount = plan.routes?.length ?? 0;
+                  const servedCount = plan.metrics?.servedRequestsCount ?? 0;
+                  const unservedCount = plan.unserved?.length ?? 0;
+                  const travelTimeMin = plan.metrics?.totalTravelTimeMinutes
+                    ? `${plan.metrics.totalTravelTimeMinutes.toFixed(1)}m`
+                    : '—';
+                  const travelDistKm = plan.metrics?.totalTravelDistanceKm
+                    ? `${plan.metrics.totalTravelDistanceKm.toFixed(1)}km`
+                    : '—';
+                  const scenario = plan.scenario_id ?? plan.scenarioId ?? '—';
 
-                  {/* Card Body Grid */}
-                  <div className="p-4 sm:p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 items-center">
-                      {/* Scenario / Entity Details */}
-                      <div className="lg:col-span-3 space-y-1">
-                        <div className="text-xs uppercase font-mono tracking-wider text-slate-500 flex items-center gap-1 font-semibold">
-                          <span className="material-symbols-outlined text-teal-700 text-sm">
-                            hub
-                          </span>
-                          Plan Parameters
-                        </div>
-                        <div className="text-xs text-slate-800 font-mono">
-                          ID: <span className="font-bold">{plan.id}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono truncate">
-                          {scenarioDisplay}
-                        </div>
-                        {plan.committed_by && (
-                          <div className="text-[11px] text-emerald-700 font-mono">
-                            Committed by: {plan.committed_by}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Served Targets */}
-                      <div className="lg:col-span-3 space-y-1">
-                        <div className="text-xs uppercase font-mono tracking-wider text-slate-500 flex items-center gap-1 font-semibold">
-                          <span className="material-symbols-outlined text-emerald-600 text-sm">
-                            group
-                          </span>
-                          Served Demand
-                        </div>
-                        <div className="text-sm font-semibold text-slate-900 pt-0.5">
-                          {servedCount} Requests{' '}
-                          <span className="text-teal-700 font-bold">Allocated</span>
-                        </div>
-                        <p className="text-xs text-slate-500">
-                          {coveragePct}% of eligible demand covered
-                        </p>
-                      </div>
-
-                      {/* Unserved Backlog / Feasibility */}
-                      <div className="lg:col-span-3 space-y-1">
-                        <div className="text-xs uppercase font-mono tracking-wider text-slate-500 flex items-center gap-1 font-semibold">
-                          <span
-                            className={`material-symbols-outlined text-sm ${
-                              unservedCount > 0 ? 'text-amber-600' : 'text-emerald-600'
-                            }`}
-                          >
-                            {unservedCount > 0 ? 'warning' : 'check_circle'}
-                          </span>
-                          Feasibility Assessment
-                        </div>
-                        {unservedCount > 0 ? (
-                          <div className="text-xs text-amber-900 bg-amber-50 px-2 py-1 rounded border border-amber-200 font-medium">
-                            {unservedCount} Request(s) unserved:{' '}
-                            <span className="font-mono">
-                              {plan.unserved?.[0]?.reason || 'Capacity constraint'}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-emerald-900 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 font-medium">
-                            100% Demand Covered. Zero unserved targets.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Metrics and Action Link */}
-                      <div className="lg:col-span-3 flex flex-col items-start lg:items-end justify-between space-y-2">
-                        <div className="text-right">
-                          <div className="text-xs font-mono text-slate-600">
-                            Est. Travel:{' '}
-                            <span className="font-bold text-slate-900">~{travelTime}m</span> | High
-                            Pri Wait: <span className="font-bold text-slate-900">{waitTime}m</span>
-                          </div>
-                          <div className="text-[11px] text-teal-700 font-mono mt-0.5">
-                            Status: {plan.status}
-                          </div>
-                        </div>
-
+                  return (
+                    <tr
+                      key={plan.id}
+                      className="hover:bg-slate-50/80 transition-colors group font-sans"
+                    >
+                      <td className="py-3 px-4">
                         <Link
                           href={`/operator/assignments/${plan.id}`}
-                          className={`h-8 px-4 rounded text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs ${
-                            isProposed
-                              ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                              : 'bg-teal-700 hover:bg-teal-800 text-white'
-                          }`}
+                          className="font-mono font-bold text-teal-800 hover:text-teal-950 flex items-center gap-1.5"
                         >
-                          <span>
-                            {isProposed ? 'Review & Commit Proposal' : 'View Committed Details'}
+                          <span className="material-symbols-outlined text-sm text-teal-600">
+                            assignment
                           </span>
-                          <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                          <span>{plan.id}</span>
                         </Link>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-600">{scenario}</td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={plan.status} />
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">
+                        {routesCount} {routesCount === 1 ? 'Craft' : 'Crafts'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="font-bold text-emerald-700">{servedCount}</span>
+                        <span className="text-slate-400 text-[11px] ml-1">Served</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {unservedCount > 0 ? (
+                          <span className="font-bold text-red-600 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-600" />
+                            {unservedCount} Unserved
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-[11px]">0</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px]">
+                        <span className="text-slate-900 font-semibold">{travelTimeMin}</span>
+                        <span className="text-slate-400 mx-1">/</span>
+                        <span className="text-slate-600">{travelDistKm}</span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
+                        {plan.createdAt ? new Date(plan.createdAt).toLocaleString() : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <Link
+                          href={`/operator/assignments/${plan.id}`}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors"
+                        >
+                          <span>Review</span>
+                          <span className="material-symbols-outlined text-xs">arrow_forward</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-      {/* Modal for Generate Proposal Form */}
+      {/* Solver Proposal Generation Modal */}
       {showGenerateModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2.5 text-teal-700">
-                <span className="material-symbols-outlined text-2xl">psychology</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-teal-700 text-2xl">psychology</span>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">Generate VRP Solver Proposal</h3>
                   <p className="text-xs text-slate-500 font-mono">
@@ -579,6 +605,49 @@ export default function OperatorAssignmentsPage() {
                   </p>
                 </div>
 
+                {/* Selected Request Inclusion Feedback */}
+                {requestId && requestInclusionResult && (
+                  <div className="space-y-2">
+                    {requestInclusionResult.status === 'SERVED' ? (
+                      <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 p-3.5 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                          <span className="material-symbols-outlined text-base text-emerald-700">
+                            check_circle
+                          </span>
+                          <span>Focused Request #{requestId} Included in Proposed Routes</span>
+                        </div>
+                        <p className="text-emerald-900 leading-relaxed">
+                          {requestInclusionResult.message}
+                        </p>
+                      </div>
+                    ) : requestInclusionResult.status === 'UNSERVED' ? (
+                      <div className="bg-amber-50 border border-amber-300 text-amber-950 p-3.5 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                          <span className="material-symbols-outlined text-base text-amber-700">
+                            warning
+                          </span>
+                          <span>Focused Request #{requestId} Remained Unserved</span>
+                        </div>
+                        <p className="text-amber-900 leading-relaxed">
+                          {requestInclusionResult.message}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-50 border border-slate-200 text-slate-800 p-3.5 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                          <span className="material-symbols-outlined text-base text-slate-600">
+                            info
+                          </span>
+                          <span>Focused Request #{requestId} Evaluation</span>
+                        </div>
+                        <p className="text-slate-600 leading-relaxed">
+                          {requestInclusionResult.message}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
@@ -592,7 +661,7 @@ export default function OperatorAssignmentsPage() {
                   </button>
                   <Link
                     href={`/operator/assignments/${newlyCreatedPlanId}`}
-                    className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                    className="px-4 py-2 bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
                   >
                     <span>Open Review &amp; Commit Screen</span>
                     <span className="material-symbols-outlined text-sm">arrow_forward</span>
@@ -603,7 +672,7 @@ export default function OperatorAssignmentsPage() {
               <form onSubmit={handleGenerateProposal} className="space-y-4">
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 space-y-1">
                   <div className="font-bold text-slate-800 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-teal-700 text-sm">info</span>
+                    <span className="material-symbols-outlined text-[#0066CC] text-sm">info</span>
                     <span>Decision-Support Optimization Engine</span>
                   </div>
                   <p className="leading-relaxed">
@@ -645,7 +714,7 @@ export default function OperatorAssignmentsPage() {
                         e.target.value as 'cluster-allocation' | 'nearest-first' | 'savings',
                       )
                     }
-                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs text-slate-800 focus:ring-1 focus:ring-teal-700 focus:border-teal-700"
+                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs text-slate-800 focus:ring-1 focus:ring-[#0066CC] focus:border-[#0066CC]"
                   >
                     <option value="cluster-allocation">
                       Cluster Allocation (DBSCAN + VRP) — Recommended
@@ -673,7 +742,7 @@ export default function OperatorAssignmentsPage() {
                     value={scenarioId}
                     onChange={(e) => setScenarioId(e.target.value)}
                     placeholder="scenario-delhi-yamuna-demo"
-                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-teal-700 focus:border-teal-700"
+                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-[#0066CC] focus:border-[#0066CC]"
                   />
                 </div>
 
@@ -692,7 +761,7 @@ export default function OperatorAssignmentsPage() {
                     max="1440"
                     value={maxShiftMinutes}
                     onChange={(e) => setMaxShiftMinutes(Number(e.target.value))}
-                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-teal-700 focus:border-teal-700"
+                    className="w-full h-9 rounded border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:ring-1 focus:ring-[#0066CC] focus:border-[#0066CC]"
                   />
                 </div>
 
@@ -703,7 +772,7 @@ export default function OperatorAssignmentsPage() {
                       type="checkbox"
                       checked={preserveFrozen}
                       onChange={(e) => setPreserveFrozen(e.target.checked)}
-                      className="rounded text-teal-700 focus:ring-teal-700 border-slate-300 cursor-pointer"
+                      className="rounded text-[#0066CC] focus:ring-[#0066CC] border-slate-300 cursor-pointer"
                     />
                     <span className="text-slate-700">
                       Preserve existing frozen stops from previous committed plan
@@ -714,7 +783,7 @@ export default function OperatorAssignmentsPage() {
                       type="checkbox"
                       checked={includeUnverified}
                       onChange={(e) => setIncludeUnverified(e.target.checked)}
-                      className="rounded text-teal-700 focus:ring-teal-700 border-slate-300 cursor-pointer"
+                      className="rounded text-[#0066CC] focus:ring-[#0066CC] border-slate-300 cursor-pointer"
                     />
                     <span className="text-slate-700">
                       Include unverified requests in proposal optimization
@@ -734,10 +803,10 @@ export default function OperatorAssignmentsPage() {
                   <button
                     type="submit"
                     disabled={isSubmittingProposal}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs ${
                       isSubmittingProposal
-                        ? 'bg-teal-400 text-white cursor-not-allowed'
-                        : 'bg-teal-700 hover:bg-teal-800 text-white'
+                        ? 'bg-blue-400 text-white cursor-not-allowed'
+                        : 'bg-[#0066CC] hover:bg-[#0055b3] text-white'
                     }`}
                   >
                     {isSubmittingProposal ? (
@@ -759,5 +828,19 @@ export default function OperatorAssignmentsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function OperatorAssignmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-center text-xs font-mono text-slate-500">
+          Loading assignments workspace...
+        </div>
+      }
+    >
+      <OperatorAssignmentsContent />
+    </Suspense>
   );
 }

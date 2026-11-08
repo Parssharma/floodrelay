@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import LeafletMapWrapper from '@/components/operator/map/LeafletMapWrapper';
 import type { SelectedMapEntity, MapLayers } from '@/components/operator/map/LeafletMapCanvas';
@@ -81,14 +82,25 @@ function OperatorMapContent() {
   const [urgencyFilter, setUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   const [tileTheme, setTileTheme] = useState<'dark' | 'standard'>('dark');
   const [selectedEntity, setSelectedEntity] = useState<SelectedMapEntity>(null);
+  const searchParams = useSearchParams();
+  const requestedId = searchParams.get('requestId');
 
-  // Set initial selected entity when requests first arrive
+  // Set initial selected entity when requests first arrive or focus requested incident
   useEffect(() => {
-    if (requests.length > 0 && !selectedEntity) {
-      const firstCritical = requests.find((r) => r.urgency === 'CRITICAL') || requests[0];
-      setSelectedEntity({ type: 'incident', item: firstCritical });
+    if (requests.length > 0) {
+      if (requestedId) {
+        const target = requests.find((r) => r.id === requestedId);
+        if (target) {
+          setSelectedEntity({ type: 'incident', item: target });
+          return;
+        }
+      }
+      if (!selectedEntity) {
+        const firstCritical = requests.find((r) => r.urgency === 'CRITICAL') || requests[0];
+        setSelectedEntity({ type: 'incident', item: firstCritical });
+      }
     }
-  }, [requests, selectedEntity]);
+  }, [requests, requestedId, selectedEntity]);
 
   // Map control trigger for programmatic movement
   const [actionTrigger, setActionTrigger] = useState<{
