@@ -1,19 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { OperatorAuthProvider, useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
-import { OperatorSidebar } from '@/components/operator/OperatorSidebar';
-import { OperatorHeader } from '@/components/operator/OperatorHeader';
-import { OperatorMobileNav } from '@/components/operator/OperatorMobileNav';
+import { OperatorTopNav } from '@/components/operator/OperatorTopNav';
 
 function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, isLoading } = useOperatorAuth();
 
-  // The login route renders standalone without sidebar/header
+  // The login route renders standalone without top nav
   if (pathname === '/operator/login') {
     return <>{children}</>;
   }
@@ -21,12 +18,12 @@ function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
   // Session verification loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0d1c2f] flex flex-col items-center justify-center p-4 text-white font-inter">
-        <div className="w-10 h-10 border-4 border-primary-fixed/30 border-t-primary-fixed rounded-full animate-spin mb-4" />
-        <div className="text-sm font-bold font-mono tracking-wider text-primary-fixed">
+      <div className="min-h-screen bg-[#0A2540] flex flex-col items-center justify-center p-4 text-white font-inter">
+        <div className="w-10 h-10 border-4 border-[#0066CC]/30 border-t-[#0066CC] rounded-full animate-spin mb-4" />
+        <div className="text-sm font-bold font-mono tracking-wider text-slate-200">
           VERIFYING COMMAND SESSION...
         </div>
-        <div className="text-xs text-white/50 mt-1 font-mono">
+        <div className="text-xs text-slate-400 mt-1 font-mono">
           Checking cryptographic authorization
         </div>
       </div>
@@ -39,11 +36,11 @@ function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
       router.replace(`/operator/login?from=${encodeURIComponent(pathname)}`);
     }
     return (
-      <div className="min-h-screen bg-[#0d1c2f] flex flex-col items-center justify-center p-4 text-white font-inter">
-        <div className="text-sm font-bold font-mono text-tertiary-fixed tracking-wider">
+      <div className="min-h-screen bg-[#0A2540] flex flex-col items-center justify-center p-4 text-white font-inter">
+        <div className="text-sm font-bold font-mono text-amber-400 tracking-wider">
           AUTHENTICATION REQUIRED
         </div>
-        <div className="text-xs text-white/60 mt-1 font-mono">
+        <div className="text-xs text-slate-400 mt-1 font-mono">
           Redirecting to secure operator login...
         </div>
       </div>
@@ -51,13 +48,10 @@ function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-surface text-on-surface font-inter antialiased flex flex-col">
-      <OperatorSidebar />
-      <OperatorMobileNav isOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <OperatorHeader onToggleMobileNav={() => setMobileNavOpen((prev) => !prev)} />
-
-      {/* Main Workspace Canvas with sidebar offset */}
-      <div className="flex-1 ml-0 lg:ml-64 pt-14 flex flex-col min-h-screen">{children}</div>
+    <div className="min-h-screen bg-[#F5F7FA] text-[#334155] font-inter antialiased flex flex-col w-full overflow-x-hidden">
+      <OperatorTopNav />
+      {/* Full-width Workspace Canvas without sidebar offset */}
+      <main className="flex-1 flex flex-col min-h-[calc(100vh-3.5rem)] w-full">{children}</main>
     </div>
   );
 }
