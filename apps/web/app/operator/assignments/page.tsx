@@ -15,7 +15,7 @@ function OperatorAssignmentsContent() {
   const requestId = searchParams.get('requestId');
 
   const [verifiedRequest, setVerifiedRequest] = useState<RescueRequest | null>(null);
-  const [isVerifyingRequest, setIsVerifyingRequest] = useState<boolean>(false);
+  const [isVerifyingRequest, setIsVerifyingRequest] = useState<boolean>(Boolean(requestId));
   const [requestVerificationError, setRequestVerificationError] = useState<string | null>(null);
 
   const [plans, setPlans] = useState<AssignmentRecord[]>([]);
@@ -78,7 +78,9 @@ function OperatorAssignmentsContent() {
         isEligible: false,
         reason: 'UNVERIFIED',
         badgeText: 'UNVERIFIED',
-        description: 'Waiting for database verification...',
+        description: isVerifyingRequest
+          ? 'Verifying request status with operational database...'
+          : 'Waiting for database verification...',
       };
     }
 
@@ -144,7 +146,45 @@ function OperatorAssignmentsContent() {
       badgeText: `INELIGIBLE: ${verifiedRequest.status}`,
       description: `Current status is ${verifiedRequest.status}.`,
     };
-  }, [verifiedRequest]);
+  }, [verifiedRequest, isVerifyingRequest]);
+
+  // When requestId is present, proposal generation strictly requires successful verification and isEligible === true.
+  // When no requestId is present, normal scenario-wide planning is preserved without request verification.
+  const isPlanningAllowed = useMemo(() => {
+    if (!requestId) return true;
+    if (isVerifyingRequest || requestVerificationError || !verifiedRequest) return false;
+    return eligibility.isEligible;
+  }, [
+    requestId,
+    isVerifyingRequest,
+    requestVerificationError,
+    verifiedRequest,
+    eligibility.isEligible,
+  ]);
+
+  const planningDisabledReason = useMemo(() => {
+    if (!requestId || isPlanningAllowed) return null;
+    if (isVerifyingRequest) {
+      return `Verifying focused request #${requestId} against operational database...`;
+    }
+    if (requestVerificationError) {
+      return requestVerificationError;
+    }
+    if (!verifiedRequest) {
+      return `Focused request #${requestId} could not be verified in the operational database.`;
+    }
+    if (!eligibility.isEligible) {
+      return `Focused request #${requestId} is not eligible for new planning (${eligibility.reason}): ${eligibility.description}`;
+    }
+    return 'Proposal generation is disabled for this focused request context.';
+  }, [
+    requestId,
+    isPlanningAllowed,
+    isVerifyingRequest,
+    requestVerificationError,
+    verifiedRequest,
+    eligibility,
+  ]);
 
   // Proposal modal form state
   const [algorithm, setAlgorithm] = useState<'cluster-allocation' | 'nearest-first' | 'savings'>(
@@ -184,9 +224,58 @@ function OperatorAssignmentsContent() {
     e.preventDefault();
     if (isSubmittingProposal) return;
 
+    // Guard 1: Must be allowed by current client context
+    if (!isPlanningAllowed) {
+      setProposalError(
+        planningDisabledReason ||
+          'Cannot generate solver proposal: focused request context is ineligible or unverified.',
+      );
+      return;
+    }
+
     try {
       setIsSubmittingProposal(true);
       setProposalError(null);
+
+      // Guard 2: Recheck focused request latest database status immediately before submission
+      if (requestId) {
+        let freshRequest: RescueRequest;
+        try {
+          freshRequest = await apiClient.getRequest(requestId);
+        } catch (freshErr) {
+          const is404 =
+            (freshErr instanceof ApiClientError &&
+              (freshErr.statusCode === 404 || freshErr.isNotFound)) ||
+            (freshErr as { statusCode?: number }).statusCode === 404;
+          const errMsg = is404
+            ? `Focused request #${requestId} was not found in database (it may have been deleted or cancelled).`
+            : (freshErr as Error).message ||
+              `Failed to re-verify request #${requestId} before solver run.`;
+          setVerifiedRequest(null);
+          setRequestVerificationError(errMsg);
+          setProposalError(`Pre-dispatch verification check failed: ${errMsg}`);
+          return;
+        }
+
+        // Keep local state synchronized with database
+        setVerifiedRequest(freshRequest);
+
+        if (freshRequest.isFlaggedDuplicate) {
+          setProposalError(
+            `Incident #${requestId} was flagged as duplicate${
+              freshRequest.duplicateOfId ? ` of #${freshRequest.duplicateOfId}` : ''
+            }. Proposal generation blocked.`,
+          );
+          return;
+        }
+
+        if (freshRequest.status !== 'PENDING') {
+          setProposalError(
+            `Incident #${requestId} is no longer pending (current database status: ${freshRequest.status}). Proposal generation blocked to prevent stale assignment.`,
+          );
+          return;
+        }
+      }
 
       const input: ProposeAssignmentInput = {
         algorithm,
@@ -379,7 +468,7 @@ function OperatorAssignmentsContent() {
                   <span className="material-symbols-outlined text-amber-600 text-base shrink-0 mt-0.5">
                     info
                   </span>
-                  <div>
+                  <div className="flex-1">
                     <span className="font-bold block">
                       Incident Ineligible for New Proposal Allocation
                     </span>
@@ -388,6 +477,13 @@ function OperatorAssignmentsContent() {
                       distress incidents.
                     </span>
                   </div>
+                  <Link
+                    href="/operator/assignments"
+                    className="text-xs bg-white border border-amber-300 text-amber-900 font-semibold px-2.5 py-1 rounded hover:bg-amber-100 shrink-0 self-center transition-colors"
+                    title="Clear focused request context to return to unrestricted scenario-wide planning"
+                  >
+                    Clear Context
+                  </Link>
                 </div>
               )}
 
@@ -412,21 +508,22 @@ function OperatorAssignmentsContent() {
                 </span>
                 <button
                   type="button"
-                  disabled={!eligibility.isEligible}
+                  disabled={!isPlanningAllowed}
                   onClick={() => {
+                    if (!isPlanningAllowed) return;
                     setNewlyCreatedPlanId(null);
                     setProposalError(null);
                     setShowGenerateModal(true);
                   }}
                   className={`h-8 px-4 rounded text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs ${
-                    eligibility.isEligible
+                    isPlanningAllowed
                       ? 'bg-[#0066CC] hover:bg-[#0055b3]'
                       : 'bg-slate-400 cursor-not-allowed opacity-60'
                   }`}
                   title={
-                    eligibility.isEligible
+                    isPlanningAllowed
                       ? 'Configure and run solver'
-                      : 'Incident is not eligible for new planning'
+                      : planningDisabledReason || 'Incident is not eligible for new planning'
                   }
                 >
                   <span className="material-symbols-outlined text-base">psychology</span>
@@ -464,18 +561,42 @@ function OperatorAssignmentsContent() {
             </span>
             <span>Refresh</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setNewlyCreatedPlanId(null);
-              setProposalError(null);
-              setShowGenerateModal(true);
-            }}
-            className="h-9 px-4 rounded bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
-          >
-            <span className="material-symbols-outlined text-base">add_circle</span>
-            <span>[+] Generate New VRP Solver Proposal</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!isPlanningAllowed}
+              onClick={() => {
+                if (!isPlanningAllowed) return;
+                setNewlyCreatedPlanId(null);
+                setProposalError(null);
+                setShowGenerateModal(true);
+              }}
+              className={`h-9 px-4 rounded text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs ${
+                isPlanningAllowed
+                  ? 'bg-[#0066CC] hover:bg-[#0055b3] text-white'
+                  : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-75'
+              }`}
+              title={
+                isPlanningAllowed
+                  ? 'Generate new solver proposal'
+                  : planningDisabledReason ||
+                    'Planning disabled while focused request is ineligible'
+              }
+            >
+              <span className="material-symbols-outlined text-base">add_circle</span>
+              <span>[+] Generate New VRP Solver Proposal</span>
+            </button>
+            {!isPlanningAllowed && (
+              <Link
+                href="/operator/assignments"
+                className="h-9 px-3 rounded border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold flex items-center gap-1 transition-colors"
+                title="Clear focused request context to return to unrestricted scenario-wide planning"
+              >
+                <span>Clear Context</span>
+                <span className="material-symbols-outlined text-sm">close</span>
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
@@ -879,6 +1000,32 @@ function OperatorAssignmentsContent() {
               </div>
             ) : (
               <form onSubmit={handleGenerateProposal} className="space-y-4">
+                {/* Focused Request Ineligibility Warning inside modal */}
+                {!isPlanningAllowed && (
+                  <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-lg text-xs text-amber-900 space-y-2">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                      <span className="material-symbols-outlined text-base text-amber-700">
+                        warning
+                      </span>
+                      <span>Proposal Generation Blocked: Ineligible Focused Incident</span>
+                    </div>
+                    <p className="leading-relaxed">{planningDisabledReason}</p>
+                    <div className="pt-1 flex items-center justify-between">
+                      <span className="text-[11px] text-amber-800">
+                        To run scenario optimization across all other pending requests:
+                      </span>
+                      <Link
+                        href="/operator/assignments"
+                        onClick={() => setShowGenerateModal(false)}
+                        className="px-2.5 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold rounded text-xs inline-flex items-center gap-1 transition-colors"
+                      >
+                        <span>Clear Context</span>
+                        <span className="material-symbols-outlined text-xs">close</span>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 space-y-1">
                   <div className="font-bold text-slate-800 flex items-center gap-1">
                     <span className="material-symbols-outlined text-[#0066CC] text-sm">info</span>
@@ -1011,12 +1158,20 @@ function OperatorAssignmentsContent() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmittingProposal}
+                    disabled={isSubmittingProposal || !isPlanningAllowed}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs ${
-                      isSubmittingProposal
-                        ? 'bg-blue-400 text-white cursor-not-allowed'
-                        : 'bg-[#0066CC] hover:bg-[#0055b3] text-white'
+                      !isPlanningAllowed
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-75'
+                        : isSubmittingProposal
+                          ? 'bg-blue-400 text-white cursor-not-allowed'
+                          : 'bg-[#0066CC] hover:bg-[#0055b3] text-white'
                     }`}
+                    title={
+                      !isPlanningAllowed
+                        ? planningDisabledReason ||
+                          'Planning disabled while focused request is ineligible'
+                        : 'Generate solver proposal'
+                    }
                   >
                     {isSubmittingProposal ? (
                       <>

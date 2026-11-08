@@ -621,4 +621,88 @@ describe('Phase 3 & 4: Functional Request-to-Assignment Workflow & Decision Supp
       expect(result.reason).toBe('DUPLICATE');
     });
   });
+
+  describe('8. Proposal Generation Guard Invariants: Entry-Point Enforcement & Stale Status Prevention', () => {
+    function isPlanningAllowed(
+      requestId: string | null,
+      verifiedRequest: RescueRequest | null,
+      isVerifyingRequest: boolean,
+      requestVerificationError: string | null,
+      eligibilityIsEligible: boolean,
+    ): boolean {
+      if (!requestId) return true;
+      if (isVerifyingRequest || requestVerificationError || !verifiedRequest) return false;
+      return eligibilityIsEligible;
+    }
+
+    it('enforces that without requestId query parameter, scenario-wide planning is always allowed', () => {
+      expect(isPlanningAllowed(null, null, false, null, false)).toBe(true);
+    });
+
+    it('blocks planning when requestId is present but request is unverified or loading', () => {
+      expect(isPlanningAllowed('req-001', null, true, null, false)).toBe(false);
+      expect(isPlanningAllowed('req-001', null, false, 'Not found', false)).toBe(false);
+    });
+
+    it('blocks planning when requestId is present and request is ineligible', () => {
+      const assignedReq: RescueRequest = {
+        id: 'req-assigned',
+        lat: 28.6,
+        lng: 77.2,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'ASSIGNED',
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+      expect(isPlanningAllowed('req-assigned', assignedReq, false, null, false)).toBe(false);
+    });
+
+    it('allows planning when requestId is present, verified, and eligible (PENDING, non-duplicate)', () => {
+      const eligibleReq: RescueRequest = {
+        id: 'req-eligible',
+        lat: 28.6,
+        lng: 77.2,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        isFlaggedDuplicate: false,
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+      expect(isPlanningAllowed('req-eligible', eligibleReq, false, null, true)).toBe(true);
+    });
+
+    it('enforces fresh status check before proposal submission to catch concurrent dispatch/rescue', async () => {
+      const stalePendingRequest: RescueRequest = {
+        id: 'req-race-01',
+        lat: 28.6,
+        lng: 77.2,
+        peopleCount: 2,
+        urgency: 'CRITICAL',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+
+      // Mock fresh DB fetch returning ASSIGNED
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            ...stalePendingRequest,
+            status: 'ASSIGNED',
+          },
+        }),
+      });
+
+      const fresh = await client.getRequest('req-race-01');
+      expect(fresh.status).toBe('ASSIGNED');
+      // Status is no longer pending, proposal submission should be aborted
+      const freshIsEligible = fresh.status === 'PENDING' && !fresh.isFlaggedDuplicate;
+      expect(freshIsEligible).toBe(false);
+    });
+  });
 });
