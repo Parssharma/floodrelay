@@ -29,6 +29,7 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/floodrelay_test
       REQUIRE_DB: '1'
+      ALLOW_DISPOSABLE_REPAIR_TEST_DB: '1'
 
     steps:
       - name: Checkout
@@ -84,6 +85,9 @@ jobs:
       - name: Re-apply migrations up for integration tests
         run: npm --workspace=@floodrelay/api run migrate
 
+      - name: Provision disposable test database marker
+        run: npm run provision:test-db
+
       - name: Test
         run: npm test
 
@@ -99,6 +103,12 @@ jobs:
           GEOAPIFY_API_KEY: 'ci_placeholder_key'
         run: npm run build --workspace=@floodrelay/web
 
+      - name: Generate disposable CI operator credentials
+        run: |
+          CI_PASSWORD=$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")
+          echo "::add-mask::$CI_PASSWORD"
+          echo "CI_OPERATOR_PASSWORD=$CI_PASSWORD" >> "$GITHUB_ENV"
+
       - name: Load testing smoke verification
         env:
           PORT: '3001'
@@ -106,9 +116,9 @@ jobs:
           API_BASE_URL: 'http://localhost:3001'
           LOAD_PROFILE: 'smoke'
           LOAD_TEST_USERNAME: 'ci_operator'
-          LOAD_TEST_PASSWORD: 'ci_temp_password_2026!#'
+          LOAD_TEST_PASSWORD: ${{ env.CI_OPERATOR_PASSWORD }}
           INITIAL_OPERATOR_USERNAME: 'ci_operator'
-          INITIAL_OPERATOR_PASSWORD: 'ci_temp_password_2026!#'
+          INITIAL_OPERATOR_PASSWORD: ${{ env.CI_OPERATOR_PASSWORD }}
         run: |
           npm --workspace=@floodrelay/api run start &
           for i in {1..30}; do
@@ -120,5 +130,5 @@ jobs:
           done
           # Verify unauthenticated smoke profile works without credentials
           k6 run -e LOAD_PROFILE=smoke -e TEST_DURATION=15s -e API_BASE_URL=http://localhost:3001 tests/load/index.js
-          # Verify authenticated load execution with disposable CI credentials
-          k6 run -e LOAD_PROFILE=smoke -e TEST_DURATION=15s -e API_BASE_URL=http://localhost:3001 -e LOAD_TEST_USERNAME=ci_operator -e LOAD_TEST_PASSWORD=ci_temp_password_2026!# tests/load/index.js
+          # Verify authenticated load execution with dynamically generated masked disposable credentials
+          k6 run -e LOAD_PROFILE=smoke -e TEST_DURATION=15s -e API_BASE_URL=http://localhost:3001 -e LOAD_TEST_USERNAME=ci_operator -e "LOAD_TEST_PASSWORD=$LOAD_TEST_PASSWORD" tests/load/index.js

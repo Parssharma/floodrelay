@@ -11,10 +11,12 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src --fileParallelism=false",
+    "test:repair-integration": "vitest run src/services/realRepairVerification.test.ts",
     "migrate": "tsx src/db/migrator.ts up",
     "migrate:down": "tsx src/db/migrator.ts down",
     "seed": "tsx src/scripts/seedScenario.ts",
-    "create-operator": "tsx src/scripts/createOperator.ts"
+    "create-operator": "tsx src/scripts/createOperator.ts",
+    "provision:test-db": "tsx src/scripts/provisionTestDb.ts"
   },
   "dependencies": {
     "@floodrelay/shared": "*",

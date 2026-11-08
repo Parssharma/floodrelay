@@ -166,6 +166,93 @@ describe('Repair Workflow Outcome Classification (Issue 1)', () => {
     expect(outcome.category).toBe('UNEXPECTED_FAILURE');
     expect(outcome.isFrozenPreserved).toBe(false);
   });
+
+  it('fails verification if retrieved proposal ID does not match generated proposal ID (mismatched ID)', () => {
+    const repairRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          status: 'PROPOSED',
+          proposalId: 'prop-expected-100',
+          hasFrozenViolations: false,
+        },
+      }),
+    };
+    const verifyRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: 'prop-different-200', // Mismatch!
+          status: 'PROPOSED',
+        },
+      }),
+    };
+    const outcome = classifyRepairOutcome(repairRes, verifyRes);
+    expect(outcome.category).toBe('UNEXPECTED_FAILURE');
+    expect(outcome.errorDetail).toContain('Mismatched proposal ID');
+    expect(outcome.errorDetail).toContain('prop-expected-100');
+    expect(outcome.errorDetail).toContain('prop-different-200');
+  });
+
+  it('fails verification if persisted proposal status is not PROPOSED (e.g. DRAFT or PENDING)', () => {
+    const repairRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          status: 'PROPOSED',
+          proposalId: 'prop-draft-check',
+          hasFrozenViolations: false,
+        },
+      }),
+    };
+    const verifyRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: 'prop-draft-check',
+          status: 'DRAFT', // Not PROPOSED!
+        },
+      }),
+    };
+    const outcome = classifyRepairOutcome(repairRes, verifyRes);
+    expect(outcome.category).toBe('UNEXPECTED_FAILURE');
+    expect(outcome.errorDetail).toContain('Persisted proposal status is "DRAFT"');
+  });
+
+  it('fails verification if persisted proposal contains frozen-stop violations', () => {
+    const repairRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          status: 'PROPOSED',
+          proposalId: 'prop-frozen-persisted-fail',
+          hasFrozenViolations: false,
+        },
+      }),
+    };
+    const verifyRes = {
+      status: 200,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          id: 'prop-frozen-persisted-fail',
+          status: 'PROPOSED',
+          hasFrozenViolations: true, // Invariant violated in persisted record!
+        },
+      }),
+    };
+    const outcome = classifyRepairOutcome(repairRes, verifyRes);
+    expect(outcome.category).toBe('UNEXPECTED_FAILURE');
+    expect(outcome.isFrozenPreserved).toBe(false);
+    expect(outcome.errorDetail).toContain(
+      'Frozen-stop invariant violation indicated in persisted proposal',
+    );
+  });
 });
 
 describe('Credential Security & Authentication Helper (Issue 2)', () => {

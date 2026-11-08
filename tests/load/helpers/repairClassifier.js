@@ -121,6 +121,19 @@ export function classifyRepairOutcome(repairRes, verifyRes = null) {
         }
 
         const persisted = verifyBody.data;
+
+        // 1. Validate that the retrieved proposal ID matches the generated proposal ID
+        if (!persisted.id || persisted.id !== proposalId) {
+          return {
+            category: 'UNEXPECTED_FAILURE',
+            proposalId,
+            isFrozenPreserved: true,
+            isUncommitted: true,
+            errorDetail: `Mismatched proposal ID: expected "${proposalId}", got "${persisted?.id || 'null'}"`,
+          };
+        }
+
+        // 2. Reject incorrectly committed proposals (prohibited auto-commit)
         if (persisted.status === 'COMMITTED') {
           return {
             category: 'UNEXPECTED_FAILURE',
@@ -131,14 +144,34 @@ export function classifyRepairOutcome(repairRes, verifyRes = null) {
           };
         }
 
-        if (persisted.status === 'PROPOSED' && persisted.id === proposalId) {
+        // 3. Require persisted status PROPOSED
+        if (persisted.status !== 'PROPOSED') {
           return {
-            category: 'PROPOSED_VERIFIED',
+            category: 'UNEXPECTED_FAILURE',
             proposalId,
             isFrozenPreserved: true,
             isUncommitted: true,
+            errorDetail: `Persisted proposal status is "${persisted.status}", expected "PROPOSED"`,
           };
         }
+
+        // 4. Preserve frozen-stop safety checks on persisted entity
+        if (persisted.hasFrozenViolations === true) {
+          return {
+            category: 'UNEXPECTED_FAILURE',
+            proposalId,
+            isFrozenPreserved: false,
+            isUncommitted: true,
+            errorDetail: 'Frozen-stop invariant violation indicated in persisted proposal',
+          };
+        }
+
+        return {
+          category: 'PROPOSED_VERIFIED',
+          proposalId,
+          isFrozenPreserved: true,
+          isUncommitted: true,
+        };
       }
 
       return {
