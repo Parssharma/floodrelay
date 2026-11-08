@@ -463,4 +463,162 @@ describe('Phase 3 & 4: Functional Request-to-Assignment Workflow & Decision Supp
       }
     });
   });
+
+  describe('7. Selected Request Context Verification Logic (Database Retrieval & Validation)', () => {
+    function evaluateVerifiedEligibility(req: RescueRequest | null): {
+      isEligible: boolean;
+      reason: string;
+      badgeText: string;
+    } {
+      if (!req) {
+        return {
+          isEligible: false,
+          reason: 'UNVERIFIED',
+          badgeText: 'UNVERIFIED',
+        };
+      }
+
+      if (req.isFlaggedDuplicate) {
+        return {
+          isEligible: false,
+          reason: 'DUPLICATE',
+          badgeText: 'INELIGIBLE: DUPLICATE',
+        };
+      }
+
+      if (req.status === 'ASSIGNED') {
+        return {
+          isEligible: false,
+          reason: 'ASSIGNED',
+          badgeText: 'INELIGIBLE: ALREADY ASSIGNED',
+        };
+      }
+
+      if (req.status === 'IN_TRANSIT') {
+        return {
+          isEligible: false,
+          reason: 'IN_TRANSIT',
+          badgeText: 'INELIGIBLE: IN TRANSIT',
+        };
+      }
+
+      if (req.status === 'RESCUED') {
+        return {
+          isEligible: false,
+          reason: 'RESCUED',
+          badgeText: 'INELIGIBLE: RESCUED',
+        };
+      }
+
+      if (req.status === 'CANCELLED') {
+        return {
+          isEligible: false,
+          reason: 'CANCELLED',
+          badgeText: 'INELIGIBLE: CANCELLED',
+        };
+      }
+
+      if (req.status === 'PENDING') {
+        return {
+          isEligible: true,
+          reason: 'PENDING_ELIGIBLE',
+          badgeText: 'VERIFIED • ELIGIBLE FOR PLANNING',
+        };
+      }
+
+      return {
+        isEligible: false,
+        reason: 'UNKNOWN',
+        badgeText: `INELIGIBLE: ${req.status}`,
+      };
+    }
+
+    it('retrieves and validates request from API, enforcing verified urgency and passenger count', async () => {
+      const mockDbRecord: RescueRequest = {
+        id: 'req-verified-01',
+        lat: 28.65,
+        lng: 77.23,
+        peopleCount: 8,
+        urgency: 'CRITICAL',
+        source: 'REPORTED',
+        status: 'PENDING',
+        isFlaggedDuplicate: false,
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: mockDbRecord,
+        }),
+      });
+
+      const retrieved = await client.getRequest('req-verified-01');
+      expect(retrieved.id).toBe('req-verified-01');
+      expect(retrieved.urgency).toBe('CRITICAL');
+      expect(retrieved.peopleCount).toBe(8);
+
+      const evalResult = evaluateVerifiedEligibility(retrieved);
+      expect(evalResult.isEligible).toBe(true);
+      expect(evalResult.badgeText).toContain('ELIGIBLE FOR PLANNING');
+    });
+
+    it('handles missing or deleted requests (HTTP 404) safely', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Request not found in database',
+          },
+        }),
+      });
+
+      await expect(client.getRequest('req-nonexistent')).rejects.toThrow(ApiClientError);
+      const evalResult = evaluateVerifiedEligibility(null);
+      expect(evalResult.isEligible).toBe(false);
+      expect(evalResult.reason).toBe('UNVERIFIED');
+    });
+
+    it('identifies stale requests already RESCUED or IN_TRANSIT and marks them ineligible', () => {
+      const rescuedReq: RescueRequest = {
+        id: 'req-stale-01',
+        lat: 28.65,
+        lng: 77.23,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'RESCUED',
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+
+      const result = evaluateVerifiedEligibility(rescuedReq);
+      expect(result.isEligible).toBe(false);
+      expect(result.badgeText).toBe('INELIGIBLE: RESCUED');
+      expect(result.reason).toBe('RESCUED');
+    });
+
+    it('identifies duplicate requests and marks them ineligible for solver re-planning', () => {
+      const duplicateReq: RescueRequest = {
+        id: 'req-dup-02',
+        lat: 28.65,
+        lng: 77.23,
+        peopleCount: 4,
+        urgency: 'CRITICAL',
+        source: 'REPORTED',
+        status: 'PENDING',
+        isFlaggedDuplicate: true,
+        duplicateOfId: 'req-parent-01',
+        createdAt: '2026-11-08T10:00:00.000Z',
+      };
+
+      const result = evaluateVerifiedEligibility(duplicateReq);
+      expect(result.isEligible).toBe(false);
+      expect(result.badgeText).toBe('INELIGIBLE: DUPLICATE');
+      expect(result.reason).toBe('DUPLICATE');
+    });
+  });
 });

@@ -8,13 +8,15 @@ import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import type { AssignmentRecord, ProposeAssignmentInput } from '@/lib/api/types';
-import type { UrgencyLevel } from '@floodrelay/shared';
+import type { RescueRequest } from '@floodrelay/shared';
 
 function OperatorAssignmentsContent() {
   const searchParams = useSearchParams();
   const requestId = searchParams.get('requestId');
-  const requestUrgency = searchParams.get('urgency');
-  const requestPeopleCount = searchParams.get('peopleCount');
+
+  const [verifiedRequest, setVerifiedRequest] = useState<RescueRequest | null>(null);
+  const [isVerifyingRequest, setIsVerifyingRequest] = useState<boolean>(false);
+  const [requestVerificationError, setRequestVerificationError] = useState<string | null>(null);
 
   const [plans, setPlans] = useState<AssignmentRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -23,6 +25,126 @@ function OperatorAssignmentsContent() {
   const [filterTab, setFilterTab] = useState<'ALL' | 'PROPOSED' | 'COMMITTED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+
+  // Retrieve selected request from existing API to verify urgency, passenger count and eligibility
+  useEffect(() => {
+    if (!requestId) {
+      setVerifiedRequest(null);
+      setRequestVerificationError(null);
+      setIsVerifyingRequest(false);
+      return;
+    }
+
+    const currentRequestId = requestId;
+    let isMounted = true;
+    async function verifyRequest() {
+      setIsVerifyingRequest(true);
+      setRequestVerificationError(null);
+      try {
+        const req = await apiClient.getRequest(currentRequestId);
+        if (isMounted) {
+          setVerifiedRequest(req);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setVerifiedRequest(null);
+          if (err instanceof ApiClientError && err.statusCode === 404) {
+            setRequestVerificationError(
+              `Request #${requestId} was not found in the operational database. It may be invalid or deleted.`,
+            );
+          } else {
+            setRequestVerificationError(
+              (err as Error).message || `Unable to verify request #${requestId} with database.`,
+            );
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsVerifyingRequest(false);
+        }
+      }
+    }
+
+    verifyRequest();
+    return () => {
+      isMounted = false;
+    };
+  }, [requestId]);
+
+  // Determine if verified request is eligible for scenario-wide VRP solver planning
+  const eligibility = useMemo(() => {
+    if (!verifiedRequest) {
+      return {
+        isEligible: false,
+        reason: 'UNVERIFIED',
+        badgeText: 'UNVERIFIED',
+        description: 'Waiting for database verification...',
+      };
+    }
+
+    if (verifiedRequest.isFlaggedDuplicate) {
+      return {
+        isEligible: false,
+        reason: 'DUPLICATE',
+        badgeText: 'INELIGIBLE: DUPLICATE',
+        description: `Flagged as duplicate distress incident${verifiedRequest.duplicateOfId ? ` of #${verifiedRequest.duplicateOfId}` : ''}. Solver excludes duplicate calls.`,
+      };
+    }
+
+    if (verifiedRequest.status === 'ASSIGNED') {
+      return {
+        isEligible: false,
+        reason: 'ASSIGNED',
+        badgeText: 'INELIGIBLE: ALREADY ASSIGNED',
+        description:
+          'Incident has already been assigned to an active rescue craft in a committed mission plan.',
+      };
+    }
+
+    if (verifiedRequest.status === 'IN_TRANSIT') {
+      return {
+        isEligible: false,
+        reason: 'IN_TRANSIT',
+        badgeText: 'INELIGIBLE: IN TRANSIT',
+        description: 'Rescue craft is currently en route to this incident location.',
+      };
+    }
+
+    if (verifiedRequest.status === 'RESCUED') {
+      return {
+        isEligible: false,
+        reason: 'RESCUED',
+        badgeText: 'INELIGIBLE: RESCUED',
+        description: 'Rescue mission has already been successfully completed for this incident.',
+      };
+    }
+
+    if (verifiedRequest.status === 'CANCELLED') {
+      return {
+        isEligible: false,
+        reason: 'CANCELLED',
+        badgeText: 'INELIGIBLE: CANCELLED',
+        description: 'This distress call was cancelled and is closed for dispatch.',
+      };
+    }
+
+    if (verifiedRequest.status === 'PENDING') {
+      return {
+        isEligible: true,
+        reason: 'PENDING_ELIGIBLE',
+        badgeText: 'VERIFIED • ELIGIBLE FOR PLANNING',
+        description:
+          'Pending distress call verified in database. Ready for scenario-wide VRP optimization.',
+      };
+    }
+
+    return {
+      isEligible: false,
+      reason: 'UNKNOWN',
+      badgeText: `INELIGIBLE: ${verifiedRequest.status}`,
+      description: `Current status is ${verifiedRequest.status}.`,
+    };
+  }, [verifiedRequest]);
 
   // Proposal modal form state
   const [algorithm, setAlgorithm] = useState<'cluster-allocation' | 'nearest-first' | 'savings'>(
@@ -171,62 +293,149 @@ function OperatorAssignmentsContent() {
 
       {/* Focused Request Context Banner (When navigated from Requests) */}
       {requestId && (
-        <div className="bg-white border-2 border-[#0066CC] rounded-xl p-4 sm:p-5 shadow-xs space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#0066CC] animate-pulse" />
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0066CC]">
-                Focused Request Planning Context
+        <>
+          {isVerifyingRequest ? (
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-xs flex items-center gap-3 text-xs text-slate-600">
+              <span className="w-4 h-4 border-2 border-[#0066CC]/30 border-t-[#0066CC] rounded-full animate-spin shrink-0" />
+              <span className="font-mono">
+                Verifying request #{requestId} against operational database...
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold bg-slate-100 px-2.5 py-1 rounded text-slate-800">
-                #{requestId}
-              </span>
-              {requestUrgency && <UrgencyBadge urgency={requestUrgency as UrgencyLevel} />}
-              {requestPeopleCount && (
-                <span className="text-xs font-bold font-mono text-slate-700 bg-slate-100 px-2.5 py-1 rounded">
-                  {requestPeopleCount} {Number(requestPeopleCount) === 1 ? 'Person' : 'People'}
-                </span>
-              )}
-              <Link
-                href="/operator/assignments"
-                className="text-xs text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100 transition-colors ml-2"
-                title="Clear focused request context"
-              >
-                <span className="material-symbols-outlined text-base">close</span>
-              </Link>
+          ) : requestVerificationError ? (
+            <div className="bg-amber-50/80 border-2 border-amber-300 rounded-xl p-4 sm:p-5 shadow-xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-amber-700 text-lg">warning</span>
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-amber-900">
+                    Unverified or Missing Request Context (#{requestId})
+                  </span>
+                </div>
+                <Link
+                  href="/operator/assignments"
+                  className="text-xs text-amber-700 hover:text-amber-900 flex items-center gap-1 font-semibold"
+                  title="Clear focused request context"
+                >
+                  <span>Clear Context</span>
+                  <span className="material-symbols-outlined text-base">close</span>
+                </Link>
+              </div>
+              <div className="text-xs text-amber-900 leading-relaxed space-y-1">
+                <p className="font-semibold text-amber-800">{requestVerificationError}</p>
+                <p className="text-amber-700">
+                  URL query parameters cannot be verified against the operational database.
+                  Scenario-wide solver proposals will only evaluate valid pending requests persisted
+                  in PostgreSQL.
+                </p>
+              </div>
             </div>
-          </div>
-
-          <div className="text-xs text-slate-600 space-y-1.5 leading-relaxed">
-            <p>
-              <strong>Scenario-Wide VRP Optimization:</strong> The FloodRelay deterministic solver
-              evaluates all eligible pending requests across the operational scenario. Generating a
-              proposal optimizes fleet tours across the entire basin; it does not assign only this
-              single request in isolation.
-            </p>
-          </div>
-
-          <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
-            <span className="text-[11px] text-slate-500 font-mono">
-              Active Scenario: <strong>{scenarioId}</strong> • Shift Limit:{' '}
-              <strong>{maxShiftMinutes}m</strong>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setNewlyCreatedPlanId(null);
-                setProposalError(null);
-                setShowGenerateModal(true);
-              }}
-              className="h-8 px-4 rounded bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+          ) : verifiedRequest ? (
+            <div
+              className={`bg-white border-2 ${
+                eligibility.isEligible ? 'border-[#0066CC]' : 'border-amber-400'
+              } rounded-xl p-4 sm:p-5 shadow-xs space-y-3`}
             >
-              <span className="material-symbols-outlined text-base">psychology</span>
-              <span>Configure &amp; Generate Solver Proposal</span>
-            </button>
-          </div>
-        </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      eligibility.isEligible ? 'bg-[#0066CC] animate-pulse' : 'bg-amber-500'
+                    }`}
+                  />
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0066CC]">
+                    Focused Request Planning Context
+                  </span>
+                  <span
+                    className={`text-[11px] font-mono font-bold px-2.5 py-0.5 rounded border ${
+                      eligibility.isEligible
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : 'bg-amber-50 text-amber-800 border-amber-300'
+                    }`}
+                  >
+                    {eligibility.badgeText}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold bg-slate-100 px-2.5 py-1 rounded text-slate-800">
+                    #{verifiedRequest.id}
+                  </span>
+                  <UrgencyBadge urgency={verifiedRequest.urgency} />
+                  <span className="text-xs font-bold font-mono text-slate-700 bg-slate-100 px-2.5 py-1 rounded">
+                    {verifiedRequest.peopleCount}{' '}
+                    {verifiedRequest.peopleCount === 1 ? 'Person' : 'People'}
+                  </span>
+                  <StatusBadge status={verifiedRequest.status || 'PENDING'} />
+                  <Link
+                    href="/operator/assignments"
+                    className="text-xs text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100 transition-colors ml-2"
+                    title="Clear focused request context"
+                  >
+                    <span className="material-symbols-outlined text-base">close</span>
+                  </Link>
+                </div>
+              </div>
+
+              {!eligibility.isEligible && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+                  <span className="material-symbols-outlined text-amber-600 text-base shrink-0 mt-0.5">
+                    info
+                  </span>
+                  <div>
+                    <span className="font-bold block">
+                      Incident Ineligible for New Proposal Allocation
+                    </span>
+                    <span>
+                      {eligibility.description} Scenario-wide solver proposals only allocate PENDING
+                      distress incidents.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <p>
+                  <strong>Scenario-Wide VRP Optimization:</strong> The FloodRelay deterministic
+                  solver evaluates all eligible pending requests across the operational scenario.
+                  Generating a proposal optimizes fleet tours across the entire basin; it does not
+                  assign only this single request in isolation.
+                </p>
+                {verifiedRequest.notes && (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Distress Notes: &ldquo;{verifiedRequest.notes}&rdquo;
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-[11px] text-slate-500 font-mono">
+                  Active Scenario: <strong>{scenarioId}</strong> • Shift Limit:{' '}
+                  <strong>{maxShiftMinutes}m</strong>
+                </span>
+                <button
+                  type="button"
+                  disabled={!eligibility.isEligible}
+                  onClick={() => {
+                    setNewlyCreatedPlanId(null);
+                    setProposalError(null);
+                    setShowGenerateModal(true);
+                  }}
+                  className={`h-8 px-4 rounded text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs ${
+                    eligibility.isEligible
+                      ? 'bg-[#0066CC] hover:bg-[#0055b3]'
+                      : 'bg-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                  title={
+                    eligibility.isEligible
+                      ? 'Configure and run solver'
+                      : 'Incident is not eligible for new planning'
+                  }
+                >
+                  <span className="material-symbols-outlined text-base">psychology</span>
+                  <span>Configure &amp; Generate Solver Proposal</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
       )}
 
       {/* Header and Actions */}
