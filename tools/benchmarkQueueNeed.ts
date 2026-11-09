@@ -7,6 +7,12 @@ import {
 } from '@floodrelay/solver';
 import type { ResourceRoute, Scenario } from '@floodrelay/shared';
 
+/**
+ * Benchmark result for a single scenario scale.
+ * NOTE: This benchmark measures in-process algorithmic repair latency of the pure
+ * TypeScript incremental solver. It does NOT measure end-to-end HTTP request processing,
+ * database query transactions, PostGIS serialization, or external OSRM road graph calls.
+ */
 interface BenchmarkSizeResult {
   scenarioName: string;
   requestCount: number;
@@ -35,6 +41,10 @@ interface EventLoopMetrics {
 
 export interface QueueEvaluationReport {
   timestamp: string;
+  scope: {
+    measuredLayer: 'IN_PROCESS_ALGORITHMIC_SOLVER_ONLY';
+    description: string;
+  };
   environment: {
     nodeVersion: string;
     platform: string;
@@ -47,6 +57,12 @@ export interface QueueEvaluationReport {
     initialHeapMb: number;
     peakHeapMb: number;
     heapDeltaMb: number;
+  };
+  unmeasuredAreas: {
+    workerProcessQueuing: string;
+    distributedMessageSerialization: string;
+    osrmRoadGraphCalculations: string;
+    endToEndHttpRequestOverhead: string;
   };
   queueDecisionVerdict: {
     redisQueueRequired: boolean;
@@ -96,7 +112,7 @@ export async function runQueueNecessityBenchmark(): Promise<QueueEvaluationRepor
       name: 'Large (Full District Catchment)',
       requests: 500,
       resources: 40,
-      shelters: 10,
+      shelterCount: 10,
       runs: 30,
     },
   ];
@@ -110,7 +126,7 @@ export async function runQueueNecessityBenchmark(): Promise<QueueEvaluationRepor
       seed: 2026,
       requestCount: cfg.requests,
       resourceCount: cfg.resources,
-      shelterCount: cfg.shelters,
+      shelterCount: cfg.shelterCount,
     });
 
     const travelProvider = new StraightLineTravelTimeProvider();
@@ -165,7 +181,7 @@ export async function runQueueNecessityBenchmark(): Promise<QueueEvaluationRepor
       scenarioName: cfg.name,
       requestCount: cfg.requests,
       resourceCount: cfg.resources,
-      shelterCount: cfg.shelters,
+      shelterCount: cfg.shelterCount,
       iterations: cfg.runs,
       minMs: stats.min,
       maxMs: stats.max,
@@ -199,6 +215,11 @@ export async function runQueueNecessityBenchmark(): Promise<QueueEvaluationRepor
 
   const report: QueueEvaluationReport = {
     timestamp: new Date().toISOString(),
+    scope: {
+      measuredLayer: 'IN_PROCESS_ALGORITHMIC_SOLVER_ONLY',
+      description:
+        'Measures pure in-memory algorithmic repair computation time and event loop impact in isolation. Does not include database I/O, HTTP serialization, or OSRM external calls.',
+    },
     environment: {
       nodeVersion: process.version,
       platform: process.platform,
@@ -212,11 +233,19 @@ export async function runQueueNecessityBenchmark(): Promise<QueueEvaluationRepor
       peakHeapMb: Number(peakMemory.toFixed(2)),
       heapDeltaMb: heapDelta,
     },
+    unmeasuredAreas: {
+      workerProcessQueuing: 'NOT MEASURED (synchronous in-process execution model)',
+      distributedMessageSerialization: 'NOT MEASURED (no inter-process message broker involved)',
+      osrmRoadGraphCalculations:
+        'NOT MEASURED in this harness (evaluated separately in benchmark.ts)',
+      endToEndHttpRequestOverhead:
+        'MEASURED SEPARATELY via Grafana k6 load test suite (p50: ~11ms, p95: ~82ms)',
+    },
     queueDecisionVerdict: {
       redisQueueRequired: redisRequired,
       primaryRationale: redisRequired
         ? 'Solver execution blocked the event loop beyond acceptable operational thresholds (> 50ms).'
-        : `Empirical solver repair p95 latency (${maxP95SolverMs.toFixed(2)} ms) and event loop delay p99 (${elMetrics.p99Ms.toFixed(2)} ms) are negligible under realistic disaster operational scale. Synchronous execution avoids distributed dual-write inconsistencies and eliminates unnecessary operational Redis infrastructure.`,
+        : `Empirical in-process algorithmic repair latency (${maxP95SolverMs.toFixed(2)} ms p95) and event loop delay (${elMetrics.p99Ms.toFixed(2)} ms p99) demonstrate that CPU-bound solver execution is not a bottleneck under disaster sector scales (up to 500 requests). While asynchronous queues offer genuine benefits for worker process decoupling and peak smoothing, Redis/BullMQ is deferred to preserve single-database ACID guarantees (preventing dual-write failure modes in life-critical operations) and deliver immediate synchronous proposal feedback to human dispatchers.`,
       concurrencyAcceptanceThresholdMs: 50.0,
       measuredMaxEventLoopDelayMs: elMetrics.maxMs,
     },
@@ -234,8 +263,11 @@ if (
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
 ) {
   console.log('===============================================================');
-  console.log('⚡ FloodRelay — Background Queue Necessity Benchmark (Phase 6)');
-  console.log('===============================================================\n');
+  console.log('⚡ FloodRelay — Algorithmic Solver Latency & Queue Benchmark');
+  console.log('===============================================================');
+  console.log('NOTE: This benchmark measures IN-PROCESS ALGORITHMIC REPAIR LATENCY');
+  console.log('of the pure solver. End-to-end HTTP and DB transactions are measured');
+  console.log('separately via Grafana k6 load testing.\n');
 
   runQueueNecessityBenchmark()
     .then((report) => {
@@ -244,7 +276,7 @@ if (
         `  Node: ${report.environment.nodeVersion} (${report.environment.platform} ${report.environment.arch})`,
       );
       console.log(`  Cores: ${report.environment.cpuCores}`);
-      console.log('\n--- Solver Repair Latency Benchmarks ---');
+      console.log('\n--- Algorithmic Solver Repair Latency ---');
       for (const s of report.solvers) {
         console.log(`\nScenario: ${s.scenarioName}`);
         console.log(
@@ -270,6 +302,16 @@ if (
       console.log(`  Initial Heap: ${report.memory.initialHeapMb} MB`);
       console.log(`  Peak Heap:    ${report.memory.peakHeapMb} MB`);
       console.log(`  Delta:        +${report.memory.heapDeltaMb} MB`);
+
+      console.log('\n--- Unmeasured Operational Dimensions ---');
+      console.log(`  Worker Queuing:          ${report.unmeasuredAreas.workerProcessQueuing}`);
+      console.log(
+        `  Message Serialization:   ${report.unmeasuredAreas.distributedMessageSerialization}`,
+      );
+      console.log(`  OSRM Road Routing:       ${report.unmeasuredAreas.osrmRoadGraphCalculations}`);
+      console.log(
+        `  End-to-End HTTP / DB:    ${report.unmeasuredAreas.endToEndHttpRequestOverhead}`,
+      );
 
       console.log('\n===============================================================');
       console.log('ARCHITECTURAL DECISION GATE VERDICT:');
