@@ -1,31 +1,29 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import type { CreateRequestInput } from '@/lib/api/types';
-import type { GeocodeCandidate } from '@/app/api/geocode/route';
 import CitizenLocationPreview from '@/components/citizen/CitizenLocationPreview';
+import {
+  useCitizenLocation,
+  type GpsStatus,
+  type ReverseGeocodeStatus,
+  type GeocodeStatus,
+  type LocationSource,
+  type ConfirmedLocationDetails,
+} from '@/hooks/useCitizenLocation';
 
-export type GpsStatus =
-  'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
-
-export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
-
-export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
-
-export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
-
-export interface ConfirmedLocationDetails {
-  address: string;
-  lat: string;
-  lng: string;
-  source: LocationSource;
-  accuracy?: number | null;
-}
+export type {
+  GpsStatus,
+  ReverseGeocodeStatus,
+  GeocodeStatus,
+  LocationSource,
+  ConfirmedLocationDetails,
+};
 
 const WATER_LEVEL_LABELS: Record<string, string> = {
   ankle_knee: 'Ankle to Knee-deep in yard / driveway (Evacuation possible)',
@@ -49,41 +47,6 @@ function generateUUID(): string {
 export default function CitizenRequestPage() {
   const router = useRouter();
 
-  // Phase 1: Initialize coordinates as empty strings (never prefill Houston/Delhi)
-  const [lat, setLat] = useState<string>('');
-  const [lng, setLng] = useState<string>('');
-  const [locationSource, setLocationSource] = useState<LocationSource>('NONE');
-  const [isLocationConfirmed, setIsLocationConfirmed] = useState<boolean>(false);
-  const [confirmedDetails, setConfirmedDetails] = useState<ConfirmedLocationDetails | null>(null);
-
-  // Address & Forward Geocoding State (Method A)
-  const [address, setAddress] = useState<string>('');
-  const [geocodeStatus, setGeocodeStatus] = useState<GeocodeStatus>('IDLE');
-  const [geocodeCandidates, setGeocodeCandidates] = useState<GeocodeCandidate[]>([]);
-  const [geocodeMessage, setGeocodeMessage] = useState<string | null>(null);
-  const geocodeSeqRef = useRef<number>(0);
-  const userEditedAddressRef = useRef<boolean>(false);
-
-  // GPS & Reverse Geocoding State (Method B)
-  const [gpsStatus, setGpsStatus] = useState<GpsStatus>('IDLE');
-  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
-  const [reverseGeocodeStatus, setReverseGeocodeStatus] = useState<ReverseGeocodeStatus>('IDLE');
-  const [reverseGeocodeMessage, setReverseGeocodeMessage] = useState<string | null>(null);
-  const lookupSeqRef = useRef<number>(0);
-  const userEditedDuringLookupRef = useRef<boolean>(false);
-
-  // Form Details
-  const [waterLevel, setWaterLevel] = useState<string>('ground_floor');
-  const [partyCount, setPartyCount] = useState<number>(3);
-  const [specialNeeds, setSpecialNeeds] = useState<Record<string, boolean>>({
-    elderlyChildren: true,
-    mobilityImpaired: false,
-    medicalOxygen: false,
-    pets: true,
-  });
-  const [urgency, setUrgency] = useState<UrgencyLevel>('HIGH');
-  const [notes, setNotes] = useState<string>('');
-
   // Idempotency & Submission State
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => generateUUID());
   const [submittedPayload, setSubmittedPayload] = useState<string | null>(null);
@@ -99,311 +62,53 @@ export default function CitizenRequestPage() {
     }
   };
 
-  // Invalidate existing confirmation whenever raw input changes
-  const invalidateConfirmation = () => {
-    setIsLocationConfirmed(false);
-    setConfirmedDetails(null);
-  };
-
-  // --- METHOD A: Forward Geocoding (Manual Address Search) ---
-  const handleSearchAddress = async (overrideQuery?: string) => {
-    const query = (overrideQuery ?? address).trim();
-
-    if (!query) {
-      setErrors((prev) => ({
-        ...prev,
-        address: 'Street address or location landmark is required to search',
-      }));
-      return;
-    }
-
-    if (query.length < 3) {
-      setErrors((prev) => ({
-        ...prev,
-        address: 'Please enter at least 3 characters to search for a location',
-      }));
-      return;
-    }
-
-    // Clear address error
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next.address;
-      delete next.location;
-      return next;
-    });
-
-    const seq = ++geocodeSeqRef.current;
-    userEditedAddressRef.current = false;
-    setGeocodeStatus('SEARCHING');
-    setGeocodeMessage('Searching location for address...');
-    setGeocodeCandidates([]);
-
-    try {
-      const res = await fetch('/api/geocode', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: query }),
+  // Location management via useCitizenLocation hook
+  const {
+    address,
+    lat,
+    lng,
+    gpsStatus,
+    gpsAccuracy,
+    reverseGeocodeStatus,
+    reverseGeocodeMessage,
+    geocodeStatus,
+    geocodeCandidates,
+    geocodeMessage,
+    locationSource,
+    isLocationConfirmed,
+    confirmedDetails,
+    setIsLocationConfirmed,
+    handleAddressChange,
+    handleCoordinateChange,
+    handleSearchAddress,
+    handleSelectCandidate,
+    handleUseLocation,
+    handleExplicitConfirm,
+  } = useCitizenLocation({
+    onFieldEdited: markEdited,
+    onErrorsClear: (fields) => {
+      setErrors((prev) => {
+        const next = { ...prev };
+        fields.forEach((f) => delete next[f]);
+        return next;
       });
+    },
+    onSetError: (field, msg) => {
+      setErrors((prev) => ({ ...prev, [field]: msg }));
+    },
+  });
 
-      // Ignore stale network responses from previous searches
-      if (seq !== geocodeSeqRef.current) {
-        return;
-      }
-
-      const data = await res.json().catch(() => null);
-
-      if (res.ok && data?.success) {
-        const results: GeocodeCandidate[] = Array.isArray(data.results) ? data.results : [];
-        if (results.length === 0) {
-          setGeocodeStatus('NO_MATCH');
-          setGeocodeMessage(
-            data?.message ||
-              "We couldn't verify this address. Please provide a more precise address, add a nearby landmark or city, or use GPS.",
-          );
-        } else {
-          setGeocodeStatus('FOUND');
-          setGeocodeCandidates(results);
-          setGeocodeMessage(
-            results.length === 1
-              ? 'Location match found. Please verify and confirm:'
-              : 'Multiple locations found. Please select and confirm the correct one:',
-          );
-        }
-      } else {
-        setGeocodeStatus('ERROR');
-        setGeocodeMessage(
-          data?.message ||
-            'Unable to determine location for this address. Please refine your search or use GPS.',
-        );
-      }
-    } catch {
-      if (seq !== geocodeSeqRef.current) return;
-      setGeocodeStatus('ERROR');
-      setGeocodeMessage(
-        'Network error looking up address. Please check your connection or use GPS.',
-      );
-    }
-  };
-
-  const handleSelectCandidate = (candidate: GeocodeCandidate) => {
-    const formattedLat = candidate.lat.toFixed(6);
-    const formattedLng = candidate.lng.toFixed(6);
-
-    setAddress(candidate.formatted);
-    setLat(formattedLat);
-    setLng(formattedLng);
-    setLocationSource('GEOCODED');
-    setIsLocationConfirmed(true);
-    setConfirmedDetails({
-      address: candidate.formatted,
-      lat: formattedLat,
-      lng: formattedLng,
-      source: 'GEOCODED',
-    });
-
-    setGeocodeCandidates([]);
-    setGeocodeStatus('FOUND');
-    setGeocodeMessage(null);
-    userEditedAddressRef.current = false;
-    markEdited();
-
-    // Clear location and coordinate errors
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next.address;
-      delete next.lat;
-      delete next.lng;
-      delete next.location;
-      return next;
-    });
-  };
-
-  // --- METHOD B: Browser Geolocation (Use My Current Location) ---
-  const triggerReverseGeocode = async (latNum: number, lngNum: number) => {
-    const seq = ++lookupSeqRef.current;
-    userEditedDuringLookupRef.current = false;
-    setReverseGeocodeStatus('LOOKING_UP');
-    setReverseGeocodeMessage('Finding nearest street address...');
-
-    try {
-      const res = await fetch('/api/reverse-geocode', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ lat: latNum, lng: lngNum }),
-      });
-
-      // Reject stale response from older GPS clicks
-      if (seq !== lookupSeqRef.current) {
-        return;
-      }
-
-      const data = await res.json().catch(() => null);
-
-      // If citizen manually edited address while lookup was in-flight, do not overwrite
-      if (userEditedDuringLookupRef.current) {
-        setReverseGeocodeStatus('IDLE');
-        setReverseGeocodeMessage(null);
-        return;
-      }
-
-      if (res.ok && data?.success) {
-        if (data.address && typeof data.address === 'string' && data.address.trim()) {
-          const formattedAddress = data.address.trim();
-          setAddress(formattedAddress);
-          setReverseGeocodeStatus('FOUND');
-          setReverseGeocodeMessage(null);
-
-          // Auto-confirm valid GPS address match
-          setIsLocationConfirmed(true);
-          setConfirmedDetails({
-            address: formattedAddress,
-            lat: latNum.toFixed(6),
-            lng: lngNum.toFixed(6),
-            source: 'GPS',
-            accuracy: gpsAccuracy,
-          });
-
-          markEdited();
-
-          // Clear errors
-          setErrors((prev) => {
-            const next = { ...prev };
-            delete next.address;
-            delete next.lat;
-            delete next.lng;
-            delete next.location;
-            return next;
-          });
-        } else {
-          // Lookup succeeded but no street address found for coordinates
-          setReverseGeocodeStatus('UNAVAILABLE');
-          const baseMsg = data?.message || 'No street address found for these coordinates.';
-          setReverseGeocodeMessage(
-            baseMsg.includes('manually')
-              ? baseMsg
-              : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
-          );
-        }
-      } else {
-        setReverseGeocodeStatus('ERROR');
-        const baseMsg = data?.message || 'Unable to determine street address.';
-        setReverseGeocodeMessage(
-          baseMsg.includes('manually')
-            ? baseMsg
-            : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
-        );
-      }
-    } catch {
-      if (seq !== lookupSeqRef.current) {
-        return;
-      }
-      if (userEditedDuringLookupRef.current) {
-        setReverseGeocodeStatus('IDLE');
-        setReverseGeocodeMessage(null);
-        return;
-      }
-      setReverseGeocodeStatus('ERROR');
-      setReverseGeocodeMessage(
-        'Network error looking up address. Coordinates are saved — please enter your street address or landmark manually.',
-      );
-    }
-  };
-
-  const handleUseLocation = () => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setGpsStatus('UNSUPPORTED');
-      return;
-    }
-
-    setGpsStatus('ACQUIRING');
-    invalidateConfirmation();
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const formattedLat = pos.coords.latitude.toFixed(6);
-        const formattedLng = pos.coords.longitude.toFixed(6);
-        setLat(formattedLat);
-        setLng(formattedLng);
-        setGpsAccuracy(pos.coords.accuracy);
-        setGpsStatus('ACQUIRED');
-        setLocationSource('GPS');
-        markEdited();
-
-        // Clear coordinate field errors
-        setErrors((prev) => {
-          const next = { ...prev };
-          delete next.lat;
-          delete next.lng;
-          delete next.location;
-          return next;
-        });
-
-        // Trigger reverse geocoding to find nearest street address
-        void triggerReverseGeocode(pos.coords.latitude, pos.coords.longitude);
-      },
-      (err) => {
-        // Strict real-geolocation error handling: NO mock fallback coordinates
-        if (err.code === 1) {
-          setGpsStatus('DENIED');
-        } else if (err.code === 3) {
-          setGpsStatus('TIMEOUT');
-        } else {
-          setGpsStatus('UNAVAILABLE');
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      },
-    );
-  };
-
-  // Explicit confirmation button handler (e.g. after manual coordinate edits or manual landmark with GPS)
-  const handleExplicitConfirm = () => {
-    const latNum = parseFloat(lat);
-    const lngNum = parseFloat(lng);
-    const newErrors: Record<string, string> = {};
-
-    if (!address.trim()) {
-      newErrors.address = 'Street address or location landmark is required to confirm location';
-    }
-    if (!lat.trim() || isNaN(latNum) || latNum < -90 || latNum > 90) {
-      newErrors.lat = 'Valid latitude between -90 and 90 is required';
-    }
-    if (!lng.trim() || isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
-      newErrors.lng = 'Valid longitude between -180 and 180 is required';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors((prev) => ({ ...prev, ...newErrors }));
-      return;
-    }
-
-    setIsLocationConfirmed(true);
-    setConfirmedDetails({
-      address: address.trim(),
-      lat: latNum.toFixed(6),
-      lng: lngNum.toFixed(6),
-      source: locationSource === 'NONE' ? 'MANUAL' : locationSource,
-      accuracy: locationSource === 'GPS' ? gpsAccuracy : null,
-    });
-
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next.address;
-      delete next.lat;
-      delete next.lng;
-      delete next.location;
-      return next;
-    });
-    markEdited();
-  };
+  // Form Details
+  const [waterLevel, setWaterLevel] = useState<string>('ground_floor');
+  const [partyCount, setPartyCount] = useState<number>(3);
+  const [specialNeeds, setSpecialNeeds] = useState<Record<string, boolean>>({
+    elderlyChildren: true,
+    mobilityImpaired: false,
+    medicalOxygen: false,
+    pets: true,
+  });
+  const [urgency, setUrgency] = useState<UrgencyLevel>('HIGH');
+  const [notes, setNotes] = useState<string>('');
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -714,13 +419,7 @@ export default function CitizenRequestPage() {
                     className="w-full h-12 pl-3.5 pr-11 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                     disabled={isSubmitting}
                     id="addressInput"
-                    onChange={(e) => {
-                      setAddress(e.target.value);
-                      userEditedDuringLookupRef.current = true;
-                      userEditedAddressRef.current = true;
-                      invalidateConfirmation();
-                      markEdited();
-                    }}
+                    onChange={(e) => handleAddressChange(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -1026,12 +725,7 @@ export default function CitizenRequestPage() {
                     className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                     disabled={isSubmitting}
                     id="latInput"
-                    onChange={(e) => {
-                      setLat(e.target.value);
-                      setLocationSource('MANUAL');
-                      invalidateConfirmation();
-                      markEdited();
-                    }}
+                    onChange={(e) => handleCoordinateChange('lat', e.target.value)}
                     placeholder="e.g. 29.7604"
                     type="text"
                     value={lat}
@@ -1059,12 +753,7 @@ export default function CitizenRequestPage() {
                     className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
                     disabled={isSubmitting}
                     id="lngInput"
-                    onChange={(e) => {
-                      setLng(e.target.value);
-                      setLocationSource('MANUAL');
-                      invalidateConfirmation();
-                      markEdited();
-                    }}
+                    onChange={(e) => handleCoordinateChange('lng', e.target.value)}
                     placeholder="e.g. -95.3698"
                     type="text"
                     value={lng}

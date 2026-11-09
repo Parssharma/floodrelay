@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkRateLimit } from '@/lib/rateLimiter';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimiter';
 
 export interface GeocodeRequestBody {
   text: string;
@@ -32,10 +32,7 @@ export type GeocodeResponse = GeocodeSuccessResponse | GeocodeErrorResponse;
 export async function POST(request: Request): Promise<NextResponse<GeocodeResponse>> {
   try {
     // 1. Rate limiting check
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const realIp = request.headers.get('x-real-ip');
-    const clientIp = forwardedFor ? forwardedFor.split(',')[0].trim() : realIp || 'unknown';
-
+    const clientIp = getClientIp(request);
     const rateLimit = checkRateLimit(clientIp);
     if (!rateLimit.allowed) {
       return NextResponse.json(

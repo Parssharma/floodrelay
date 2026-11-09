@@ -1,11 +1,87 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
+import React, { act } from 'react';
+import ReactDOM from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { POST as geocodePOST } from '../app/api/geocode/route';
-import { resetRateLimiter } from '@/lib/rateLimiter';
+import { resetRateLimiter, getClientIp } from '@/lib/rateLimiter';
 import CitizenRequestPage from '../app/citizen/request/page';
+import { useCitizenLocation } from '@/hooks/useCitizenLocation';
 import { apiClient } from '../lib/api/client';
 import type { CreateRequestInput } from '../lib/api/types';
+
+// Configure React act environment
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Mock minimal DOM environment for React 19 node execution
+interface MockListeners {
+  [event: string]: (e: Event) => void;
+}
+const listeners: MockListeners = {};
+
+const mockDocument = {
+  addEventListener: (type: string, fn: (e: Event) => void) => {
+    listeners[type] = fn;
+  },
+  removeEventListener: (type: string) => {
+    delete listeners[type];
+  },
+  createElement: (tag: string) => ({
+    tagName: tag.toUpperCase(),
+    nodeType: 1,
+    style: {},
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    appendChild: () => {},
+    removeChild: () => {},
+    addEventListener: (type: string, fn: (e: Event) => void) => {
+      listeners[type] = fn;
+    },
+    removeEventListener: (type: string) => {
+      delete listeners[type];
+    },
+    ownerDocument: mockDocument,
+  }),
+  createTextNode: (text: string) => ({ nodeType: 3, nodeValue: text }),
+  documentElement: { style: {} },
+  defaultView: null as unknown,
+};
+
+class MockHTMLIFrameElement {}
+class MockElement {}
+class MockHTMLElement extends MockElement {}
+
+const mockGeolocation = {
+  getCurrentPosition: vi.fn(),
+};
+
+const mockWindow = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  HTMLIFrameElement: MockHTMLIFrameElement,
+  Element: MockElement,
+  HTMLElement: MockHTMLElement,
+  document: mockDocument,
+  ownerDocument: mockDocument,
+  navigator: {
+    userAgent: 'node',
+    geolocation: mockGeolocation,
+  },
+};
+mockDocument.defaultView = mockWindow;
+
+global.window = mockWindow as unknown as Window & typeof globalThis;
+global.document = mockDocument as unknown as Document;
+(globalThis as unknown as Record<string, unknown>).HTMLIFrameElement = MockHTMLIFrameElement;
+(globalThis as unknown as Record<string, unknown>).Element = MockElement;
+(globalThis as unknown as Record<string, unknown>).HTMLElement = MockHTMLElement;
+Object.defineProperty(globalThis, 'navigator', {
+  value: {
+    userAgent: 'node',
+    geolocation: mockGeolocation,
+  },
+  configurable: true,
+  writable: true,
+});
 
 // Mock Next.js navigation
 const mockRouterPush = vi.fn();
@@ -488,7 +564,7 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
     });
 
     // 10. Reverse geocoding autofills the address
-    it('10. Reverse geocoding autofills the street address and marks location confirmed', async () => {
+    it('10. Reverse geocoding autofills the street address but keeps location unconfirmed until explicit citizen confirmation', async () => {
       let address = '';
       let isLocationConfirmed = false;
       let locationSource = 'NONE';
@@ -512,12 +588,13 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
 
       if (data.success && data.address) {
         address = data.address;
-        isLocationConfirmed = true;
+        // Invariant: Keep location unconfirmed until citizen explicitly confirms
+        isLocationConfirmed = false;
         locationSource = 'GPS';
       }
 
       expect(address).toBe('456 Floodplain Lane, Houston, TX 77024');
-      expect(isLocationConfirmed).toBe(true);
+      expect(isLocationConfirmed).toBe(false);
       expect(locationSource).toBe('GPS');
     });
 
@@ -856,6 +933,481 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(parsed.isFlaggedDuplicate).toBe(true);
       expect(parsed.duplicateOfId).toBe('req-original-001');
       expect(parsed.idempotent).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // FORWARDED-IP TRUST & RATE LIMITER SECURITY REVIEW
+  // =========================================================================
+  describe('Forwarded-IP Trust & Rate Limiter Security Review', () => {
+    it('extracts leftmost client IP from multi-hop x-forwarded-for header chain', () => {
+      const req = new Request('http://localhost:3000/api/geocode', {
+        headers: {
+          'x-forwarded-for': '203.0.113.195, 70.41.3.18, 150.172.238.178',
+        },
+      });
+      const ip = getClientIp(req);
+      expect(ip).toBe('203.0.113.195');
+    });
+
+    it('falls back to x-real-ip when x-forwarded-for is missing', () => {
+      const req = new Request('http://localhost:3000/api/geocode', {
+        headers: {
+          'x-real-ip': '198.51.100.42',
+        },
+      });
+      const ip = getClientIp(req);
+      expect(ip).toBe('198.51.100.42');
+    });
+
+    it('falls back to "unknown" when no IP headers are present', () => {
+      const req = new Request('http://localhost:3000/api/geocode');
+      const ip = getClientIp(req);
+      expect(ip).toBe('unknown');
+    });
+
+    it('isolates rate limits per client IP and resets on resetRateLimiter', () => {
+      resetRateLimiter();
+      const reqA = new Request('http://localhost:3000/api/geocode', {
+        headers: { 'x-forwarded-for': '192.0.2.1' },
+      });
+      const reqB = new Request('http://localhost:3000/api/geocode', {
+        headers: { 'x-forwarded-for': '192.0.2.2' },
+      });
+
+      const ipA = getClientIp(reqA);
+      const ipB = getClientIp(reqB);
+
+      // Verify independence
+      expect(ipA).toBe('192.0.2.1');
+      expect(ipB).toBe('192.0.2.2');
+      expect(ipA).not.toBe(ipB);
+    });
+  });
+
+  // =========================================================================
+  // MOUNTED REACT REGRESSION TESTS (REACT 19 CREATEROOT & HOOKS)
+  // =========================================================================
+  describe('Mounted React Regression Tests (React 19 createRoot & Lifecycle)', () => {
+    let container: unknown;
+    let root: ReactDOM.Root;
+
+    interface HarnessHandle {
+      location: ReturnType<typeof useCitizenLocation>;
+      errors: Record<string, string>;
+      validateAndSubmit: () => Promise<{ success: boolean; error?: string }>;
+    }
+
+    function CitizenLocationHarness({ onMount }: { onMount: (handle: HarnessHandle) => void }) {
+      const [errors, setErrors] = React.useState<Record<string, string>>({});
+      const location = useCitizenLocation({
+        onErrorsClear: (fields) => {
+          setErrors((prev) => {
+            const next = { ...prev };
+            fields.forEach((f) => delete next[f]);
+            return next;
+          });
+        },
+        onSetError: (field, msg) => {
+          setErrors((prev) => ({ ...prev, [field]: msg }));
+        },
+      });
+
+      const validateAndSubmit = async (): Promise<{ success: boolean; error?: string }> => {
+        const latNum = parseFloat(location.lat);
+        const lngNum = parseFloat(location.lng);
+
+        if (!location.lat.trim() || isNaN(latNum) || latNum < -90 || latNum > 90) {
+          return { success: false, error: 'Valid latitude is required' };
+        }
+        if (!location.lng.trim() || isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+          return { success: false, error: 'Valid longitude is required' };
+        }
+        if (!location.address.trim()) {
+          return { success: false, error: 'Address is required' };
+        }
+        if (!location.isLocationConfirmed) {
+          return { success: false, error: 'Location must be confirmed before submission' };
+        }
+
+        await apiClient.createRequest({
+          lat: latNum,
+          lng: lngNum,
+          peopleCount: 3,
+          urgency: 'HIGH',
+          medicalNeeds: false,
+          notes: `Address: ${location.address}`,
+          source: 'REPORTED',
+          idempotencyKey: '00000000-0000-4000-8000-000000000099',
+        });
+
+        mockRouterPush('/citizen/confirmation');
+        return { success: true };
+      };
+
+      onMount({
+        location,
+        errors,
+        validateAndSubmit,
+      });
+
+      return null;
+    }
+
+    beforeEach(() => {
+      container = mockDocument.createElement('div');
+      root = ReactDOM.createRoot(container as HTMLElement);
+      mockRouterPush.mockClear();
+    });
+
+    afterEach(() => {
+      act(() => {
+        root.unmount();
+      });
+    });
+
+    it('1. GPS autofill without automatic confirmation: coordinates and address populate, but isLocationConfirmed remains false and blocks submission', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Verify blank initial state
+      expect(handle.location.lat).toBe('');
+      expect(handle.location.lng).toBe('');
+      expect(handle.location.address).toBe('');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // Mock geolocation success
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: {
+              latitude: 29.7604,
+              longitude: -95.3698,
+              accuracy: 4.8,
+            },
+          });
+        },
+      );
+
+      // Mock reverse-geocode endpoint returning formatted street address
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: '1428 Riverbend Dr, Houston, TX 77024',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      // Trigger "Use My Current Location"
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      // Invariants check:
+      // 1. Coordinates and address autofilled
+      expect(handle.location.lat).toBe('29.760400');
+      expect(handle.location.lng).toBe('-95.369800');
+      expect(handle.location.address).toBe('1428 Riverbend Dr, Houston, TX 77024');
+      expect(handle.location.locationSource).toBe('GPS');
+      expect(handle.location.gpsAccuracy).toBe(4.8);
+
+      // 2. CRITICAL REQUIREMENT: isLocationConfirmed remains false until citizen explicitly confirms!
+      expect(handle.location.isLocationConfirmed).toBe(false);
+      expect(handle.location.confirmedDetails).toBeNull();
+
+      // 3. Attempting submission without explicit confirmation fails
+      const submitResult = await handle.validateAndSubmit();
+      expect(submitResult.success).toBe(false);
+      expect(submitResult.error).toContain('Location must be confirmed before submission');
+      expect(apiClient.createRequest).not.toHaveBeenCalled();
+      expect(mockRouterPush).not.toHaveBeenCalled();
+    });
+
+    it('2. Manual confirmation: clicking explicit confirm marks location confirmed and enables submission', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Autofill via GPS
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: {
+              latitude: 29.7604,
+              longitude: -95.3698,
+              accuracy: 5.0,
+            },
+          });
+        },
+      );
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: '1428 Riverbend Dr, Houston, TX 77024',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // Citizen clicks explicit "Confirm Location"
+      act(() => {
+        const confirmed = handle.location.handleExplicitConfirm();
+        expect(confirmed).toBe(true);
+      });
+
+      // Location is now confirmed with provenance details
+      expect(handle.location.isLocationConfirmed).toBe(true);
+      expect(handle.location.confirmedDetails).toEqual({
+        address: '1428 Riverbend Dr, Houston, TX 77024',
+        lat: '29.760400',
+        lng: '-95.369800',
+        source: 'GPS',
+        accuracy: 5.0,
+      });
+
+      // Mock apiClient.createRequest success
+      vi.mocked(apiClient.createRequest).mockResolvedValueOnce({
+        id: 'req-mounted-gps-001',
+        createdAt: new Date().toISOString(),
+        urgency: 'HIGH',
+        peopleCount: 3,
+        isFlaggedDuplicate: false,
+        idempotent: false,
+        lat: 29.7604,
+        lng: -95.3698,
+        source: 'REPORTED',
+      });
+
+      // Submission now succeeds
+      const submitResult = await handle.validateAndSubmit();
+      expect(submitResult.success).toBe(true);
+      expect(apiClient.createRequest).toHaveBeenCalledTimes(1);
+      expect(mockRouterPush).toHaveBeenCalledWith('/citizen/confirmation');
+    });
+
+    it('3. Address edits during pending search invalidate the search and clear candidate suggestions', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Setup a delayed fetch promise for forward geocoding
+      let resolveSlowSearch!: (res: Response) => void;
+      const slowSearchPromise = new Promise<Response>((resolve) => {
+        resolveSlowSearch = resolve;
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(slowSearchPromise);
+
+      // Citizen enters address and clicks "Find Location"
+      act(() => {
+        void handle.location.handleSearchAddress('1428 Riverbend');
+      });
+
+      expect(handle.location.geocodeStatus).toBe('SEARCHING');
+
+      // While the search is pending, citizen edits the address input
+      act(() => {
+        handle.location.handleAddressChange('1428 Riverbend Dr Apt 4B');
+      });
+
+      // Invariants: candidates cleared, status reset to IDLE, confirmation invalidated
+      expect(handle.location.address).toBe('1428 Riverbend Dr Apt 4B');
+      expect(handle.location.geocodeCandidates).toEqual([]);
+      expect(handle.location.geocodeStatus).toBe('IDLE');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // Now the delayed search response finally resolves
+      await act(async () => {
+        resolveSlowSearch(
+          new Response(
+            JSON.stringify({
+              success: true,
+              results: [
+                {
+                  formatted: '1428 Riverbend Dr, Houston, TX 77024',
+                  lat: 29.7604,
+                  lng: -95.3698,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      // Invariant: stale candidates MUST NOT be added to candidate list
+      expect(handle.location.geocodeCandidates).toEqual([]);
+      expect(handle.location.address).toBe('1428 Riverbend Dr Apt 4B');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+    });
+
+    it('4. Stale candidate prevention: sequence counter prevents older search responses from overwriting newer ones', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      let resolveSearchA!: (res: Response) => void;
+      const promiseA = new Promise<Response>((resolve) => {
+        resolveSearchA = resolve;
+      });
+
+      let resolveSearchB!: (res: Response) => void;
+      const promiseB = new Promise<Response>((resolve) => {
+        resolveSearchB = resolve;
+      });
+
+      // 1st search starts (Search A)
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(promiseA);
+      act(() => {
+        void handle.location.handleSearchAddress('Old Search Address');
+      });
+
+      // 2nd search starts (Search B) before Search A finishes
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(promiseB);
+      act(() => {
+        void handle.location.handleSearchAddress('New Search Address');
+      });
+
+      // Search B resolves first
+      await act(async () => {
+        resolveSearchB(
+          new Response(
+            JSON.stringify({
+              success: true,
+              results: [
+                {
+                  formatted: 'New Search Address, Houston, TX',
+                  lat: 29.77,
+                  lng: -95.38,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      expect(handle.location.geocodeCandidates).toHaveLength(1);
+      expect(handle.location.geocodeCandidates[0].formatted).toBe(
+        'New Search Address, Houston, TX',
+      );
+
+      // Search A resolves late
+      await act(async () => {
+        resolveSearchA(
+          new Response(
+            JSON.stringify({
+              success: true,
+              results: [
+                {
+                  formatted: 'Old Search Address (Stale), Houston, TX',
+                  lat: 29.71,
+                  lng: -95.31,
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      // Verification: Search A's stale results were discarded; Search B's results remain intact!
+      expect(handle.location.geocodeCandidates).toHaveLength(1);
+      expect(handle.location.geocodeCandidates[0].formatted).toBe(
+        'New Search Address, Houston, TX',
+      );
+    });
+
+    it('5. Manual coordinate changes invalidate previous confirmation and require re-confirmation before submission', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Candidate selected and confirmed
+      act(() => {
+        handle.location.handleSelectCandidate({
+          formatted: '1428 Riverbend Dr, Houston, TX',
+          lat: 29.7604,
+          lng: -95.3698,
+        });
+      });
+
+      expect(handle.location.isLocationConfirmed).toBe(true);
+
+      // Citizen manually edits latitude coordinate
+      act(() => {
+        handle.location.handleCoordinateChange('lat', '29.761000');
+      });
+
+      // Confirmation is immediately invalidated
+      expect(handle.location.isLocationConfirmed).toBe(false);
+      expect(handle.location.confirmedDetails).toBeNull();
+      expect(handle.location.locationSource).toBe('MANUAL');
+
+      // Submission blocked
+      const submitResult = await handle.validateAndSubmit();
+      expect(submitResult.success).toBe(false);
+      expect(submitResult.error).toContain('Location must be confirmed before submission');
+
+      // Citizen explicitly re-confirms with updated coordinates
+      act(() => {
+        const confirmed = handle.location.handleExplicitConfirm();
+        expect(confirmed).toBe(true);
+      });
+
+      expect(handle.location.isLocationConfirmed).toBe(true);
+      expect(handle.location.confirmedDetails?.lat).toBe('29.761000');
     });
   });
 });
