@@ -1,8 +1,8 @@
 # Flood Rescue Resource Allocation Platform — Progress
 
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-09
 
-**Current focus:** Phase 6 Final Delivery Complete ✅ — River Flood Forecast Context Layer (GloFAS 4.0), Deterministic Demonstration System (8-step walkthrough & presentation script), and Redis/BullMQ Evaluation & Deferral (ADR-41/ADR-42).
+**Current focus:** Phase 6 Delivery Verified & Hardened ✅ — Demo DB Safety Guard (`ALLOW_DISPOSABLE_DEMO_DB=1`, host allowlists, durable manifest tracking, random credential security), River Discharge Forecast Qualification (GloFAS 4.0 m³/s experimental indicator, zero misleading fallback), Real PostGIS & Solver Integration Suite, and Evidence-Based Redis/BullMQ Evaluation (ADR-41/ADR-42).
 
 Status legend: ⬜ not started · 🟡 in progress · ✅ done
 
