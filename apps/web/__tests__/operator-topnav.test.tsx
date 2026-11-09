@@ -195,7 +195,7 @@ describe('Phase 1 & 2: Operator Top Navigation & Full-Width Workspace Layout', (
       expect(html).not.toContain('Protected Content');
     });
 
-    it('displays authentication required redirect screen when unauthenticated', () => {
+    it('displays authentication required redirect screen when unauthenticated without triggering router in render', () => {
       mockAuthState = {
         isAuthenticated: false,
         isLoading: false,
@@ -212,6 +212,8 @@ describe('Phase 1 & 2: Operator Top Navigation & Full-Width Workspace Layout', (
       expect(html).toContain('AUTHENTICATION REQUIRED');
       expect(html).toContain('Redirecting to secure operator login...');
       expect(html).not.toContain('Protected Content');
+      // Must not call router.replace during component render phase
+      expect(mockRouterReplace).not.toHaveBeenCalled();
     });
   });
 });
