@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { OperatorAuthProvider, useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 import { OperatorTopNav } from '@/components/operator/OperatorTopNav';
@@ -9,6 +9,14 @@ function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, isLoading } = useOperatorAuth();
+
+  // Redirect to login only after authentication check completes, the operator is unauthenticated,
+  // and the current route is not the login page itself.
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && pathname !== '/operator/login') {
+      router.replace(`/operator/login?from=${encodeURIComponent(pathname)}`);
+    }
+  }, [isLoading, isAuthenticated, pathname, router]);
 
   // The login route renders standalone without top nav
   if (pathname === '/operator/login') {
@@ -30,11 +38,9 @@ function OperatorLayoutContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Unauthenticated guard
+  // Unauthenticated guard: Render placeholder while useEffect triggers redirect to prevent React
+  // "Cannot update a component (Router) while rendering a different component" runtime errors.
   if (!isAuthenticated) {
-    if (typeof window !== 'undefined') {
-      router.replace(`/operator/login?from=${encodeURIComponent(pathname)}`);
-    }
     return (
       <div className="min-h-screen bg-[#0A2540] flex flex-col items-center justify-center p-4 text-white font-inter">
         <div className="text-sm font-bold font-mono text-amber-400 tracking-wider">
