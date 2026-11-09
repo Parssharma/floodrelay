@@ -596,14 +596,15 @@ describe('Deterministic End-to-End Demonstration Workflow Walkthrough', () => {
       updated_at: new Date(),
     });
 
-    // Create demonstration admin operator
+    // Create demonstration dispatcher operator with least-privilege DISPATCHER role
+    const testDemoPassword = 'Demo-Dispatcher-TestPass#2026';
     await authService.createOperator({
       username: 'demo_operator',
-      password: 'DemoOperator2026!',
-      name: 'Lead Disaster Operations Officer',
-      role: 'ADMIN',
+      password: testDemoPassword,
+      name: 'Lead Disaster Operations Dispatcher',
+      role: 'DISPATCHER',
     });
-    const authRes = await authService.authenticate('demo_operator', 'DemoOperator2026!');
+    const authRes = await authService.authenticate('demo_operator', testDemoPassword);
     adminToken = authRes.token;
 
     app = createApp({

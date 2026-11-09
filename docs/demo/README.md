@@ -55,9 +55,15 @@ npm run dev --workspace=@floodrelay/web
 
 ### Demonstration Operator Credentials
 
+The demo setup generates a cryptographically strong, non-deterministic password saved locally to `.demo-credentials.local.json` (gitignored). To display the credentials:
+
+```powershell
+npm run demo:credentials
+```
+
 - **Username:** `demo_operator`
-- **Password:** `DemoOperator2026!`
-- **Role:** `ADMIN` (Full operational, repair, and audit visibility)
+- **Role:** `DISPATCHER` (Least-privilege role sufficient for distress triage, routing, and repair)
+- **Password:** Protected in `.demo-credentials.local.json`
 
 ### Cleaning Demonstration Artifacts
 

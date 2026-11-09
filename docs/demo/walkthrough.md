@@ -40,7 +40,7 @@ Show how dispatchers monitor incoming distress calls, filter by urgency, and tri
 ### User Actions
 
 1. Navigate to [http://localhost:3000/operator](http://localhost:3000/operator).
-2. Log in using `demo_operator` / `DemoOperator2026!`.
+2. Log in using `demo_operator` and the password from `npm run demo:credentials`.
 3. Filter requests by **Urgency: CRITICAL**.
 4. Observe `demo-req-002` flagged with a **DUPLICATE** warning badge (submitted ~30 meters from `demo-req-001`).
 5. Open request details to inspect both reports. Notice both entries remain intact in the database for human triage rather than being deleted.

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,30 +15,40 @@ import {
   RepairOrchestrationService,
   IncrementalRepairSolverAdapter,
 } from '@floodrelay/api';
-import { verifyDemoDatabaseSafety } from './cleanupDemo.js';
+import {
+  assertDisposableDemoDatabase,
+  cleanupTrackedDemoFixtures,
+  recordDemoRunManifest,
+  type DemoRunManifest,
+} from './demoDbGuard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 export async function runDemoSetup(): Promise<{
+  runId: string;
   scenarioId: string;
   baselineAssignmentId: string;
   repairedProposalId: string;
   disruptionEventId: string;
   frozenStopsCount: number;
   churnRate: number;
+  credentialsFile: string;
 }> {
   console.log('===============================================================');
   console.log('🌊 FloodRelay — End-to-End Demonstration Environment Setup');
   console.log('===============================================================');
 
-  // Step 1: Safety & Environment Verification
-  verifyDemoDatabaseSafety();
-  console.log('✔ Database safety guard passed: non-production target verified.');
-
   const pool = getPool();
   try {
+    // Step 1: Strict disposable demo database safety verification
+    console.log('Verifying disposable demo database safety guard...');
+    const dbInfo = await assertDisposableDemoDatabase(pool);
+    console.log(
+      `✔ Database safety guard passed: Verified disposable demo target "${dbInfo.databaseName}" on "${dbInfo.serverAddr || 'local'}" as "${dbInfo.dbUser}".`,
+    );
+
     // Step 2: Ensure schema migrations are applied
     console.log('Applying database migrations up to latest...');
     await runMigrationsUp(pool);
@@ -50,46 +61,32 @@ export async function runDemoSetup(): Promise<{
     const repairService = new RepairOrchestrationService(repo, repairSolver);
     const assignmentService = new AssignmentService(repo);
 
-    // Step 3: Clean prior demo artifacts for idempotent setup
-    console.log('Cleaning previous demo state if present...');
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`
-        DELETE FROM assignment_stops
-        WHERE assignment_id IN (
-          SELECT id FROM assignments WHERE scenario_id = 'scenario-demo-yamuna-2026'
-        )
-      `);
-      await client.query(`
-        DELETE FROM assignments WHERE scenario_id = 'scenario-demo-yamuna-2026'
-      `);
-      await client.query(`
-        DELETE FROM operational_events WHERE entity_id LIKE 'demo-%' OR correlation_id LIKE 'demo-%'
-      `);
-      await client.query(`
-        DELETE FROM audit_events WHERE entity_id LIKE 'demo-%'
-      `);
-      await client.query(`
-        DELETE FROM blocked_zones WHERE id LIKE 'demo-zone-%'
-      `);
-      await client.query(`
-        DELETE FROM requests WHERE id LIKE 'demo-req-%' OR id LIKE 'demo-walkthrough-%'
-      `);
-      await client.query(`
-        DELETE FROM resources WHERE id LIKE 'demo-res-%'
-      `);
-      await client.query(`
-        DELETE FROM shelters WHERE id LIKE 'demo-shelter-%'
-      `);
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
+    // Step 3: Clean prior tracked demo runs for idempotent clean slate
+    console.log('Cleaning previous tracked demo runs if present...');
+    const cleanupCounts = await cleanupTrackedDemoFixtures(pool);
+    if (cleanupCounts.cleanedRuns > 0) {
+      console.log(
+        `✔ Purged prior demo fixtures (${cleanupCounts.cleanedRuns} run(s), ${cleanupCounts.deletedRequests} requests, ${cleanupCounts.deletedAssignments} assignments).`,
+      );
+    } else {
+      console.log('✔ Clean slate confirmed.');
     }
-    console.log('✔ Clean slate established.');
+
+    // Initialize collision-resistant run tracking manifest
+    const runId = `demo_run_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const manifest: DemoRunManifest = {
+      runId,
+      status: 'ACTIVE',
+      requestIds: [],
+      assignmentIds: [],
+      assignmentStopIds: [],
+      resourceIds: [],
+      shelterIds: [],
+      blockedZoneIds: [],
+      operationalEventIds: [],
+      auditEventIds: [],
+      operatorUsernames: [],
+    };
 
     // Step 4: Seed deterministic demo scenario
     const scenarioPath = path.resolve(__dirname, '../../scenarios/demo-yamuna-scenario.json');
@@ -97,27 +94,60 @@ export async function runDemoSetup(): Promise<{
       throw new Error(`Demo scenario file not found at: ${scenarioPath}`);
     }
     const scenario = JSON.parse(fs.readFileSync(scenarioPath, 'utf-8')) as Scenario;
+    manifest.scenarioId = scenario.id;
+
     console.log(`Seeding demo scenario: "${scenario.metadata.name}" (${scenario.id})...`);
     const seedResult = await repo.loadScenario(scenario);
     console.log(
       `✔ Scenario loaded: ${seedResult.requestsCount} requests, ${seedResult.resourcesCount} resources, ${seedResult.sheltersCount} shelters (labeled SIMULATED).`,
     );
 
-    // Step 5: Provision demonstration operator account
-    const demoUsername = 'demo_operator';
-    const demoPassword = 'DemoOperator2026!';
+    // Track seeded scenario entity IDs in durable manifest
+    manifest.requestIds.push(...scenario.requests.map((r) => r.id));
+    manifest.resourceIds.push(...scenario.resources.map((r) => r.id));
+    manifest.shelterIds.push(...scenario.shelters.map((s) => s.id));
+
+    // Step 5: Provision demonstration operator account with least privilege (DISPATCHER)
+    const demoUsername = process.env.DEMO_OPERATOR_USERNAME || 'demo_operator';
+    const demoPassword =
+      process.env.DEMO_OPERATOR_PASSWORD || crypto.randomBytes(16).toString('base64url');
+    const demoRole = 'DISPATCHER';
+
     const existingOp = await repo.getOperatorByUsername(demoUsername);
     if (!existingOp) {
       await authService.createOperator({
         username: demoUsername,
         password: demoPassword,
-        name: 'Lead Disaster Operations Officer',
-        role: 'ADMIN',
+        name: 'Lead Disaster Operations Dispatcher',
+        role: demoRole,
       });
-      console.log(`✔ Provisioned demonstration operator: "${demoUsername}" (Role: ADMIN).`);
+      manifest.operatorUsernames.push(demoUsername);
+      console.log(
+        `✔ Provisioned demonstration operator: "${demoUsername}" (Least-privilege role: ${demoRole}).`,
+      );
     } else {
       console.log(`✔ Demonstration operator "${demoUsername}" verified.`);
+      manifest.operatorUsernames.push(demoUsername);
     }
+
+    // Persist credentials locally in gitignored file — NEVER print password to stdout
+    const credPath = path.resolve(__dirname, '../../.demo-credentials.local.json');
+    fs.writeFileSync(
+      credPath,
+      JSON.stringify(
+        {
+          username: demoUsername,
+          password: demoPassword,
+          role: demoRole,
+          runId,
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+    console.log(`✔ Credentials securely written to local file: .demo-credentials.local.json`);
 
     // Step 6: Propose baseline assignment
     console.log('Generating initial baseline rescue proposal (algorithm: savings)...');
@@ -125,6 +155,10 @@ export async function runDemoSetup(): Promise<{
       scenarioId: scenario.id,
       algorithm: 'savings',
     });
+    manifest.assignmentIds.push(baseline.id);
+    for (const stop of baseline.stops) {
+      manifest.assignmentStopIds.push(stop.id);
+    }
     console.log(`✔ Baseline proposal created: ID = ${baseline.id}`);
 
     // Step 7: Commit baseline assignment (human operator commitment -> stops frozen)
@@ -165,6 +199,7 @@ export async function runDemoSetup(): Promise<{
         reason: 'Outboard motor flooded in high-turbidity debris water near Old Railway Bridge',
       },
     });
+    manifest.operationalEventIds.push(disruptionEvent.event.id);
     console.log(`✔ Recorded disruption event: ID = ${disruptionEvent.event.id} (RESOURCE_OFFLINE)`);
 
     // B. Road blockage hazard
@@ -181,7 +216,9 @@ export async function runDemoSetup(): Promise<{
       ],
       createdBy: demoUsername,
     });
-    await eventService.recordEvent({
+    manifest.blockedZoneIds.push(blockedZone.id);
+
+    const hazardEvent = await eventService.recordEvent({
       id: `evt-demo-hazard-${Date.now().toString().slice(-4)}`,
       type: 'ROAD_BLOCKED',
       entityType: 'ROAD_ZONE',
@@ -194,6 +231,7 @@ export async function runDemoSetup(): Promise<{
         severity: blockedZone.severity,
       },
     });
+    manifest.operationalEventIds.push(hazardEvent.event.id);
     console.log(`✔ Recorded hazard zone: ID = ${blockedZone.id} (ROAD_BLOCKED)`);
 
     // Step 9: Incremental plan repair
@@ -201,6 +239,16 @@ export async function runDemoSetup(): Promise<{
     const repairResult = await repairService.orchestrateRepair(disruptionEvent.event.id, {
       baselineAssignmentId: baseline.id,
     });
+
+    if (repairResult.proposalId) {
+      manifest.assignmentIds.push(repairResult.proposalId);
+      const repairedPlan = await repo.getAssignment(repairResult.proposalId);
+      if (repairedPlan) {
+        for (const stop of repairedPlan.stops) {
+          manifest.assignmentStopIds.push(stop.id);
+        }
+      }
+    }
 
     console.log(`✔ Incremental repair complete:`);
     console.log(`  - Status:                   ${repairResult.status}`);
@@ -215,13 +263,18 @@ export async function runDemoSetup(): Promise<{
       throw new Error('SAFETY VIOLATION: Repair violated committed frozen stops!');
     }
 
-    // Step 10: Print interactive demonstration guide
+    // Step 10: Persist durable run manifest in PostgreSQL
+    await recordDemoRunManifest(pool, manifest);
+    console.log(`✔ Durable demo manifest recorded: Run ID = ${runId}`);
+
+    // Step 11: Print interactive demonstration guide
     console.log('\n===============================================================');
     console.log('🎉 FloodRelay Demonstration System Ready for Presentation');
     console.log('===============================================================');
     console.log('\nOperator Credentials:');
     console.log(`  Username: ${demoUsername}`);
-    console.log(`  Password: ${demoPassword}`);
+    console.log(`  Role:     ${demoRole}`);
+    console.log(`  Password: [PROTECTED] View via: npm run demo:credentials`);
     console.log('\nInteractive Web Applications:');
     console.log('  1. Citizen Distress Intake:   http://localhost:3000/citizen/request');
     console.log('  2. Operator Command Portal:   http://localhost:3000/operator');
@@ -236,12 +289,14 @@ export async function runDemoSetup(): Promise<{
     console.log('  npm run demo:cleanup\n');
 
     return {
+      runId,
       scenarioId: scenario.id,
       baselineAssignmentId: baseline.id,
       repairedProposalId: repairResult.proposalId ?? '',
       disruptionEventId: disruptionEvent.event.id,
       frozenStopsCount: frozenStops.length,
       churnRate: repairResult.churn?.churnRate ?? 0,
+      credentialsFile: credPath,
     };
   } finally {
     await closePool();

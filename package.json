@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present && vitest run tests/load",
     "test:repair-integration": "npm --workspace=@floodrelay/api run test:repair-integration",
+    "test:demo-integration": "npm --workspace=@floodrelay/api run test:demo-integration",
     "provision:test-db": "npm --workspace=@floodrelay/api run provision:test-db",
     "evaluate": "vitest run packages/solver/src/evaluation/benchmark.test.ts",
     "format": "prettier --write .",
@@ -24,7 +25,8 @@
     "test:load:baseline": "node tests/load/run.js -e LOAD_PROFILE=baseline",
     "test:load:stress": "node tests/load/run.js -e LOAD_PROFILE=stress",
     "demo:setup": "tsx tools/demo/setupDemo.ts",
-    "demo:cleanup": "tsx tools/demo/cleanupDemo.ts"
+    "demo:cleanup": "tsx tools/demo/cleanupDemo.ts",
+    "demo:credentials": "tsx tools/demo/showCredentials.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
