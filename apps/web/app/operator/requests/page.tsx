@@ -87,7 +87,7 @@ function OperatorRequestsContent() {
   }, [requests, selectedRequestId, filteredRequests]);
 
   return (
-    <main className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] w-full mx-auto">
+    <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Top Header & Triage Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-outline-variant">
         <div>
@@ -344,134 +344,187 @@ function OperatorRequestsContent() {
         {/* Right Column: Selected Request Inspector (4 cols on lg) */}
         <section className="lg:col-span-4 bg-surface-container-lowest border border-outline-variant rounded-xl p-5 shadow-xs sticky top-20">
           {selectedRequest ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-outline-variant">
-                <div>
-                  <span className="font-mono text-[10px] uppercase font-bold text-primary block">
-                    INSPECTOR PANEL
-                  </span>
-                  <h3 className="font-mono text-base font-bold text-on-surface">
-                    {selectedRequest.id}
-                  </h3>
-                </div>
-                <UrgencyBadge urgency={selectedRequest.urgency} />
-              </div>
+            (() => {
+              const isPending = !selectedRequest.status || selectedRequest.status === 'PENDING';
+              const isDuplicate = Boolean(selectedRequest.isFlaggedDuplicate);
+              const isEligible = isPending && !isDuplicate;
 
-              {/* Status and Attributes Strip */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                  <span className="text-[10px] text-on-surface-variant block">Status</span>
-                  <StatusBadge status={selectedRequest.status || 'PENDING'} />
-                </div>
-                <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
-                  <span className="text-[10px] text-on-surface-variant block">Passenger Count</span>
-                  <span className="font-bold text-on-surface text-sm">
-                    {selectedRequest.peopleCount} People
-                  </span>
-                </div>
-              </div>
+              let ineligibilityReason = '';
+              const statusStr = (selectedRequest.status as string) || 'PENDING';
+              if (statusStr === 'ASSIGNED' || selectedRequest.status === 'IN_TRANSIT') {
+                ineligibilityReason =
+                  'Request is already in transit / assigned to an active route plan.';
+              } else if (selectedRequest.status === 'RESCUED') {
+                ineligibilityReason = 'Request has already been served and rescued.';
+              } else if (selectedRequest.status === 'CANCELLED') {
+                ineligibilityReason = 'Request was cancelled.';
+              } else if (isDuplicate) {
+                ineligibilityReason =
+                  'Flagged as potential duplicate. Review duplicate ticket before planning.';
+              }
 
-              {/* Detailed Spec List */}
-              <div className="space-y-3 text-xs">
-                <div>
-                  <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
-                    Geographic Coordinates
-                  </span>
-                  <div className="p-2 rounded bg-surface font-mono text-on-surface border border-outline-variant/40 flex items-center justify-between">
-                    <span>
-                      {selectedRequest.lat.toFixed(6)}° N, {selectedRequest.lng.toFixed(6)}° W
-                    </span>
-                    <span className="material-symbols-outlined text-primary text-base">
-                      pin_drop
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
-                    Medical Needs Flag
-                  </span>
-                  <div className="p-2 rounded bg-surface text-on-surface border border-outline-variant/40 flex items-center gap-2">
-                    <span
-                      className={`material-symbols-outlined text-base ${
-                        selectedRequest.medicalNeeds ? 'text-tertiary' : 'text-outline'
-                      }`}
-                    >
-                      {selectedRequest.medicalNeeds
-                        ? 'medical_services'
-                        : 'check_box_outline_blank'}
-                    </span>
-                    <span>
-                      {selectedRequest.medicalNeeds
-                        ? 'High-priority medical needs reported'
-                        : 'No critical medical assistance reported'}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
-                    Field Notes &amp; Situation
-                  </span>
-                  <p className="p-3 rounded bg-surface border border-outline-variant/40 text-on-surface leading-relaxed">
-                    {selectedRequest.notes || 'No specific caller instructions logged.'}
-                  </p>
-                </div>
-
-                {selectedRequest.isFlaggedDuplicate && (
-                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950">
-                    <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-800">
-                      <span className="material-symbols-outlined text-[16px]">warning</span>
-                      <span>Potential Duplicate Detected</span>
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-outline-variant">
+                    <div>
+                      <span className="font-mono text-[10px] uppercase font-bold text-primary block">
+                        INSPECTOR PANEL
+                      </span>
+                      <h3 className="font-mono text-base font-bold text-on-surface">
+                        {selectedRequest.id}
+                      </h3>
                     </div>
-                    <p className="text-[11px] mt-1 text-amber-900">
-                      Nearby report #{selectedRequest.duplicateOfId || 'associated ticket'} shares
-                      coordinate proximity and similar head count.
-                    </p>
+                    <UrgencyBadge urgency={selectedRequest.urgency} />
                   </div>
-                )}
 
-                <div>
-                  <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
-                    Logged Timestamp
-                  </span>
-                  <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
-                    {selectedRequest.createdAt
-                      ? new Date(selectedRequest.createdAt).toLocaleString()
-                      : 'Unknown'}
+                  {/* Status and Attributes Strip */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
+                      <span className="text-[10px] text-on-surface-variant block">Status</span>
+                      <StatusBadge status={selectedRequest.status || 'PENDING'} />
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface border border-outline-variant/60">
+                      <span className="text-[10px] text-on-surface-variant block">
+                        Passenger Count
+                      </span>
+                      <span className="font-bold text-on-surface text-sm">
+                        {selectedRequest.peopleCount} People
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Detailed Spec List */}
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
+                        Geographic Coordinates
+                      </span>
+                      <div className="p-2 rounded bg-surface font-mono text-on-surface border border-outline-variant/40 flex items-center justify-between">
+                        <span>
+                          {Math.abs(selectedRequest.lat).toFixed(6)}°{' '}
+                          {selectedRequest.lat >= 0 ? 'N' : 'S'},{' '}
+                          {Math.abs(selectedRequest.lng).toFixed(6)}°{' '}
+                          {selectedRequest.lng >= 0 ? 'E' : 'W'}
+                        </span>
+                        <span className="material-symbols-outlined text-primary text-base">
+                          pin_drop
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
+                        Medical Needs Flag
+                      </span>
+                      <div className="p-2 rounded bg-surface text-on-surface border border-outline-variant/40 flex items-center gap-2">
+                        <span
+                          className={`material-symbols-outlined text-base ${
+                            selectedRequest.medicalNeeds ? 'text-tertiary' : 'text-outline'
+                          }`}
+                        >
+                          {selectedRequest.medicalNeeds
+                            ? 'medical_services'
+                            : 'check_box_outline_blank'}
+                        </span>
+                        <span>
+                          {selectedRequest.medicalNeeds
+                            ? 'High-priority medical needs reported'
+                            : 'No critical medical assistance reported'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
+                        Field Notes &amp; Situation
+                      </span>
+                      <p className="p-3 rounded bg-surface border border-outline-variant/40 text-on-surface leading-relaxed">
+                        {selectedRequest.notes || 'No specific caller instructions logged.'}
+                      </p>
+                    </div>
+
+                    {selectedRequest.isFlaggedDuplicate && (
+                      <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950">
+                        <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-800">
+                          <span className="material-symbols-outlined text-[16px]">warning</span>
+                          <span>Potential Duplicate Detected</span>
+                        </div>
+                        <p className="text-[11px] mt-1 text-amber-900">
+                          Nearby report #{selectedRequest.duplicateOfId || 'associated ticket'}{' '}
+                          shares coordinate proximity and similar head count.
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <span className="text-[10px] uppercase font-mono text-on-surface-variant font-bold block mb-0.5">
+                        Logged Timestamp
+                      </span>
+                      <div className="p-2 rounded bg-surface font-mono text-on-surface text-[11px] border border-outline-variant/40">
+                        {selectedRequest.createdAt
+                          ? new Date(selectedRequest.createdAt).toLocaleString()
+                          : 'Unknown'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rescue Assignment Action Controls */}
+                  <div className="pt-3 border-t border-outline-variant space-y-2">
+                    {!isEligible && (
+                      <div className="p-2.5 rounded bg-amber-50 border border-amber-300 text-amber-950 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-800 text-[11px]">
+                          <span className="material-symbols-outlined text-[16px]">info</span>
+                          <span>Planning Not Applicable:</span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-amber-900">
+                          {ineligibilityReason}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {/* Plan Rescue Assignment (Primary) */}
+                      {isEligible ? (
+                        <Link
+                          href={`/operator/assignments?requestId=${encodeURIComponent(
+                            selectedRequest.id,
+                          )}&urgency=${encodeURIComponent(
+                            selectedRequest.urgency,
+                          )}&peopleCount=${selectedRequest.peopleCount}`}
+                          className="py-2.5 px-3 rounded-lg bg-[#0066CC] hover:bg-[#0055b3] text-white text-xs font-bold text-center transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                          title="Plan solver proposal for this request context"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">psychology</span>
+                          <span>Plan Rescue Assignment</span>
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="py-2.5 px-3 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 text-xs font-semibold cursor-not-allowed flex items-center justify-center gap-1.5"
+                          title={ineligibilityReason}
+                        >
+                          <span className="material-symbols-outlined text-[16px]">block</span>
+                          <span>Plan Ineligible</span>
+                        </button>
+                      )}
+
+                      {/* View on Map (Secondary) */}
+                      <Link
+                        href={`/operator/map?requestId=${encodeURIComponent(selectedRequest.id)}`}
+                        className="py-2.5 px-3 rounded-lg border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold text-center transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
+                        title="Locate and focus this request on Operations Map"
+                      >
+                        <span className="material-symbols-outlined text-[16px] text-[#0066CC]">
+                          map
+                        </span>
+                        <span>View on Map</span>
+                      </Link>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Milestone 5 Non-Operational Action Controls */}
-              <div className="pt-3 border-t border-outline-variant space-y-2">
-                <div className="p-2.5 rounded bg-surface-container border border-outline-variant text-[11px] text-on-surface-variant">
-                  <span className="font-bold text-on-surface block">
-                    Dispatch Mutation Disabled:
-                  </span>
-                  <span>
-                    Human-supervised solver route generation and craft assignment will be enabled in
-                    Milestone 5.
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    className="py-2 px-3 rounded bg-surface-container text-on-surface text-xs font-semibold opacity-60 cursor-not-allowed"
-                    disabled
-                    type="button"
-                  >
-                    Assign Vehicle (M5)
-                  </button>
-                  <button
-                    className="py-2 px-3 rounded bg-primary text-on-primary text-xs font-semibold opacity-60 cursor-not-allowed"
-                    disabled
-                    type="button"
-                  >
-                    Dispatch Craft (M5)
-                  </button>
-                </div>
-              </div>
-            </div>
+              );
+            })()
           ) : (
             <div className="p-8 text-center text-on-surface-variant text-xs space-y-2">
               <span className="material-symbols-outlined text-3xl text-outline">touch_app</span>
@@ -480,7 +533,7 @@ function OperatorRequestsContent() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 
