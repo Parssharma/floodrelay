@@ -47,7 +47,7 @@ describe('GET /forecast/context Endpoint Integration Tests', () => {
     currentDischargeM3S: 4.25,
     peakForecastM3S: 4.25,
     riskCategory: 'NORMAL',
-    confidenceScore: 0.85,
+    isExperimentalIndicator: true,
     freshness: 'FRESH',
     disclaimer: 'Informational context only.',
   };

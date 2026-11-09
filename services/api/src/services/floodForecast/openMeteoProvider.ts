@@ -33,7 +33,7 @@ export const DEFAULT_YAMUNA_LAT = 28.65;
 export const DEFAULT_YAMUNA_LNG = 77.23;
 export const DEFAULT_FORECAST_DAYS = 7;
 export const FORECAST_DISCLAIMER =
-  'Informational hydrological context based on European Centre for Medium-Range Weather Forecasts (ECMWF) GloFAS 4.0 gridded river discharge model via Open-Meteo (CC BY 4.0). Does not measure localized street inundation, urban flash flooding, or measured gauge levels at Delhi Old Railway Bridge. This layer is informational only and does not trigger autonomous rescue dispatch or modify committed routes.';
+  'Informational hydrological context based on European Centre for Medium-Range Weather Forecasts (ECMWF) GloFAS 4.0 gridded river discharge model via Open-Meteo (CC BY 4.0). GloFAS simulates river discharge in cubic meters per second (m³/s) and does not measure localized street inundation, urban flash flooding, or measured gauge levels at Delhi Old Railway Bridge (Central Water Commission Yamuna Warning Level: 204.5 m, Danger Level: 205.33 m above MSL). All discharge risk thresholds (50, 200, 800 m³/s) are experimental model indicators and do NOT constitute official public flood warnings. This layer is informational only and does not trigger autonomous rescue dispatch or modify committed routes.';
 
 export function classifyDischargeRisk(maxDischargeM3S: number): ForecastRiskLevel {
   if (maxDischargeM3S >= 800) return 'EXTREME';
@@ -91,9 +91,16 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
 
       const json = (await res.json()) as OpenMeteoFloodApiResponse;
       return this.transformResponse(json, lat, lng, days, 'FRESH');
-    } catch {
-      // In air-gapped / offline testing or when provider is unreachable, supply deterministic fallback fixture
-      return this.getFallbackFixture(lat, lng, days);
+    } catch (err) {
+      // Offline fixture is permitted ONLY when explicitly authorized via environment flag
+      const allowOffline =
+        process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === '1' ||
+        process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === 'true';
+
+      if (allowOffline) {
+        return this.getFallbackFixture(lat, lng, days);
+      }
+      throw err;
     }
   }
 
@@ -152,7 +159,7 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
       currentDischargeM3S,
       peakForecastM3S,
       riskCategory,
-      confidenceScore: 0.85,
+      isExperimentalIndicator: true,
       freshness,
       disclaimer: FORECAST_DISCLAIMER,
     };
@@ -187,8 +194,8 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
     const retrievedAt = new Date().toISOString();
 
     return {
-      provider: 'Copernicus EMS GloFAS via Open-Meteo (Deterministic Offline Fixture)',
-      source: 'ECMWF GloFAS 4.0 Gridded Hydrological Model (Simulated Fallback)',
+      provider: 'Simulated Hydrological Model (Offline Fixture)',
+      source: 'SIMULATED FORECAST — DEMO ONLY',
       attribution:
         'Contains simulated hydrological context modeled on Copernicus Emergency Management Service under CC BY 4.0',
       license: 'CC BY 4.0',
@@ -214,10 +221,10 @@ export class OpenMeteoFloodForecastProvider implements FloodForecastProvider {
       daily,
       currentDischargeM3S,
       peakForecastM3S,
-      riskCategory: classifyDischargeRisk(peakForecastM3S),
-      confidenceScore: 0.8,
+      riskCategory: 'UNKNOWN',
+      isExperimentalIndicator: true,
       freshness: 'OFFLINE_FIXTURE',
-      disclaimer: `${FORECAST_DISCLAIMER} (CURRENTLY DISPLAYING DETERMINISTIC OFFLINE FIXTURE AS LIVE NETWORK WAS UNREACHABLE).`,
+      disclaimer: `${FORECAST_DISCLAIMER} (SIMULATED FORECAST — DEMO ONLY: Live network provider was unreachable and explicit offline fixture was enabled).`,
     };
   }
 }

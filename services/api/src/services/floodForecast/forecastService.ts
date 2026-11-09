@@ -45,7 +45,7 @@ export class ForecastService {
         cachedAt: now,
       });
       return freshData;
-    } catch (err) {
+    } catch {
       // 3. Fallback to stale cached data if available
       if (cached) {
         return {
@@ -55,12 +55,52 @@ export class ForecastService {
         };
       }
 
-      // 4. Fallback to deterministic simulated fixture if offline/no cache
-      if (this.provider instanceof OpenMeteoFloodForecastProvider) {
+      // 4. Fallback to deterministic simulated fixture ONLY if offline fixture is explicitly authorized
+      const allowOffline =
+        process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === '1' ||
+        process.env.FORECAST_ENABLE_OFFLINE_FIXTURE === 'true';
+
+      if (allowOffline && this.provider instanceof OpenMeteoFloodForecastProvider) {
         return this.provider.getFallbackFixture(options?.lat, options?.lng, options?.days);
       }
 
-      throw err;
+      // 5. Otherwise return explicit UNAVAILABLE structure without fabricating normal discharge
+      const lat = options?.lat ?? 28.65;
+      const lng = options?.lng ?? 77.23;
+      const days = options?.days ?? 7;
+      const nowIso = new Date(now).toISOString();
+
+      return {
+        provider: 'Copernicus EMS GloFAS via Open-Meteo',
+        source: 'ECMWF GloFAS 4.0 Gridded Hydrological Model',
+        attribution: 'Copernicus Emergency Management Service / Open-Meteo',
+        license: 'CC BY 4.0',
+        region: {
+          name: 'Yamuna River Basin (Delhi Reach)',
+          targetLat: lat,
+          targetLng: lng,
+          stationLat: lat,
+          stationLng: lng,
+        },
+        issuedAt: nowIso,
+        retrievedAt: nowIso,
+        validFrom: nowIso,
+        validTo: nowIso,
+        forecastHorizonDays: days,
+        variable: {
+          name: 'river_discharge',
+          unit: 'm³/s',
+          description: 'Simulated daily river discharge rate in cubic meters per second',
+        },
+        daily: [],
+        currentDischargeM3S: 0,
+        peakForecastM3S: 0,
+        riskCategory: 'UNAVAILABLE',
+        isExperimentalIndicator: true,
+        freshness: 'UNAVAILABLE',
+        disclaimer:
+          'Hydrological flood forecast provider is currently unavailable. No recent forecast data could be retrieved. Operational rescue routing and human dispatch remain fully active.',
+      };
     }
   }
 

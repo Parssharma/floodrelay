@@ -274,8 +274,18 @@ function OperatorMapContent() {
                 <span className="material-symbols-outlined text-[14px] text-cyan-400">waves</span>
                 <span className="font-medium">Flood Forecast</span>
                 {forecastContext && (
-                  <span className="ml-0.5 px-1.5 py-0.2 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold">
-                    {forecastContext.currentDischargeM3S} m³/s
+                  <span
+                    className={`ml-0.5 px-1.5 py-0.2 rounded text-white font-mono text-[10px] font-bold ${
+                      forecastContext.freshness === 'UNAVAILABLE'
+                        ? 'bg-slate-700 text-slate-300'
+                        : forecastContext.freshness === 'OFFLINE_FIXTURE'
+                          ? 'bg-amber-800 text-amber-200'
+                          : 'bg-cyan-800 text-white'
+                    }`}
+                  >
+                    {forecastContext.freshness === 'UNAVAILABLE'
+                      ? 'UNAVAILABLE'
+                      : `${forecastContext.currentDischargeM3S} m³/s`}
                   </span>
                 )}
               </label>
@@ -295,19 +305,36 @@ function OperatorMapContent() {
                     </span>
                   </div>
                   {forecastContext && (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 border border-cyan-500/50 text-cyan-300">
-                      {forecastContext.riskCategory} • {forecastContext.freshness}
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                        forecastContext.freshness === 'OFFLINE_FIXTURE'
+                          ? 'bg-amber-950 border-amber-500 text-amber-300'
+                          : forecastContext.freshness === 'UNAVAILABLE'
+                            ? 'bg-slate-800 border-slate-600 text-slate-300'
+                            : 'bg-cyan-950 border-cyan-500/50 text-cyan-300'
+                      }`}
+                    >
+                      {forecastContext.freshness === 'OFFLINE_FIXTURE'
+                        ? 'SIMULATED FORECAST — DEMO ONLY'
+                        : `${forecastContext.riskCategory} • ${forecastContext.freshness}`}
                     </span>
                   )}
                 </div>
 
-                {forecastStatus === 'ERROR' || (!forecastContext && forecastError) ? (
+                {forecastStatus === 'ERROR' ||
+                (!forecastContext && forecastError) ||
+                (forecastContext && forecastContext.freshness === 'UNAVAILABLE') ? (
                   <div className="text-amber-300 text-[11px] bg-amber-950/40 border border-amber-600/40 p-2 rounded">
-                    Flood forecast provider temporarily unavailable. Operational rescue map and
-                    routing remain fully interactive.
+                    Forecast Unavailable: Upstream hydrological provider unreachable and no cached
+                    data exists. Operational rescue map and routing remain fully interactive.
                   </div>
                 ) : forecastContext ? (
                   <div className="space-y-1.5">
+                    {forecastContext.freshness === 'OFFLINE_FIXTURE' && (
+                      <div className="p-1.5 bg-amber-950/60 border border-amber-500/60 rounded text-[10px] text-amber-200 font-semibold text-center uppercase tracking-wide">
+                        ⚠ DEMO ENVIRONMENT: Displaying synthetic offline fixture
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
                       <div className="bg-slate-800/80 p-2 rounded border border-slate-700/60">
                         <div className="text-[10px] text-slate-400 uppercase font-mono">
@@ -334,6 +361,7 @@ function OperatorMapContent() {
                     </div>
 
                     <div className="text-[9.5px] text-slate-400 italic border-t border-slate-800 pt-1 leading-tight">
+                      <span className="font-semibold text-slate-300">Model Indicator:</span>{' '}
                       {forecastContext.attribution}. {forecastContext.disclaimer}
                     </div>
                   </div>

@@ -153,6 +153,7 @@ function getRiverStationIcon(risk: string): L.DivIcon {
   const isExtreme = risk === 'EXTREME';
   const isHigh = risk === 'HIGH';
   const isElevated = risk === 'ELEVATED';
+  const isUnavailable = risk === 'UNAVAILABLE' || risk === 'UNKNOWN';
 
   const badgeColor = isExtreme
     ? 'bg-purple-600 border-purple-300 text-white'
@@ -160,11 +161,17 @@ function getRiverStationIcon(risk: string): L.DivIcon {
       ? 'bg-rose-600 border-rose-300 text-white'
       : isElevated
         ? 'bg-amber-600 border-amber-300 text-white'
-        : 'bg-cyan-600 border-cyan-300 text-white';
+        : isUnavailable
+          ? 'bg-slate-700 border-slate-500 text-slate-300'
+          : 'bg-cyan-600 border-cyan-300 text-white';
+
+  const pingHtml = isUnavailable
+    ? ''
+    : `<span class="absolute -inset-1 rounded-full bg-cyan-400 animate-ping opacity-40"></span>`;
 
   const html = `
     <div class="relative flex items-center justify-center cursor-pointer" data-testid="forecast-marker">
-      <span class="absolute -inset-1 rounded-full bg-cyan-400 animate-ping opacity-40"></span>
+      ${pingHtml}
       <div class="relative flex items-center justify-center w-8 h-8 rounded-full border-2 font-mono font-bold text-xs shadow-2xl ${badgeColor}">
         <span class="material-symbols-outlined text-[16px]">waves</span>
       </div>

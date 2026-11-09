@@ -533,8 +533,9 @@ export interface RepairResult {
 // Flood Forecast Context Types (Phase 6)
 // ==========================================
 
-export type ForecastRiskLevel = 'NORMAL' | 'ELEVATED' | 'HIGH' | 'EXTREME';
-export type ForecastFreshness = 'FRESH' | 'CACHED' | 'STALE' | 'OFFLINE_FIXTURE';
+export type ForecastRiskLevel =
+  'NORMAL' | 'ELEVATED' | 'HIGH' | 'EXTREME' | 'UNKNOWN' | 'UNAVAILABLE';
+export type ForecastFreshness = 'FRESH' | 'CACHED' | 'STALE' | 'OFFLINE_FIXTURE' | 'UNAVAILABLE';
 
 export interface DailyDischargeForecast {
   date: string;
@@ -571,6 +572,7 @@ export interface FloodForecastContext {
   currentDischargeM3S: number;
   peakForecastM3S: number;
   riskCategory: ForecastRiskLevel;
+  isExperimentalIndicator: boolean;
   confidenceScore?: number;
   freshness: ForecastFreshness;
   disclaimer: string;

@@ -47,6 +47,7 @@ describe('Phase 6 — Flood Forecast Context Layer Invariants & Operator Map', (
     currentDischargeM3S: 4.25,
     peakForecastM3S: 4.25,
     riskCategory: 'NORMAL',
+    isExperimentalIndicator: true,
     confidenceScore: 0.85,
     freshness: 'FRESH',
     disclaimer:

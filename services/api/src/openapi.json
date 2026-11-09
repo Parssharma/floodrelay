@@ -2974,6 +2974,7 @@
           "currentDischargeM3S",
           "peakForecastM3S",
           "riskCategory",
+          "isExperimentalIndicator",
           "freshness",
           "disclaimer"
         ],
@@ -3086,14 +3087,17 @@
           },
           "riskCategory": {
             "type": "string",
-            "enum": ["NORMAL", "ELEVATED", "HIGH", "EXTREME"]
+            "enum": ["NORMAL", "ELEVATED", "HIGH", "EXTREME", "UNKNOWN", "UNAVAILABLE"]
+          },
+          "isExperimentalIndicator": {
+            "type": "boolean"
           },
           "confidenceScore": {
             "type": "number"
           },
           "freshness": {
             "type": "string",
-            "enum": ["FRESH", "CACHED", "STALE", "OFFLINE_FIXTURE"]
+            "enum": ["FRESH", "CACHED", "STALE", "OFFLINE_FIXTURE", "UNAVAILABLE"]
           },
           "disclaimer": {
             "type": "string"
