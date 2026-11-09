@@ -1,17 +1,31 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { UrgencyLevel } from '@floodrelay/shared';
 import { apiClient } from '@/lib/api/client';
 import { ApiClientError } from '@/lib/api/errors';
 import type { CreateRequestInput } from '@/lib/api/types';
+import type { GeocodeCandidate } from '@/app/api/geocode/route';
+import CitizenLocationPreview from '@/components/citizen/CitizenLocationPreview';
 
 export type GpsStatus =
   'IDLE' | 'ACQUIRING' | 'ACQUIRED' | 'DENIED' | 'UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED';
 
 export type ReverseGeocodeStatus = 'IDLE' | 'LOOKING_UP' | 'FOUND' | 'UNAVAILABLE' | 'ERROR';
+
+export type GeocodeStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NO_MATCH' | 'ERROR';
+
+export type LocationSource = 'NONE' | 'GPS' | 'GEOCODED' | 'MANUAL';
+
+export interface ConfirmedLocationDetails {
+  address: string;
+  lat: string;
+  lng: string;
+  source: LocationSource;
+  accuracy?: number | null;
+}
 
 const WATER_LEVEL_LABELS: Record<string, string> = {
   ankle_knee: 'Ankle to Knee-deep in yard / driveway (Evacuation possible)',
@@ -35,16 +49,30 @@ function generateUUID(): string {
 export default function CitizenRequestPage() {
   const router = useRouter();
 
-  // Form State
-  const [lat, setLat] = useState<string>('29.7604');
-  const [lng, setLng] = useState<string>('-95.3698');
+  // Phase 1: Initialize coordinates as empty strings (never prefill Houston/Delhi)
+  const [lat, setLat] = useState<string>('');
+  const [lng, setLng] = useState<string>('');
+  const [locationSource, setLocationSource] = useState<LocationSource>('NONE');
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState<boolean>(false);
+  const [confirmedDetails, setConfirmedDetails] = useState<ConfirmedLocationDetails | null>(null);
+
+  // Address & Forward Geocoding State (Method A)
+  const [address, setAddress] = useState<string>('');
+  const [geocodeStatus, setGeocodeStatus] = useState<GeocodeStatus>('IDLE');
+  const [geocodeCandidates, setGeocodeCandidates] = useState<GeocodeCandidate[]>([]);
+  const [geocodeMessage, setGeocodeMessage] = useState<string | null>(null);
+  const geocodeSeqRef = useRef<number>(0);
+  const userEditedAddressRef = useRef<boolean>(false);
+
+  // GPS & Reverse Geocoding State (Method B)
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>('IDLE');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
-  const [address, setAddress] = useState<string>('');
   const [reverseGeocodeStatus, setReverseGeocodeStatus] = useState<ReverseGeocodeStatus>('IDLE');
   const [reverseGeocodeMessage, setReverseGeocodeMessage] = useState<string | null>(null);
-  const lookupSeqRef = React.useRef<number>(0);
-  const userEditedDuringLookupRef = React.useRef<boolean>(false);
+  const lookupSeqRef = useRef<number>(0);
+  const userEditedDuringLookupRef = useRef<boolean>(false);
+
+  // Form Details
   const [waterLevel, setWaterLevel] = useState<string>('ground_floor');
   const [partyCount, setPartyCount] = useState<number>(3);
   const [specialNeeds, setSpecialNeeds] = useState<Record<string, boolean>>({
@@ -71,6 +99,129 @@ export default function CitizenRequestPage() {
     }
   };
 
+  // Invalidate existing confirmation whenever raw input changes
+  const invalidateConfirmation = () => {
+    setIsLocationConfirmed(false);
+    setConfirmedDetails(null);
+  };
+
+  // --- METHOD A: Forward Geocoding (Manual Address Search) ---
+  const handleSearchAddress = async (overrideQuery?: string) => {
+    const query = (overrideQuery ?? address).trim();
+
+    if (!query) {
+      setErrors((prev) => ({
+        ...prev,
+        address: 'Street address or location landmark is required to search',
+      }));
+      return;
+    }
+
+    if (query.length < 3) {
+      setErrors((prev) => ({
+        ...prev,
+        address: 'Please enter at least 3 characters to search for a location',
+      }));
+      return;
+    }
+
+    // Clear address error
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.address;
+      delete next.location;
+      return next;
+    });
+
+    const seq = ++geocodeSeqRef.current;
+    userEditedAddressRef.current = false;
+    setGeocodeStatus('SEARCHING');
+    setGeocodeMessage('Searching location for address...');
+    setGeocodeCandidates([]);
+
+    try {
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: query }),
+      });
+
+      // Ignore stale network responses from previous searches
+      if (seq !== geocodeSeqRef.current) {
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        const results: GeocodeCandidate[] = Array.isArray(data.results) ? data.results : [];
+        if (results.length === 0) {
+          setGeocodeStatus('NO_MATCH');
+          setGeocodeMessage(
+            data?.message ||
+              "We couldn't verify this address. Please provide a more precise address, add a nearby landmark or city, or use GPS.",
+          );
+        } else {
+          setGeocodeStatus('FOUND');
+          setGeocodeCandidates(results);
+          setGeocodeMessage(
+            results.length === 1
+              ? 'Location match found. Please verify and confirm:'
+              : 'Multiple locations found. Please select and confirm the correct one:',
+          );
+        }
+      } else {
+        setGeocodeStatus('ERROR');
+        setGeocodeMessage(
+          data?.message ||
+            'Unable to determine location for this address. Please refine your search or use GPS.',
+        );
+      }
+    } catch {
+      if (seq !== geocodeSeqRef.current) return;
+      setGeocodeStatus('ERROR');
+      setGeocodeMessage(
+        'Network error looking up address. Please check your connection or use GPS.',
+      );
+    }
+  };
+
+  const handleSelectCandidate = (candidate: GeocodeCandidate) => {
+    const formattedLat = candidate.lat.toFixed(6);
+    const formattedLng = candidate.lng.toFixed(6);
+
+    setAddress(candidate.formatted);
+    setLat(formattedLat);
+    setLng(formattedLng);
+    setLocationSource('GEOCODED');
+    setIsLocationConfirmed(true);
+    setConfirmedDetails({
+      address: candidate.formatted,
+      lat: formattedLat,
+      lng: formattedLng,
+      source: 'GEOCODED',
+    });
+
+    setGeocodeCandidates([]);
+    setGeocodeStatus('FOUND');
+    setGeocodeMessage(null);
+    userEditedAddressRef.current = false;
+    markEdited();
+
+    // Clear location and coordinate errors
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.address;
+      delete next.lat;
+      delete next.lng;
+      delete next.location;
+      return next;
+    });
+  };
+
+  // --- METHOD B: Browser Geolocation (Use My Current Location) ---
   const triggerReverseGeocode = async (latNum: number, lngNum: number) => {
     const seq = ++lookupSeqRef.current;
     userEditedDuringLookupRef.current = false;
@@ -102,14 +253,30 @@ export default function CitizenRequestPage() {
 
       if (res.ok && data?.success) {
         if (data.address && typeof data.address === 'string' && data.address.trim()) {
-          setAddress(data.address.trim());
+          const formattedAddress = data.address.trim();
+          setAddress(formattedAddress);
           setReverseGeocodeStatus('FOUND');
           setReverseGeocodeMessage(null);
+
+          // Auto-confirm valid GPS address match
+          setIsLocationConfirmed(true);
+          setConfirmedDetails({
+            address: formattedAddress,
+            lat: latNum.toFixed(6),
+            lng: lngNum.toFixed(6),
+            source: 'GPS',
+            accuracy: gpsAccuracy,
+          });
+
           markEdited();
-          // Clear address error
+
+          // Clear errors
           setErrors((prev) => {
             const next = { ...prev };
             delete next.address;
+            delete next.lat;
+            delete next.lng;
+            delete next.location;
             return next;
           });
         } else {
@@ -154,20 +321,25 @@ export default function CitizenRequestPage() {
     }
 
     setGpsStatus('ACQUIRING');
+    invalidateConfirmation();
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLat(pos.coords.latitude.toFixed(6));
-        setLng(pos.coords.longitude.toFixed(6));
+        const formattedLat = pos.coords.latitude.toFixed(6);
+        const formattedLng = pos.coords.longitude.toFixed(6);
+        setLat(formattedLat);
+        setLng(formattedLng);
         setGpsAccuracy(pos.coords.accuracy);
         setGpsStatus('ACQUIRED');
+        setLocationSource('GPS');
         markEdited();
 
-        // Clear coordinate field errors if any existed
+        // Clear coordinate field errors
         setErrors((prev) => {
           const next = { ...prev };
           delete next.lat;
           delete next.lng;
+          delete next.location;
           return next;
         });
 
@@ -192,20 +364,75 @@ export default function CitizenRequestPage() {
     );
   };
 
+  // Explicit confirmation button handler (e.g. after manual coordinate edits or manual landmark with GPS)
+  const handleExplicitConfirm = () => {
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    const newErrors: Record<string, string> = {};
+
+    if (!address.trim()) {
+      newErrors.address = 'Street address or location landmark is required to confirm location';
+    }
+    if (!lat.trim() || isNaN(latNum) || latNum < -90 || latNum > 90) {
+      newErrors.lat = 'Valid latitude between -90 and 90 is required';
+    }
+    if (!lng.trim() || isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+      newErrors.lng = 'Valid longitude between -180 and 180 is required';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors((prev) => ({ ...prev, ...newErrors }));
+      return;
+    }
+
+    setIsLocationConfirmed(true);
+    setConfirmedDetails({
+      address: address.trim(),
+      lat: latNum.toFixed(6),
+      lng: lngNum.toFixed(6),
+      source: locationSource === 'NONE' ? 'MANUAL' : locationSource,
+      accuracy: locationSource === 'GPS' ? gpsAccuracy : null,
+    });
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.address;
+      delete next.lat;
+      delete next.lng;
+      delete next.location;
+      return next;
+    });
+    markEdited();
+  };
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
 
-    if (isNaN(latNum) || latNum < -90 || latNum > 90) {
+    if (!lat.trim()) {
+      newErrors.lat =
+        'Latitude is required. Use "Find Location", "Use My Current Location", or enter coordinates.';
+    } else if (isNaN(latNum) || latNum < -90 || latNum > 90) {
       newErrors.lat = 'Valid latitude between -90 and 90 is required';
     }
-    if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+
+    if (!lng.trim()) {
+      newErrors.lng =
+        'Longitude is required. Use "Find Location", "Use My Current Location", or enter coordinates.';
+    } else if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
       newErrors.lng = 'Valid longitude between -180 and 180 is required';
     }
+
     if (!address.trim()) {
       newErrors.address = 'Street address or location landmark is required';
     }
+
+    if (!isLocationConfirmed) {
+      newErrors.location =
+        'Please verify and confirm your location before submitting. Use "Find Location" or click "Confirm Location".';
+    }
+
     if (!waterLevel) {
       newErrors.waterLevel = 'Please select the current water level situation';
     }
@@ -313,7 +540,6 @@ export default function CitizenRequestPage() {
           setSubmitError(
             'Idempotency Conflict: An earlier rescue request was already recorded on the dispatch server with this submission reference, but containing differing information. To prevent creating accidental duplicate dispatches, this request was not submitted. Submitting this form creates a NEW, separate request and does NOT update your existing ticket. If you require a separate dispatch ticket, click "Submit as New Separate Request" below.',
           );
-          // Do NOT automatically regenerate the key or silently resubmit.
           return;
         }
 
@@ -338,6 +564,14 @@ export default function CitizenRequestPage() {
     e.preventDefault();
     await executeSubmission();
   };
+
+  // Determine status indicator for address input field
+  const isAddressSearching = geocodeStatus === 'SEARCHING' || reverseGeocodeStatus === 'LOOKING_UP';
+  const isAddressFailed =
+    geocodeStatus === 'NO_MATCH' ||
+    geocodeStatus === 'ERROR' ||
+    reverseGeocodeStatus === 'UNAVAILABLE' ||
+    reverseGeocodeStatus === 'ERROR';
 
   return (
     <div className="flex-1 flex flex-col pb-16">
@@ -379,8 +613,8 @@ export default function CitizenRequestPage() {
             Request Flood Rescue Assistance
           </h1>
           <p className="text-sm md:text-base text-on-surface-variant max-w-2xl leading-relaxed">
-            Complete this form to alert active emergency dispatch teams. Please provide as precise a
-            location as possible.
+            Complete this form to alert active emergency dispatch teams. Enter your address or use
+            your device GPS to report your exact location.
           </p>
         </div>
 
@@ -399,6 +633,19 @@ export default function CitizenRequestPage() {
                 Required
               </span>
             </div>
+
+            {/* Location Error Notice */}
+            {errors.location && (
+              <div
+                className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-300 flex items-start gap-2"
+                role="alert"
+              >
+                <span className="material-symbols-outlined text-base text-red-600 shrink-0">
+                  error
+                </span>
+                <span>{errors.location}</span>
+              </div>
+            )}
 
             {/* GPS Locator Module */}
             <div className="space-y-3">
@@ -441,154 +688,129 @@ export default function CitizenRequestPage() {
                       `Location Acquired: Accuracy ±${gpsAccuracy ? Math.round(gpsAccuracy) : 5}m`}
                     {gpsStatus === 'ACQUIRING' && 'Acquiring satellite coordinate lock...'}
                     {gpsStatus === 'DENIED' &&
-                      'Location permission denied. Please enter coordinates manually.'}
+                      'Location permission denied. You can still enter an address manually.'}
                     {gpsStatus === 'UNAVAILABLE' &&
-                      'Location signal unavailable. Please enter coordinates manually.'}
+                      'Location signal unavailable. You can still enter an address manually.'}
                     {gpsStatus === 'TIMEOUT' &&
-                      'Location request timed out. Please enter coordinates manually.'}
+                      'Location request timed out. You can still enter an address manually.'}
                     {gpsStatus === 'UNSUPPORTED' &&
-                      'Geolocation unsupported. Please enter coordinates manually.'}
+                      'Geolocation unsupported. You can still enter an address manually.'}
                     {gpsStatus === 'IDLE' && 'Tap button to acquire browser GPS coordinates'}
                   </span>
                 </div>
               </div>
-
-              {/* Coordinates Readout */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-surface rounded-lg border border-outline-variant">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label
-                      className="text-xs font-semibold text-on-surface-variant"
-                      htmlFor="latInput"
-                    >
-                      Latitude
-                    </label>
-                    <span className="font-mono text-[10px] text-primary font-bold uppercase">
-                      {gpsStatus === 'ACQUIRED' ? 'GPS Fixed' : 'Decimal Degrees'}
-                    </span>
-                  </div>
-                  <input
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
-                    disabled={isSubmitting}
-                    id="latInput"
-                    onChange={(e) => {
-                      setLat(e.target.value);
-                      markEdited();
-                    }}
-                    placeholder="e.g. 29.7604"
-                    type="text"
-                    value={lat}
-                  />
-                  {errors.lat && <p className="text-xs text-red-600 mt-1">{errors.lat}</p>}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label
-                      className="text-xs font-semibold text-on-surface-variant"
-                      htmlFor="lngInput"
-                    >
-                      Longitude
-                    </label>
-                    <span className="font-mono text-[10px] text-primary font-bold uppercase">
-                      {gpsStatus === 'ACQUIRED' ? 'GPS Fixed' : 'Decimal Degrees'}
-                    </span>
-                  </div>
-                  <input
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
-                    disabled={isSubmitting}
-                    id="lngInput"
-                    onChange={(e) => {
-                      setLng(e.target.value);
-                      markEdited();
-                    }}
-                    placeholder="e.g. -95.3698"
-                    type="text"
-                    value={lng}
-                  />
-                  {errors.lng && <p className="text-xs text-red-600 mt-1">{errors.lng}</p>}
-                </div>
-              </div>
             </div>
 
-            {/* Street Address / Landmark */}
-            <div className="space-y-1.5">
+            {/* Street Address / Landmark (Method A: Manual Entry + Forward Geocoding) */}
+            <div className="space-y-2">
               <label className="block text-sm font-semibold text-on-surface" htmlFor="addressInput">
                 Street Address / Apartment / Structural Landmark{' '}
                 <span className="text-tertiary">*</span>
               </label>
-              <div className="relative flex items-center">
-                <input
-                  className="w-full h-12 pl-3.5 pr-11 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
-                  disabled={isSubmitting}
-                  id="addressInput"
-                  onChange={(e) => {
-                    setAddress(e.target.value);
-                    userEditedDuringLookupRef.current = true;
-                    markEdited();
-                  }}
-                  placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
-                  type="text"
-                  value={address}
-                />
-                <div
-                  className="absolute right-3.5 flex items-center justify-center pointer-events-none"
-                  aria-live="polite"
-                >
-                  {reverseGeocodeStatus === 'LOOKING_UP' ? (
-                    <span
-                      data-testid="address-status-looking-up"
-                      role="status"
-                      aria-label="Looking up address"
-                      title="Looking up address..."
-                      className="w-5 h-5 rounded-full border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 animate-spin shrink-0"
-                    />
-                  ) : reverseGeocodeStatus === 'FOUND' && address.trim().length > 0 ? (
-                    <span
-                      data-testid="address-status-success"
-                      role="status"
-                      aria-label="Address detected successfully"
-                      title="Address detected"
-                      className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
-                      style={{ backgroundColor: '#2E7D32' }}
-                    >
-                      <svg
-                        className="w-3 h-3 stroke-current"
-                        viewBox="0 0 12 12"
-                        fill="none"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1 flex items-center">
+                  <input
+                    className="w-full h-12 pl-3.5 pr-11 bg-surface-container-lowest border border-outline-variant rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                    disabled={isSubmitting}
+                    id="addressInput"
+                    onChange={(e) => {
+                      setAddress(e.target.value);
+                      userEditedDuringLookupRef.current = true;
+                      userEditedAddressRef.current = true;
+                      invalidateConfirmation();
+                      markEdited();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSearchAddress();
+                      }
+                    }}
+                    placeholder="e.g., 1428 Riverbend Dr, 2nd Floor Apt 3B, near Water Tower"
+                    type="text"
+                    value={address}
+                  />
+
+                  {/* Address Status Indicator */}
+                  <div
+                    aria-live="polite"
+                    className="absolute right-3.5 flex items-center justify-center pointer-events-none"
+                  >
+                    {isAddressSearching ? (
+                      <span
+                        aria-label="Looking up address"
+                        className="w-5 h-5 rounded-full border-2 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 animate-spin shrink-0"
+                        data-testid="address-status-looking-up"
+                        role="status"
+                        title="Looking up address..."
+                      />
+                    ) : isLocationConfirmed && address.trim().length > 0 ? (
+                      <span
+                        aria-label="Address detected successfully"
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
+                        data-testid="address-status-success"
+                        role="status"
+                        style={{ backgroundColor: '#2E7D32' }}
+                        title="Address confirmed"
                       >
-                        <path d="M2.5 6.2L4.8 8.5L9.5 3.5" />
-                      </svg>
-                    </span>
-                  ) : reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR' ? (
-                    <span
-                      data-testid="address-status-failed"
-                      role="status"
-                      aria-label="Address lookup unavailable"
-                      title="Address lookup unavailable; manual entry required"
-                      className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 inline-flex items-center justify-center shrink-0"
-                    />
-                  ) : (
-                    <span
-                      data-testid="address-status-idle"
-                      role="status"
-                      aria-label="Address input idle"
-                      title="Address input idle"
-                      className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 inline-flex items-center justify-center shrink-0"
-                    />
-                  )}
+                        <svg
+                          className="w-3 h-3 stroke-current"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          viewBox="0 0 12 12"
+                        >
+                          <path d="M2.5 6.2L4.8 8.5L9.5 3.5" />
+                        </svg>
+                      </span>
+                    ) : isAddressFailed ? (
+                      <span
+                        aria-label="Address lookup unavailable"
+                        className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 inline-flex items-center justify-center shrink-0"
+                        data-testid="address-status-failed"
+                        role="status"
+                        title="Address lookup unavailable; manual entry required"
+                      />
+                    ) : (
+                      <span
+                        aria-label="Address input idle"
+                        className="w-5 h-5 rounded-full border-2 border-slate-300 dark:border-slate-600 inline-flex items-center justify-center shrink-0"
+                        data-testid="address-status-idle"
+                        role="status"
+                        title="Address input idle"
+                      />
+                    )}
+                  </div>
                 </div>
+
+                {/* Find Location Action Button */}
+                <button
+                  className="px-4 py-3 h-12 bg-surface-container border border-outline-variant hover:bg-surface-container-high text-on-surface rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shrink-0"
+                  disabled={isSubmitting || geocodeStatus === 'SEARCHING' || !address.trim()}
+                  onClick={() => handleSearchAddress()}
+                  type="button"
+                >
+                  <span
+                    className={`material-symbols-outlined text-[18px] ${
+                      geocodeStatus === 'SEARCHING' ? 'animate-spin' : ''
+                    }`}
+                  >
+                    {geocodeStatus === 'SEARCHING' ? 'sync' : 'search'}
+                  </span>
+                  <span>Find Location</span>
+                </button>
               </div>
+
               {errors.address && <p className="text-xs text-red-600 mt-1">{errors.address}</p>}
 
-              {/* Helper text beneath address field */}
+              {/* Helper text beneath address field (retained for backward compatibility and clarity) */}
               <p className="text-xs text-on-surface-variant">
                 Approximate GPS address. Confirm your location and add a nearby landmark.
               </p>
 
-              {/* Address Lookup Warning / Error Notice (Retained for manual-entry guidance on failure) */}
+              {/* Reverse Geocoding Guidance on Unavailable / Error */}
               {(reverseGeocodeStatus === 'UNAVAILABLE' || reverseGeocodeStatus === 'ERROR') &&
                 reverseGeocodeMessage && (
                   <div className="flex items-start gap-2 p-2.5 bg-surface-container border border-outline-variant rounded-lg text-xs text-on-surface-variant mt-1">
@@ -599,14 +821,274 @@ export default function CitizenRequestPage() {
                   </div>
                 )}
 
+              {/* Geocoding Notice or Error */}
+              {geocodeMessage && (
+                <div
+                  className={`flex items-start gap-2 p-2.5 rounded-lg border text-xs mt-1 ${
+                    geocodeStatus === 'ERROR' || geocodeStatus === 'NO_MATCH'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                      : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-base shrink-0">
+                    {geocodeStatus === 'ERROR' || geocodeStatus === 'NO_MATCH' ? 'info' : 'search'}
+                  </span>
+                  <span>{geocodeMessage}</span>
+                </div>
+              )}
+
+              {/* Geocode Address Suggestions List (Candidate Selection) */}
+              {geocodeCandidates.length > 0 && (
+                <div className="mt-2 space-y-2 p-3 bg-surface rounded-lg border border-outline-variant shadow-xs">
+                  <div className="text-xs font-semibold text-on-surface-variant flex items-center justify-between">
+                    <span>Suggested Matches ({geocodeCandidates.length})</span>
+                    <span className="text-[11px] text-primary">
+                      Select your location to confirm coordinates
+                    </span>
+                  </div>
+                  <div className="divide-y divide-surface-variant">
+                    {geocodeCandidates.map((candidate, idx) => (
+                      <div
+                        className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-surface-container-low px-2 rounded-md transition-colors"
+                        key={`${candidate.formatted}-${idx}`}
+                      >
+                        <div className="flex-1 pr-2">
+                          <div className="text-sm font-medium text-on-surface">
+                            {candidate.formatted}
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] text-on-surface-variant mt-0.5 font-mono">
+                            <span>
+                              {candidate.lat.toFixed(4)}, {candidate.lng.toFixed(4)}
+                            </span>
+                            {candidate.confidence ? (
+                              <span className="text-emerald-700 dark:text-emerald-400">
+                                Match: {Math.round(candidate.confidence * 100)}%
+                              </span>
+                            ) : null}
+                            {candidate.resultType && (
+                              <span className="uppercase text-[10px] bg-surface-container px-1.5 py-0.2 rounded">
+                                {candidate.resultType}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          className="px-3 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-semibold hover:bg-primary-container transition-colors flex items-center gap-1 self-start sm:self-auto shrink-0 shadow-xs"
+                          onClick={() => handleSelectCandidate(candidate)}
+                          type="button"
+                        >
+                          <span className="material-symbols-outlined text-sm">check_circle</span>
+                          <span>Select &amp; Confirm</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <p className="text-xs text-on-surface-variant/80">
                 Include floor level, color of exterior walls, or high visibility markers for air and
                 boat crews.
               </p>
             </div>
 
+            {/* Confirmed Location Summary Card & Interactive Map Preview */}
+            {isLocationConfirmed && confirmedDetails && (
+              <div
+                className="p-4 rounded-xl border-2 border-emerald-500/60 bg-emerald-50/50 dark:bg-emerald-950/20 space-y-3"
+                data-testid="location-confirmed-card"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0"
+                      style={{ backgroundColor: '#2E7D32' }}
+                    >
+                      <svg
+                        className="w-3 h-3 stroke-current"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2.5"
+                        viewBox="0 0 12 12"
+                      >
+                        <path d="M2.5 6.2L4.8 8.5L9.5 3.5" />
+                      </svg>
+                    </span>
+                    <span className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                      Location Confirmed
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300">
+                    {confirmedDetails.source === 'GPS'
+                      ? 'GPS Verified'
+                      : confirmedDetails.source === 'GEOCODED'
+                        ? 'Geocoded Address'
+                        : 'Manual Coordinates'}
+                  </span>
+                </div>
+
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                  {confirmedDetails.address}
+                </div>
+
+                {/* Interactive Leaflet Location Confirmation Pin */}
+                <CitizenLocationPreview
+                  accuracy={confirmedDetails.accuracy}
+                  address={confirmedDetails.address}
+                  lat={parseFloat(confirmedDetails.lat)}
+                  lng={parseFloat(confirmedDetails.lng)}
+                  source={confirmedDetails.source === 'NONE' ? undefined : confirmedDetails.source}
+                />
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                    Dispatch coordinates ready for rescue routing.
+                  </span>
+                  <button
+                    className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 underline"
+                    onClick={() => {
+                      setIsLocationConfirmed(false);
+                    }}
+                    type="button"
+                  >
+                    Change / Re-verify
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Unconfirmed Location Action: Explicit Confirmation Prompt */}
+            {!isLocationConfirmed &&
+              address.trim() &&
+              lat.trim() &&
+              lng.trim() &&
+              !isNaN(parseFloat(lat)) &&
+              !isNaN(parseFloat(lng)) && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="text-xs text-blue-900 dark:text-blue-200">
+                    <span className="font-semibold block">Location update unconfirmed</span>
+                    <span>
+                      Please confirm that your coordinates ({lat}, {lng}) represent this physical
+                      address.
+                    </span>
+                  </div>
+                  <button
+                    className="px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-lg hover:bg-primary-container transition-colors shadow-xs shrink-0 self-start sm:self-auto flex items-center gap-1.5"
+                    onClick={handleExplicitConfirm}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">check</span>
+                    <span>Confirm Location</span>
+                  </button>
+                </div>
+              )}
+
+            {/* GPS Coordinates Readout & Manual Entry */}
+            <div className="pt-2 border-t border-surface-variant space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-on-surface">
+                  Geospatial Coordinates
+                </span>
+                <span className="font-mono text-[10px] text-primary font-bold uppercase">
+                  {locationSource === 'GPS'
+                    ? 'GPS Locked'
+                    : locationSource === 'GEOCODED'
+                      ? 'Geocoded Match'
+                      : locationSource === 'MANUAL'
+                        ? 'Manual Entry'
+                        : 'Auto-populated or Manual'}
+                </span>
+              </div>
+              <p className="text-xs text-on-surface-variant">
+                Coordinates are detected automatically when you search an address or click &quot;Use
+                My Current Location&quot;. You can also enter coordinates manually.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-surface rounded-lg border border-outline-variant">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label
+                      className="text-xs font-semibold text-on-surface-variant"
+                      htmlFor="latInput"
+                    >
+                      Latitude
+                    </label>
+                    <span className="font-mono text-[10px] text-primary font-bold uppercase">
+                      {locationSource === 'GPS'
+                        ? 'GPS Fixed'
+                        : locationSource === 'GEOCODED'
+                          ? 'Geocoded'
+                          : 'Decimal Degrees'}
+                    </span>
+                  </div>
+                  <input
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                    disabled={isSubmitting}
+                    id="latInput"
+                    onChange={(e) => {
+                      setLat(e.target.value);
+                      setLocationSource('MANUAL');
+                      invalidateConfirmation();
+                      markEdited();
+                    }}
+                    placeholder="e.g. 29.7604"
+                    type="text"
+                    value={lat}
+                  />
+                  {errors.lat && <p className="text-xs text-red-600 mt-1">{errors.lat}</p>}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label
+                      className="text-xs font-semibold text-on-surface-variant"
+                      htmlFor="lngInput"
+                    >
+                      Longitude
+                    </label>
+                    <span className="font-mono text-[10px] text-primary font-bold uppercase">
+                      {locationSource === 'GPS'
+                        ? 'GPS Fixed'
+                        : locationSource === 'GEOCODED'
+                          ? 'Geocoded'
+                          : 'Decimal Degrees'}
+                    </span>
+                  </div>
+                  <input
+                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-mono text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-75"
+                    disabled={isSubmitting}
+                    id="lngInput"
+                    onChange={(e) => {
+                      setLng(e.target.value);
+                      setLocationSource('MANUAL');
+                      invalidateConfirmation();
+                      markEdited();
+                    }}
+                    placeholder="e.g. -95.3698"
+                    type="text"
+                    value={lng}
+                  />
+                  {errors.lng && <p className="text-xs text-red-600 mt-1">{errors.lng}</p>}
+                </div>
+              </div>
+
+              {locationSource === 'MANUAL' && !isLocationConfirmed && lat && lng && (
+                <div className="flex justify-end pt-1">
+                  <button
+                    className="px-3 py-1.5 bg-surface-container-high border border-outline-variant text-on-surface text-xs font-semibold rounded-lg hover:bg-surface-container transition-colors flex items-center gap-1"
+                    onClick={handleExplicitConfirm}
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-sm">check</span>
+                    <span>Confirm Custom Coordinates</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Water Depth Context */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 pt-2 border-t border-surface-variant">
               <label
                 className="block text-sm font-semibold text-on-surface"
                 htmlFor="waterLevelInput"
