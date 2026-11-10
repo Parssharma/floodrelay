@@ -189,4 +189,153 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
     expect(failureResult.assignmentsError).toBe('Network error');
     expect(failureResult.hasPartialFailure).toBe(true);
   });
+
+  it('preserves cached operational events and sets stale flag when events endpoint fails', async () => {
+    const cachedEvent: OperationalEvent = {
+      id: 'evt-101',
+      type: 'ROAD_BLOCKED',
+      entityType: 'ROAD_ZONE',
+      entityId: 'zone-north-braeswood',
+      actorId: 'op-001',
+      actorType: 'OPERATOR',
+      occurredAt: new Date().toISOString(),
+      recordedAt: new Date().toISOString(),
+      entityVersion: 1,
+      processingStatus: 'SCOPE_IDENTIFIED',
+      processingAttempts: 1,
+      payload: { reason: 'Severe high-water surge' },
+    };
+
+    const previousCache = {
+      assignments: null,
+      recentEvents: [cachedEvent],
+    };
+
+    const result = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => [],
+        listEvents: async () => {
+          throw new Error('503 Service Unavailable: Event bus partitioned');
+        },
+      },
+      previousCache,
+    );
+
+    expect(result.eventsError).toBe('503 Service Unavailable: Event bus partitioned');
+    expect(result.eventsStale).toBe(true);
+    expect(result.recentEvents).toHaveLength(1);
+    expect(result.recentEvents![0].id).toBe('evt-101');
+    expect(result.hasPartialFailure).toBe(true);
+  });
+
+  it('marks operational events as null (Data Unavailable) when initial fetch fails without prior cache', async () => {
+    const previousCache = {
+      assignments: null,
+      recentEvents: null,
+    };
+
+    const result = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => [],
+        listEvents: async () => {
+          throw new Error('Events API request failed with HTTP 500');
+        },
+      },
+      previousCache,
+    );
+
+    expect(result.recentEvents).toBeNull();
+    expect(result.eventsError).toBe('Events API request failed with HTTP 500');
+    expect(result.eventsStale).toBe(false);
+    expect(result.hasPartialFailure).toBe(true);
+  });
+
+  it('confirms that an empty events response returns HTTP 200 with an empty list, not a failure', async () => {
+    const previousCache = {
+      assignments: null,
+      recentEvents: null,
+    };
+
+    const result = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => [],
+        listEvents: async () => [], // Genuine HTTP 200 with empty array []
+      },
+      previousCache,
+    );
+
+    expect(result.recentEvents).toEqual([]);
+    expect(result.eventsError).toBeNull();
+    expect(result.eventsStale).toBe(false);
+    expect(result.hasPartialFailure).toBe(false);
+  });
+
+  it('clears partial failure warning when previously failed events recover to healthy feed', async () => {
+    const cachedEvent: OperationalEvent = {
+      id: 'evt-cached',
+      type: 'RESOURCE_OFFLINE',
+      entityType: 'RESOURCE',
+      entityId: 'res-boat-1',
+      actorId: 'op-002',
+      actorType: 'OPERATOR',
+      occurredAt: new Date().toISOString(),
+      recordedAt: new Date().toISOString(),
+      entityVersion: 1,
+      processingStatus: 'AWAITING_REPAIR',
+      processingAttempts: 1,
+      payload: {},
+    };
+
+    const state = {
+      assignments: null,
+      recentEvents: [cachedEvent],
+    };
+
+    // Step 1: Failed polling cycle
+    const failedCycle = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => [],
+        listEvents: async () => {
+          throw new Error('404 Not Found');
+        },
+      },
+      state,
+    );
+    expect(failedCycle.hasPartialFailure).toBe(true);
+    expect(failedCycle.eventsStale).toBe(true);
+
+    // Step 2: Next cycle, proxy route is fixed, returns fresh events
+    const recoveredEvent: OperationalEvent = {
+      id: 'evt-fresh',
+      type: 'REQUEST_CREATED',
+      entityType: 'REQUEST',
+      entityId: 'req-new',
+      actorId: null,
+      actorType: 'CITIZEN',
+      occurredAt: new Date().toISOString(),
+      recordedAt: new Date().toISOString(),
+      entityVersion: 1,
+      processingStatus: 'RECORDED',
+      processingAttempts: 0,
+      payload: {},
+    };
+
+    const recoveredCycle = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => [],
+        listEvents: async () => [recoveredEvent],
+      },
+      state,
+    );
+
+    expect(recoveredCycle.hasPartialFailure).toBe(false);
+    expect(recoveredCycle.eventsError).toBeNull();
+    expect(recoveredCycle.eventsStale).toBe(false);
+    expect(recoveredCycle.recentEvents).toEqual([recoveredEvent]);
+  });
 });
