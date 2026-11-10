@@ -1,6 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import { FloodRelayApiClient } from '../lib/api/client';
 import { ApiClientError } from '../lib/api/errors';
+
+export function validateMockAgainstOpenApiSchema(
+  schemaName: string,
+  mockObj: Record<string, unknown>,
+): void {
+  const filePath = path.resolve(__dirname, '../../../services/api/src/openapi.json');
+  const spec = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  let schema = spec.components?.schemas?.[schemaName];
+  if (!schema) {
+    throw new Error(`Schema ${schemaName} not found in openapi.json`);
+  }
+  if (schema.$ref) {
+    const refKey = schema.$ref.replace('#/components/schemas/', '');
+    schema = spec.components?.schemas?.[refKey];
+  }
+  const requiredFields: string[] = schema?.required || [];
+  for (const field of requiredFields) {
+    if (mockObj[field] === undefined) {
+      throw new Error(`Mock object for ${schemaName} is missing required property: "${field}"`);
+    }
+  }
+}
 
 describe('FloodRelayApiClient', () => {
   let client: FloodRelayApiClient;
@@ -219,5 +243,52 @@ describe('FloodRelayApiClient', () => {
     const res = await client.logout();
     expect(res.message).toBe('Logged out successfully');
     expect(client.getAuthToken()).toBeNull();
+  });
+
+  it('fetches affected scope for an operational event and resolves directly to AffectedScopeResult', async () => {
+    const mockEvent = {
+      id: 'evt-1',
+      type: 'REQUEST_CREATED',
+      entityType: 'REQUEST',
+      entityId: 'req-1',
+      actorType: 'CITIZEN',
+      occurredAt: '2026-11-10T06:00:00.000Z',
+      recordedAt: '2026-11-10T06:00:01.000Z',
+      payload: { peopleCount: 2 },
+    };
+
+    const mockScope = {
+      eventId: 'evt-1',
+      affectedRequestIds: ['req-1'],
+      affectedResourceIds: ['res-1'],
+      affectedProposedAssignmentIds: ['prop-1'],
+      committedAssignmentsRequiringReview: ['assign-1'],
+      reason: 'Critical request awaiting route assignment',
+      repairEligible: true,
+    };
+
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+    validateMockAgainstOpenApiSchema('AffectedScopeResult', mockScope);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          event: mockEvent,
+          affectedScope: mockScope,
+        },
+      }),
+    });
+
+    const res = await client.getAffectedScope('evt-1');
+    expect(res.eventId).toBe('evt-1');
+    expect(res.affectedRequestIds).toEqual(['req-1']);
+    expect(res.affectedResourceIds).toEqual(['res-1']);
+    expect(res.affectedProposedAssignmentIds).toEqual(['prop-1']);
+    expect(res.committedAssignmentsRequiringReview).toEqual(['assign-1']);
+    expect(res.reason).toBe('Critical request awaiting route assignment');
+    expect(res.repairEligible).toBe(true);
   });
 });
