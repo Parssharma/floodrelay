@@ -14,6 +14,7 @@ import type {
   LoginResult,
   OperationalEvent,
   AffectedScopeResult,
+  AffectedScopeResponse,
   RepairResult,
   ListOperationalEventsFilter,
   ListAuditEventsFilter,
@@ -329,6 +330,13 @@ export class FloodRelayApiClient {
     return res.data || [];
   }
 
+  async getOperationalEvents(
+    filter?: ListOperationalEventsFilter,
+    signal?: AbortSignal,
+  ): Promise<OperationalEvent[]> {
+    return this.listOperationalEvents(filter, signal);
+  }
+
   async getOperationalEvent(id: string, signal?: AbortSignal): Promise<OperationalEvent> {
     const res = await this.request<OperationalEvent>(
       `/operations/events/${encodeURIComponent(id)}`,
@@ -341,14 +349,34 @@ export class FloodRelayApiClient {
   }
 
   async getAffectedScope(id: string, signal?: AbortSignal): Promise<AffectedScopeResult> {
-    const res = await this.request<AffectedScopeResult>(
+    const res = await this.request<AffectedScopeResponse>(
       `/operations/events/${encodeURIComponent(id)}/affected-scope`,
       {
         method: 'GET',
         signal,
       },
     );
-    return res.data;
+
+    const data = res?.data;
+    const scope = data?.affectedScope;
+
+    if (
+      !data ||
+      !scope ||
+      !Array.isArray(scope.affectedRequestIds) ||
+      !Array.isArray(scope.affectedResourceIds) ||
+      !Array.isArray(scope.affectedProposedAssignmentIds) ||
+      !Array.isArray(scope.committedAssignmentsRequiringReview)
+    ) {
+      throw new ApiClientError({
+        message:
+          'Unexpected affected-scope response shape: missing affectedScope or required array fields',
+        statusCode: 500,
+        code: 'MALFORMED_RESPONSE',
+      });
+    }
+
+    return scope;
   }
 
   async updateResourceStatus(

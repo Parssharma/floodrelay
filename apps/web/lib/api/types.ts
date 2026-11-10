@@ -194,6 +194,11 @@ export interface UpdateResourceStatusResult {
   affectedScope: AffectedScopeResult | null;
 }
 
+export interface AffectedScopeResponse {
+  event: OperationalEvent;
+  affectedScope: AffectedScopeResult;
+}
+
 export interface CreateRoadZoneInput {
   name: string;
   severity: HazardLevel;
