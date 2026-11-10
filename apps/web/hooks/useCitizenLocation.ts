@@ -52,6 +52,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
   const userEditedDuringLookupRef = useRef<boolean>(false);
   const userEditedAddressRef = useRef<boolean>(false);
   const geocodeAbortControllerRef = useRef<AbortController | null>(null);
+  const lookupAbortControllerRef = useRef<AbortController | null>(null);
 
   const invalidateConfirmation = () => {
     setIsLocationConfirmed(false);
@@ -94,12 +95,36 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
 
   /**
    * Coordinate input change handler (manual coordinate entry):
-   * Invalidates confirmation and sets source to MANUAL.
+   * - Keeps user's manually edited coordinates.
+   * - Preserves the manually entered address.
+   * - Increments lookupSeqRef.current to invalidate all pending reverse-geocoding responses.
+   * - Cancels the pending reverse-geocoding request using AbortController.
+   * - Marks any in-flight reverse-geocoding result as obsolete.
+   * - Resets reverse-geocoding loading indicators and stale messages.
+   * - Sets locationSource = 'MANUAL'.
+   * - Sets isLocationConfirmed = false and clears confirmedDetails.
    */
   const handleCoordinateChange = (field: 'lat' | 'lng', newVal: string) => {
     if (field === 'lat') setLat(newVal);
     else setLng(newVal);
 
+    // 1. Invalidate pending reverse-geocoding responses
+    lookupSeqRef.current += 1;
+
+    // 2. Cancel in-flight reverse-geocoding request via AbortController
+    if (lookupAbortControllerRef.current) {
+      lookupAbortControllerRef.current.abort();
+      lookupAbortControllerRef.current = null;
+    }
+
+    // 3. Mark in-flight result as obsolete
+    userEditedDuringLookupRef.current = true;
+
+    // 4. Reset loading indicators and stale reverse-geocoding messages
+    setReverseGeocodeStatus('IDLE');
+    setReverseGeocodeMessage(null);
+
+    // 5. Update provenance and invalidate confirmation
     setLocationSource('MANUAL');
     invalidateConfirmation();
     onFieldEdited?.();
@@ -225,8 +250,16 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
    * Reverse Geocoding for GPS Coordinates:
    * Populates coordinates and street address, but KEEPS isLocationConfirmed=false
    * until explicit citizen confirmation.
+   * Uses AbortController and sequence counter to prevent stale or race-condition responses.
    */
   const triggerReverseGeocode = async (latNum: number, lngNum: number) => {
+    // Abort prior in-flight reverse-geocoding request
+    if (lookupAbortControllerRef.current) {
+      lookupAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    lookupAbortControllerRef.current = abortController;
+
     const seq = ++lookupSeqRef.current;
     userEditedDuringLookupRef.current = false;
     setReverseGeocodeStatus('LOOKING_UP');
@@ -239,18 +272,18 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ lat: latNum, lng: lngNum }),
+        signal: abortController.signal,
       });
 
-      // Reject stale response from older GPS triggers
-      if (seq !== lookupSeqRef.current) {
+      // Reject stale response from older GPS triggers or user coordinate/address modifications
+      if (seq !== lookupSeqRef.current || userEditedDuringLookupRef.current) {
         return;
       }
 
       const data = await res.json().catch(() => null);
 
-      if (userEditedDuringLookupRef.current) {
-        setReverseGeocodeStatus('IDLE');
-        setReverseGeocodeMessage(null);
+      // Recheck sequence guard and user-edit flag after body parsing
+      if (seq !== lookupSeqRef.current || userEditedDuringLookupRef.current) {
         return;
       }
 
@@ -261,7 +294,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
           setReverseGeocodeStatus('FOUND');
           setReverseGeocodeMessage(null);
 
-          // REQUIREMENT 1: Automatically populate coordinates and address,
+          // REQUIREMENT: Automatically populate coordinates and address,
           // but KEEP isLocationConfirmed=false until citizen explicitly confirms.
           setIsLocationConfirmed(false);
           setConfirmedDetails(null);
@@ -286,11 +319,12 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
             : `${baseMsg} Coordinates are saved — please enter your street address or landmark manually.`,
         );
       }
-    } catch {
-      if (seq !== lookupSeqRef.current) return;
-      if (userEditedDuringLookupRef.current) {
-        setReverseGeocodeStatus('IDLE');
-        setReverseGeocodeMessage(null);
+    } catch (err: unknown) {
+      // Gracefully handle abort without showing false network-error message
+      if ((err as Error)?.name === 'AbortError') {
+        return;
+      }
+      if (seq !== lookupSeqRef.current || userEditedDuringLookupRef.current) {
         return;
       }
       setReverseGeocodeStatus('ERROR');
@@ -421,6 +455,7 @@ export function useCitizenLocation(options: UseCitizenLocationOptions = {}) {
     userEditedDuringLookupRef,
     userEditedAddressRef,
     geocodeAbortControllerRef,
+    lookupAbortControllerRef,
     handleAddressChange,
     handleCoordinateChange,
     handleSearchAddress,

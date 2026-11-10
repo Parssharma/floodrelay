@@ -1409,5 +1409,496 @@ describe('FloodRelay Citizen Portal Smart Location System (20 Regression Invaria
       expect(handle.location.isLocationConfirmed).toBe(true);
       expect(handle.location.confirmedDetails?.lat).toBe('29.761000');
     });
+
+    // =========================================================================
+    // FINAL GPS REVERSE-GEOCODING RACE CONDITION & INVARIANTS (PR #33)
+    // =========================================================================
+    it('6. GPS lookup starts, coordinates are manually edited, and an old reverse-geocoding response arrives — the old address must not appear', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      let resolveSlowReverse!: (res: Response) => void;
+      const slowReversePromise = new Promise<Response>((resolve) => {
+        resolveSlowReverse = resolve;
+      });
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(slowReversePromise);
+
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: {
+              latitude: 29.7604,
+              longitude: -95.3698,
+              accuracy: 5.0,
+            },
+          });
+        },
+      );
+
+      // 1. Citizen clicks "Use My Current Location"
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.lat).toBe('29.760400');
+      expect(handle.location.lng).toBe('-95.369800');
+      expect(handle.location.reverseGeocodeStatus).toBe('LOOKING_UP');
+
+      // 2. Citizen manually edits latitude before reverse geocode finishes
+      act(() => {
+        handle.location.handleCoordinateChange('lat', '28.613900');
+      });
+
+      // Status immediately reset to IDLE, confirmation invalidated, manual source set
+      expect(handle.location.lat).toBe('28.613900');
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+      expect(handle.location.reverseGeocodeMessage).toBeNull();
+      expect(handle.location.locationSource).toBe('MANUAL');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // 3. Old reverse-geocode response arrives later with Houston address
+      await act(async () => {
+        resolveSlowReverse(
+          new Response(
+            JSON.stringify({
+              success: true,
+              address: '1428 Riverbend Dr, Houston, TX 77024',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      // Verification: The stale Houston address MUST NOT overwrite or appear!
+      expect(handle.location.address).toBe('');
+      expect(handle.location.lat).toBe('28.613900');
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+    });
+
+    it('7. Manual latitude modification invalidates the pending lookup', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      let resolveSlowReverse!: (res: Response) => void;
+      const slowReversePromise = new Promise<Response>((resolve) => {
+        resolveSlowReverse = resolve;
+      });
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(slowReversePromise);
+
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: {
+              latitude: 29.7604,
+              longitude: -95.3698,
+              accuracy: 5.0,
+            },
+          });
+        },
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      const initialSeq = handle.location.lookupSeqRef.current;
+      expect(handle.location.reverseGeocodeStatus).toBe('LOOKING_UP');
+
+      // Manual latitude change
+      act(() => {
+        handle.location.handleCoordinateChange('lat', '30.123456');
+      });
+
+      // Verification: lookupSeqRef incremented, status reset to IDLE, stale message cleared
+      expect(handle.location.lookupSeqRef.current).toBeGreaterThan(initialSeq);
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+      expect(handle.location.reverseGeocodeMessage).toBeNull();
+      expect(handle.location.lat).toBe('30.123456');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // Late resolution must not overwrite or set address
+      await act(async () => {
+        resolveSlowReverse(
+          new Response(
+            JSON.stringify({
+              success: true,
+              address: '1428 Riverbend Dr, Houston, TX 77024',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      expect(handle.location.address).toBe('');
+      expect(handle.location.lat).toBe('30.123456');
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+    });
+
+    it('8. Manual longitude modification invalidates the pending lookup', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      let resolveSlowReverse!: (res: Response) => void;
+      const slowReversePromise = new Promise<Response>((resolve) => {
+        resolveSlowReverse = resolve;
+      });
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(slowReversePromise);
+
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: {
+              latitude: 29.7604,
+              longitude: -95.3698,
+              accuracy: 5.0,
+            },
+          });
+        },
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      const initialSeq = handle.location.lookupSeqRef.current;
+      expect(handle.location.reverseGeocodeStatus).toBe('LOOKING_UP');
+
+      // Manual longitude change
+      act(() => {
+        handle.location.handleCoordinateChange('lng', '-97.743100');
+      });
+
+      // Verification: lookupSeqRef incremented, status reset to IDLE, stale message cleared
+      expect(handle.location.lookupSeqRef.current).toBeGreaterThan(initialSeq);
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+      expect(handle.location.reverseGeocodeMessage).toBeNull();
+      expect(handle.location.lng).toBe('-97.743100');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+
+      // Late resolution must not overwrite or set address
+      await act(async () => {
+        resolveSlowReverse(
+          new Response(
+            JSON.stringify({
+              success: true,
+              address: '1428 Riverbend Dr, Houston, TX 77024',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      expect(handle.location.address).toBe('');
+      expect(handle.location.lng).toBe('-97.743100');
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+    });
+
+    it('9. Old GPS responses cannot overwrite the results of newer GPS acquisitions', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      let resolveGps1!: (res: Response) => void;
+      const promiseGps1 = new Promise<Response>((resolve) => {
+        resolveGps1 = resolve;
+      });
+
+      let resolveGps2!: (res: Response) => void;
+      const promiseGps2 = new Promise<Response>((resolve) => {
+        resolveGps2 = resolve;
+      });
+
+      // 1st GPS click (Houston coordinates)
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(promiseGps1);
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: { latitude: 29.7604, longitude: -95.3698, accuracy: 10.0 },
+          });
+        },
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.lat).toBe('29.760400');
+      expect(handle.location.lng).toBe('-95.369800');
+
+      // 2nd GPS click (Austin coordinates) before 1st reverse-geocode completes
+      vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(promiseGps2);
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: { latitude: 30.2672, longitude: -97.7431, accuracy: 3.5 },
+          });
+        },
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.lat).toBe('30.267200');
+      expect(handle.location.lng).toBe('-97.743100');
+
+      // 2nd lookup resolves first with Austin address
+      await act(async () => {
+        resolveGps2(
+          new Response(
+            JSON.stringify({
+              success: true,
+              address: 'Congress Ave, Austin, TX 78701',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      expect(handle.location.address).toBe('Congress Ave, Austin, TX 78701');
+
+      // 1st lookup resolves late with Houston address
+      await act(async () => {
+        resolveGps1(
+          new Response(
+            JSON.stringify({
+              success: true,
+              address: 'Riverbend Dr, Houston, TX 77024',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+
+      // Verification: Stale 1st response is discarded and does not overwrite Austin address
+      expect(handle.location.address).toBe('Congress Ave, Austin, TX 78701');
+      expect(handle.location.lat).toBe('30.267200');
+      expect(handle.location.lng).toBe('-97.743100');
+    });
+
+    it('10. A cancelled lookup does not display a false network-error message', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: { latitude: 29.7604, longitude: -95.3698, accuracy: 5.0 },
+          });
+        },
+      );
+
+      // Mock fetch with abort rejection
+      vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async (_url, options) => {
+        const signal = options?.signal as AbortSignal | undefined;
+        return new Promise<Response>((_, reject) => {
+          if (signal?.aborted) {
+            const err = new Error('The user aborted a request.');
+            err.name = 'AbortError';
+            reject(err);
+            return;
+          }
+          signal?.addEventListener('abort', () => {
+            const err = new Error('The user aborted a request.');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      });
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.reverseGeocodeStatus).toBe('LOOKING_UP');
+
+      // Citizen cancels the pending lookup by modifying latitude
+      act(() => {
+        handle.location.handleCoordinateChange('lat', '29.761000');
+      });
+
+      // Verification: Status is IDLE, no error message displayed
+      expect(handle.location.reverseGeocodeStatus).toBe('IDLE');
+      expect(handle.location.reverseGeocodeMessage).toBeNull();
+    });
+
+    it('11. A valid fresh GPS lookup still autofills the correct address', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: { latitude: 28.613939, longitude: 77.209021, accuracy: 4.2 },
+          });
+        },
+      );
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: 'Yamuna Floodplain Relief Camp, Delhi 110001',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      expect(handle.location.lat).toBe('28.613939');
+      expect(handle.location.lng).toBe('77.209021');
+      expect(handle.location.address).toBe('Yamuna Floodplain Relief Camp, Delhi 110001');
+      expect(handle.location.reverseGeocodeStatus).toBe('FOUND');
+      expect(handle.location.isLocationConfirmed).toBe(false);
+    });
+
+    it('12. Submission remains blocked until the citizen explicitly confirms the final address-coordinate pair', async () => {
+      let handle!: HarnessHandle;
+
+      act(() => {
+        root.render(
+          <CitizenLocationHarness
+            onMount={(h) => {
+              handle = h;
+            }}
+          />,
+        );
+      });
+
+      // Step 1: Autofill via GPS and reverse-geocode
+      mockGeolocation.getCurrentPosition.mockImplementationOnce(
+        (success: (pos: unknown) => void) => {
+          success({
+            coords: { latitude: 29.7604, longitude: -95.3698, accuracy: 5.0 },
+          });
+        },
+      );
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            address: '1428 Riverbend Dr, Houston, TX 77024',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      await act(async () => {
+        handle.location.handleUseLocation();
+      });
+
+      // Step 2: Citizen modifies coordinates manually
+      act(() => {
+        handle.location.handleCoordinateChange('lat', '29.765000');
+        handle.location.handleCoordinateChange('lng', '-95.365000');
+      });
+
+      // Submission must be blocked
+      let submitRes = await handle.validateAndSubmit();
+      expect(submitRes.success).toBe(false);
+      expect(submitRes.error).toContain('Location must be confirmed before submission');
+      expect(apiClient.createRequest).not.toHaveBeenCalled();
+
+      // Step 3: Citizen enters manual address update
+      act(() => {
+        handle.location.handleAddressChange('1430 Riverbend Dr (Upper Floor)');
+      });
+
+      // Still blocked
+      submitRes = await handle.validateAndSubmit();
+      expect(submitRes.success).toBe(false);
+      expect(apiClient.createRequest).not.toHaveBeenCalled();
+
+      // Step 4: Citizen explicitly confirms the final pair
+      act(() => {
+        const confirmed = handle.location.handleExplicitConfirm();
+        expect(confirmed).toBe(true);
+      });
+
+      expect(handle.location.isLocationConfirmed).toBe(true);
+      expect(handle.location.confirmedDetails).toEqual({
+        address: '1430 Riverbend Dr (Upper Floor)',
+        lat: '29.765000',
+        lng: '-95.365000',
+        source: 'MANUAL',
+        accuracy: null,
+      });
+
+      // Step 5: Submission now succeeds
+      vi.mocked(apiClient.createRequest).mockResolvedValueOnce({
+        id: 'req-confirmed-pair-001',
+        createdAt: new Date().toISOString(),
+        urgency: 'HIGH',
+        peopleCount: 3,
+        isFlaggedDuplicate: false,
+        idempotent: false,
+        lat: 29.765,
+        lng: -95.365,
+        source: 'REPORTED',
+      });
+
+      submitRes = await handle.validateAndSubmit();
+      expect(submitRes.success).toBe(true);
+      expect(apiClient.createRequest).toHaveBeenCalledTimes(1);
+      expect(mockRouterPush).toHaveBeenCalledWith('/citizen/confirmation');
+    });
   });
 });
