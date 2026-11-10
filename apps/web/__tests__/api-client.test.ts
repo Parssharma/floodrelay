@@ -10,15 +10,34 @@ export function validateMockAgainstOpenApiSchema(
 ): void {
   const filePath = path.resolve(__dirname, '../../../services/api/src/openapi.json');
   const spec = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  let schema = spec.components?.schemas?.[schemaName];
+  let schema: Record<string, unknown> | undefined = spec.components?.schemas?.[schemaName];
+  if (!schema && schemaName.includes('.')) {
+    const parts = schemaName.split('.');
+    schema = spec.components?.schemas?.[parts[0]];
+    for (let i = 1; i < parts.length; i++) {
+      if (
+        schema &&
+        typeof schema === 'object' &&
+        '$ref' in schema &&
+        typeof schema.$ref === 'string'
+      ) {
+        const refKey = (schema.$ref as string).replace('#/components/schemas/', '');
+        schema = spec.components?.schemas?.[refKey];
+      }
+      schema = (schema?.properties as Record<string, unknown> | undefined)?.[parts[i]] as
+        Record<string, unknown> | undefined;
+    }
+  }
   if (!schema) {
     throw new Error(`Schema ${schemaName} not found in openapi.json`);
   }
-  if (schema.$ref) {
-    const refKey = schema.$ref.replace('#/components/schemas/', '');
+  if ('$ref' in schema && typeof schema.$ref === 'string') {
+    const refKey = (schema.$ref as string).replace('#/components/schemas/', '');
     schema = spec.components?.schemas?.[refKey];
   }
-  const requiredFields: string[] = schema?.required || [];
+  const requiredFields: string[] = Array.isArray(schema?.required)
+    ? (schema.required as string[])
+    : [];
   for (const field of requiredFields) {
     if (mockObj[field] === undefined) {
       throw new Error(`Mock object for ${schemaName} is missing required property: "${field}"`);
@@ -357,5 +376,285 @@ describe('FloodRelayApiClient', () => {
       code: 'NOT_FOUND',
       isNotFound: true,
     });
+  });
+
+  it('fetches operational events with query filters matching OpenAPI contract', async () => {
+    const mockEvent = {
+      id: 'evt-op-1',
+      type: 'REQUEST_CREATED',
+      entityType: 'REQUEST',
+      entityId: 'req-1',
+      actorType: 'CITIZEN',
+      occurredAt: '2026-11-09T10:00:00Z',
+      recordedAt: '2026-11-09T10:00:01Z',
+      payload: { urgency: 'CRITICAL', peopleCount: 3 },
+    };
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        count: 1,
+        data: [mockEvent],
+      }),
+    });
+
+    const res = await client.getOperationalEvents({ status: 'RECORDED', limit: 10 });
+    expect(res).toHaveLength(1);
+    expect(res[0].id).toBe('evt-op-1');
+
+    const resList = await client.listOperationalEvents({ status: 'RECORDED', limit: 10 });
+    expect(resList).toHaveLength(1);
+    expect(resList[0].id).toBe('evt-op-1');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:3000/api/v1/operations/events?status=RECORDED&limit=10',
+      expect.anything(),
+    );
+  });
+
+  it('fetches a single operational event by ID matching OpenAPI contract', async () => {
+    const mockEvent = {
+      id: 'evt-op-2',
+      type: 'RESOURCE_OFFLINE',
+      entityType: 'RESOURCE',
+      entityId: 'res-boat-1',
+      actorType: 'OPERATOR',
+      occurredAt: '2026-11-09T11:00:00Z',
+      recordedAt: '2026-11-09T11:00:02Z',
+      payload: { reason: 'Engine issue' },
+    };
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: mockEvent,
+      }),
+    });
+
+    const res = await client.getOperationalEvent('evt-op-2');
+    expect(res.id).toBe('evt-op-2');
+    expect(res.type).toBe('RESOURCE_OFFLINE');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:3000/api/v1/operations/events/evt-op-2',
+      expect.anything(),
+    );
+  });
+
+  it('updates resource status matching OpenAPI contract', async () => {
+    const mockResource = {
+      id: 'res-1',
+      name: 'Boat Alpha',
+      type: 'BOAT',
+      capacity: 6,
+      speedKmH: 25,
+      lat: 28.69,
+      lng: 77.23,
+      status: 'OFFLINE',
+    };
+    validateMockAgainstOpenApiSchema('RescueResourceResponse', mockResource);
+
+    const mockEvent = {
+      id: 'evt-res-1',
+      type: 'RESOURCE_OFFLINE',
+      entityType: 'RESOURCE',
+      entityId: 'res-1',
+      actorType: 'OPERATOR',
+      occurredAt: '2026-11-09T11:30:00Z',
+      recordedAt: '2026-11-09T11:30:01Z',
+      payload: { status: 'OFFLINE' },
+    };
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+
+    const mockScope = {
+      eventId: 'evt-res-1',
+      affectedRequestIds: [],
+      affectedResourceIds: ['res-1'],
+      affectedProposedAssignmentIds: [],
+      committedAssignmentsRequiringReview: [],
+      reason: 'Resource went offline',
+      repairEligible: true,
+    };
+    validateMockAgainstOpenApiSchema('AffectedScopeResult', mockScope);
+
+    const mockData = {
+      resource: mockResource,
+      event: mockEvent,
+      affectedScope: mockScope,
+    };
+    validateMockAgainstOpenApiSchema('UpdateResourceStatusResponse.data', mockData);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: mockData,
+      }),
+    });
+
+    const res = await client.updateResourceStatus('res-1', {
+      status: 'OFFLINE',
+      reason: 'Scheduled maintenance',
+    });
+    expect(res.resource.id).toBe('res-1');
+    expect(res.resource.status).toBe('OFFLINE');
+    expect(res.event?.id).toBe('evt-res-1');
+    expect(res.affectedScope?.eventId).toBe('evt-res-1');
+  });
+
+  it('creates road zone matching OpenAPI contract', async () => {
+    const mockZone = {
+      id: 'bz-1',
+      name: 'Flooded Underpass',
+      severity: 'BLOCKED',
+      polygon: [
+        { lat: 28.691, lng: 77.231 },
+        { lat: 28.692, lng: 77.232 },
+        { lat: 28.693, lng: 77.233 },
+      ],
+      isActive: true,
+      createdBy: 'eoc_operator',
+    };
+    validateMockAgainstOpenApiSchema('BlockedZoneResponse', mockZone);
+
+    const mockEvent = {
+      id: 'evt-zone-1',
+      type: 'ROAD_BLOCKED',
+      entityType: 'ROAD_ZONE',
+      entityId: 'bz-1',
+      actorType: 'OPERATOR',
+      occurredAt: '2026-11-09T12:00:00Z',
+      recordedAt: '2026-11-09T12:00:01Z',
+      payload: { zoneId: 'bz-1' },
+    };
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+
+    const mockScope = {
+      eventId: 'evt-zone-1',
+      affectedRequestIds: [],
+      affectedResourceIds: [],
+      affectedProposedAssignmentIds: [],
+      committedAssignmentsRequiringReview: [],
+      reason: 'Road blocked',
+      repairEligible: false,
+    };
+    validateMockAgainstOpenApiSchema('AffectedScopeResult', mockScope);
+
+    const mockData = {
+      zone: mockZone,
+      event: mockEvent,
+      affectedScope: mockScope,
+    };
+    validateMockAgainstOpenApiSchema('RoadZoneResponse.data', mockData);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        success: true,
+        data: mockData,
+      }),
+    });
+
+    const res = await client.createRoadZone({
+      name: 'Flooded Underpass',
+      severity: 'BLOCKED',
+      polygon: [
+        { lat: 28.691, lng: 77.231 },
+        { lat: 28.692, lng: 77.232 },
+        { lat: 28.693, lng: 77.233 },
+      ],
+    });
+    expect(res.zone?.id).toBe('bz-1');
+    expect(res.event.id).toBe('evt-zone-1');
+    expect(res.affectedScope.eventId).toBe('evt-zone-1');
+  });
+
+  it('reopens road zone matching OpenAPI contract', async () => {
+    const mockZone = {
+      id: 'bz-1',
+      name: 'Flooded Underpass',
+      severity: 'BLOCKED',
+      polygon: [
+        { lat: 28.691, lng: 77.231 },
+        { lat: 28.692, lng: 77.232 },
+        { lat: 28.693, lng: 77.233 },
+      ],
+      isActive: false,
+      createdBy: 'eoc_operator',
+    };
+    validateMockAgainstOpenApiSchema('BlockedZoneResponse', mockZone);
+
+    const mockEvent = {
+      id: 'evt-reopen-1',
+      type: 'ROAD_REOPENED',
+      entityType: 'ROAD_ZONE',
+      entityId: 'bz-1',
+      actorType: 'OPERATOR',
+      occurredAt: '2026-11-09T13:00:00Z',
+      recordedAt: '2026-11-09T13:00:01Z',
+      payload: { zoneId: 'bz-1' },
+    };
+    validateMockAgainstOpenApiSchema('OperationalEvent', mockEvent);
+
+    const mockScope = {
+      eventId: 'evt-reopen-1',
+      affectedRequestIds: [],
+      affectedResourceIds: [],
+      affectedProposedAssignmentIds: [],
+      committedAssignmentsRequiringReview: [],
+      reason: 'Road reopened',
+      repairEligible: false,
+    };
+    validateMockAgainstOpenApiSchema('AffectedScopeResult', mockScope);
+
+    const mockData = {
+      zone: mockZone,
+      event: mockEvent,
+      affectedScope: mockScope,
+    };
+    validateMockAgainstOpenApiSchema('RoadZoneResponse.data', mockData);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: mockData,
+      }),
+    });
+
+    const res = await client.reopenRoadZone('bz-1');
+    expect(res.zone?.id).toBe('bz-1');
+    expect(res.event.id).toBe('evt-reopen-1');
+  });
+
+  it('requests plan repair proposal matching OpenAPI contract', async () => {
+    const mockRepairResult = {
+      status: 'PROPOSED' as const,
+      unservedRequestIds: ['req-9'],
+      warnings: ['Resource capacity constrained'],
+      proposalId: 'prop-repair-1',
+    };
+    validateMockAgainstOpenApiSchema('RepairResultResponse.data', mockRepairResult);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: mockRepairResult,
+      }),
+    });
+
+    const res = await client.requestRepair({ eventId: 'evt-1' });
+    expect(res.status).toBe('PROPOSED');
+    expect(res.unservedRequestIds).toEqual(['req-9']);
+    expect(res.warnings).toEqual(['Resource capacity constrained']);
   });
 });

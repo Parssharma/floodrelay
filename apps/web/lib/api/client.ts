@@ -330,6 +330,13 @@ export class FloodRelayApiClient {
     return res.data || [];
   }
 
+  async getOperationalEvents(
+    filter?: ListOperationalEventsFilter,
+    signal?: AbortSignal,
+  ): Promise<OperationalEvent[]> {
+    return this.listOperationalEvents(filter, signal);
+  }
+
   async getOperationalEvent(id: string, signal?: AbortSignal): Promise<OperationalEvent> {
     const res = await this.request<OperationalEvent>(
       `/operations/events/${encodeURIComponent(id)}`,
