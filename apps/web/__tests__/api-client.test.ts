@@ -291,4 +291,71 @@ describe('FloodRelayApiClient', () => {
     expect(res.reason).toBe('Critical request awaiting route assignment');
     expect(res.repairEligible).toBe(true);
   });
+
+  it('throws ApiClientError when affectedScope is missing from getAffectedScope response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          event: { id: 'evt-1' },
+          // affectedScope is missing
+        },
+      }),
+    });
+
+    await expect(client.getAffectedScope('evt-1')).rejects.toThrow(ApiClientError);
+    await expect(client.getAffectedScope('evt-1')).rejects.toThrow(
+      'Unexpected affected-scope response shape',
+    );
+  });
+
+  it('throws ApiClientError when any required array in affectedScope is not an array', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          event: { id: 'evt-1' },
+          affectedScope: {
+            eventId: 'evt-1',
+            affectedRequestIds: 'not-an-array',
+            affectedResourceIds: [],
+            affectedProposedAssignmentIds: [],
+            committedAssignmentsRequiringReview: [],
+            reason: 'Test',
+            repairEligible: true,
+          },
+        },
+      }),
+    });
+
+    await expect(client.getAffectedScope('evt-1')).rejects.toThrow(ApiClientError);
+    await expect(client.getAffectedScope('evt-1')).rejects.toMatchObject({
+      statusCode: 500,
+      code: 'MALFORMED_RESPONSE',
+    });
+  });
+
+  it('maps HTTP 404 error envelope to ApiClientError with isNotFound true for getAffectedScope', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Operational event not found',
+        },
+      }),
+    });
+
+    await expect(client.getAffectedScope('evt-nonexistent')).rejects.toThrow(ApiClientError);
+    await expect(client.getAffectedScope('evt-nonexistent')).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'NOT_FOUND',
+      isNotFound: true,
+    });
+  });
 });
