@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { FloodRelayApiClient } from '../lib/api/client';
-import { ApiClientError } from '../lib/api/errors';
+import { ApiClientError, isAbortError } from '../lib/api/errors';
 
 export function validateMockAgainstOpenApiSchema(
   schemaName: string,
@@ -194,6 +194,42 @@ describe('FloodRelayApiClient', () => {
     await expect(client.commitAssignment('COM-204', { operatorId: 'op_1' })).rejects.toMatchObject({
       statusCode: 409,
       code: 'CONCURRENCY_CONFLICT',
+    });
+  });
+
+  it('preserves AbortError semantics without wrapping into NETWORK_ERROR when fetch is intentionally aborted', async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException('signal is aborted without reason', 'AbortError');
+    global.fetch = vi.fn().mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(abortError);
+    });
+
+    const promise = client.listRequests(undefined, controller.signal);
+    await expect(promise).rejects.toSatisfy(isAbortError);
+    await expect(promise).rejects.not.toBeInstanceOf(ApiClientError);
+  });
+
+  it('preserves AbortError when signal is already aborted prior to dispatch', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    global.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException('This operation was aborted', 'AbortError'));
+
+    const promise = client.listRequests(undefined, controller.signal);
+    await expect(promise).rejects.toSatisfy(isAbortError);
+    await expect(promise).rejects.not.toBeInstanceOf(ApiClientError);
+  });
+
+  it('wraps genuine network connection failures into ApiClientError(NETWORK_ERROR)', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await expect(client.listRequests()).rejects.toThrow(ApiClientError);
+    await expect(client.listRequests()).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      statusCode: 0,
+      isNetworkError: true,
     });
   });
 

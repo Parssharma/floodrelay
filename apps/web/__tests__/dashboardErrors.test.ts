@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AssignmentRecord, OperationalEvent } from '../lib/api/types';
 import type { RescueRequest } from '@floodrelay/shared';
+import { isAbortError } from '../lib/api/errors';
 
 describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
   // Simulator for the dashboard's fetchDashboardData logic with error preservation
@@ -14,6 +15,7 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
       assignments: AssignmentRecord[] | null;
       recentEvents: OperationalEvent[] | null;
     },
+    signal?: AbortSignal,
   ) {
     const [requestsResult, assignmentsResult, eventsResult] = await Promise.allSettled([
       mockApis.listRequests(),
@@ -21,7 +23,18 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
       mockApis.listEvents(),
     ]);
 
+    if (signal?.aborted) {
+      throw (
+        (requestsResult.status === 'rejected' && isAbortError(requestsResult.reason)
+          ? requestsResult.reason
+          : null) || new DOMException('The operation was aborted', 'AbortError')
+      );
+    }
+
     if (requestsResult.status === 'rejected') {
+      if (isAbortError(requestsResult.reason)) {
+        throw requestsResult.reason;
+      }
       throw requestsResult.reason;
     }
     const requests = requestsResult.value || [];
@@ -35,10 +48,14 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
       previousData.assignments = assignments;
     } else {
       const err = assignmentsResult.reason as Error;
-      assignmentsError = err?.message || 'Failed to fetch assignments';
-      if (previousData.assignments !== null) {
+      if (!isAbortError(err)) {
+        assignmentsError = err?.message || 'Failed to fetch assignments';
+        if (previousData.assignments !== null) {
+          assignments = previousData.assignments;
+          assignmentsStale = true;
+        }
+      } else {
         assignments = previousData.assignments;
-        assignmentsStale = true;
       }
     }
 
@@ -51,10 +68,14 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
       previousData.recentEvents = recentEvents;
     } else {
       const err = eventsResult.reason as Error;
-      eventsError = err?.message || 'Failed to fetch operational events';
-      if (previousData.recentEvents !== null) {
+      if (!isAbortError(err)) {
+        eventsError = err?.message || 'Failed to fetch operational events';
+        if (previousData.recentEvents !== null) {
+          recentEvents = previousData.recentEvents;
+          eventsStale = true;
+        }
+      } else {
         recentEvents = previousData.recentEvents;
-        eventsStale = true;
       }
     }
 
@@ -337,5 +358,93 @@ describe('Phase 5 Part 3 — Dashboard Real API Error Preservation', () => {
     expect(recoveredCycle.eventsError).toBeNull();
     expect(recoveredCycle.eventsStale).toBe(false);
     expect(recoveredCycle.recentEvents).toEqual([recoveredEvent]);
+  });
+
+  it('re-throws AbortError on cancellation without corrupting cache or recording false failure', async () => {
+    const cachedAssignment: AssignmentRecord = {
+      id: 'plan-001',
+      scenario_id: 'sector-4',
+      status: 'COMMITTED',
+      routes: [],
+      unserved: [],
+      metrics: {
+        coveragePercent: 90,
+        totalTravelTimeMinutes: 100,
+        totalTravelDistanceKm: 30,
+        highPriorityWaitTimeMinutes: 10,
+        solveDurationMs: 250,
+        servedRequestsCount: 10,
+        unservedRequestsCount: 1,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const previousCache = {
+      assignments: [cachedAssignment],
+      recentEvents: null,
+    };
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const abortError = new DOMException('signal is aborted without reason', 'AbortError');
+
+    await expect(
+      simulateFetchDashboardData(
+        {
+          listRequests: async () => {
+            throw abortError;
+          },
+          listAssignments: async () => {
+            throw abortError;
+          },
+          listEvents: async () => {
+            throw abortError;
+          },
+        },
+        previousCache,
+        controller.signal,
+      ),
+    ).rejects.toSatisfy(isAbortError);
+
+    // Cache must remain preserved and not corrupted
+    expect(previousCache.assignments).toHaveLength(1);
+    expect(previousCache.assignments![0].id).toBe('plan-001');
+  });
+
+  it('ensures genuine backend failures (HTTP 404, 500, network error) remain visible', async () => {
+    const previousCache = {
+      assignments: null,
+      recentEvents: null,
+    };
+
+    // 1. Genuine 500 on requests
+    await expect(
+      simulateFetchDashboardData(
+        {
+          listRequests: async () => {
+            throw new Error('API request failed with HTTP 500');
+          },
+          listAssignments: async () => [],
+          listEvents: async () => [],
+        },
+        previousCache,
+      ),
+    ).rejects.toThrow('API request failed with HTTP 500');
+
+    // 2. Genuine 404 on assignments (preserved in domain error)
+    const result = await simulateFetchDashboardData(
+      {
+        listRequests: async () => [],
+        listAssignments: async () => {
+          throw new Error('API request failed with HTTP 404');
+        },
+        listEvents: async () => [],
+      },
+      previousCache,
+    );
+    expect(result.hasPartialFailure).toBe(true);
+    expect(result.assignmentsError).toBe('API request failed with HTTP 404');
   });
 });

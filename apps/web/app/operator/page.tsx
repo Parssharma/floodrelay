@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import type { RescueRequest, RescueResource } from '@floodrelay/shared';
-import { apiClient } from '@/lib/api/client';
+import { apiClient, isAbortError } from '@/lib/api/client';
 import type { AssignmentRecord, OperationalEvent } from '@/lib/api/types';
 import { useLivePolling } from '@/hooks/useLivePolling';
 import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
@@ -49,7 +49,19 @@ export default function OperatorOverviewPage() {
       apiClient.listOperationalEvents({ limit: 5 }, signal),
     ]);
 
+    // Check for intentional aborts/cancellations before logging or reporting failures
+    if (signal.aborted) {
+      throw (
+        (requestsResult.status === 'rejected' && isAbortError(requestsResult.reason)
+          ? requestsResult.reason
+          : null) || new DOMException('The operation was aborted', 'AbortError')
+      );
+    }
+
     if (requestsResult.status === 'rejected') {
+      if (isAbortError(requestsResult.reason)) {
+        throw requestsResult.reason;
+      }
       console.error('Failed to load requests:', requestsResult.reason);
       throw requestsResult.reason;
     }
@@ -65,11 +77,15 @@ export default function OperatorOverviewPage() {
       previousDataRef.current.assignments = assignments;
     } else {
       const err = assignmentsResult.reason as Error;
-      assignmentsError = err?.message || 'Failed to fetch assignments';
-      console.warn('Assignments fetch failed in dashboard polling:', err);
-      if (previousDataRef.current.assignments !== null) {
+      if (!isAbortError(err)) {
+        assignmentsError = err?.message || 'Failed to fetch assignments';
+        console.warn('Assignments fetch failed in dashboard polling:', err);
+        if (previousDataRef.current.assignments !== null) {
+          assignments = previousDataRef.current.assignments;
+          assignmentsStale = true;
+        }
+      } else {
         assignments = previousDataRef.current.assignments;
-        assignmentsStale = true;
       }
     }
 
@@ -83,11 +99,15 @@ export default function OperatorOverviewPage() {
       previousDataRef.current.recentEvents = recentEvents;
     } else {
       const err = eventsResult.reason as Error;
-      eventsError = err?.message || 'Failed to fetch operational events';
-      console.warn('Operational events fetch failed in dashboard polling:', err);
-      if (previousDataRef.current.recentEvents !== null) {
+      if (!isAbortError(err)) {
+        eventsError = err?.message || 'Failed to fetch operational events';
+        console.warn('Operational events fetch failed in dashboard polling:', err);
+        if (previousDataRef.current.recentEvents !== null) {
+          recentEvents = previousDataRef.current.recentEvents;
+          eventsStale = true;
+        }
+      } else {
         recentEvents = previousDataRef.current.recentEvents;
-        eventsStale = true;
       }
     }
 
