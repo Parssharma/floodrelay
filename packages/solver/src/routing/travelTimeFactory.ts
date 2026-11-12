@@ -1,7 +1,13 @@
-import type { GeoPoint, Scenario } from '@floodrelay/shared';
+import type { BoundingBox, GeoPoint, Scenario } from '@floodrelay/shared';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from './travelTime.js';
-import { OsrmTravelTimeProvider, type OsrmProviderOptions } from './osrmTravelTime.js';
+import {
+  OsrmTravelTimeProvider,
+  type OsrmProviderOptions,
+  type OsrmRegionConfig,
+} from './osrmTravelTime.js';
 import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
+
+const DECIMAL_NUMBER_REGEX = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
 
 export interface TravelTimeReport {
   effectiveSource: 'OSRM' | 'STRAIGHT_LINE' | 'MIXED';
@@ -19,6 +25,8 @@ export interface TravelTimeReport {
 export interface TravelTimeFactoryOptions {
   osrm?: OsrmProviderOptions | null;
   pointLimit?: number; // default 500
+  coverageBbox?: BoundingBox;
+  regions?: OsrmRegionConfig[];
 }
 
 export interface PreparedTravelTime {
@@ -38,17 +46,178 @@ function coordKey(p: GeoPoint): string {
 }
 
 /**
+ * Parses "minLat,minLng,maxLat,maxLng" in decimal degrees into a BoundingBox.
+ * Invalid values (wrong count, non-numeric, out of range, min >= max) are ignored with a warning.
+ */
+export function parseCoverageBbox(raw: string | undefined): BoundingBox | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parts = trimmed.split(',').map((p) => p.trim());
+  if (parts.length !== 4) {
+    console.warn(
+      `[travelTimeFactory] Invalid OSRM_COVERAGE_BBOX "${trimmed}" (expected 4 comma-separated decimal values); ignoring.`,
+    );
+    return undefined;
+  }
+
+  if (parts.some((p) => !DECIMAL_NUMBER_REGEX.test(p))) {
+    console.warn(
+      `[travelTimeFactory] Invalid OSRM_COVERAGE_BBOX "${trimmed}" (non-numeric value); ignoring.`,
+    );
+    return undefined;
+  }
+
+  const [minLat, minLng, maxLat, maxLng] = parts.map(Number) as [number, number, number, number];
+  if (
+    !Number.isFinite(minLat) ||
+    !Number.isFinite(minLng) ||
+    !Number.isFinite(maxLat) ||
+    !Number.isFinite(maxLng)
+  ) {
+    console.warn(
+      `[travelTimeFactory] Invalid OSRM_COVERAGE_BBOX "${trimmed}" (non-finite value); ignoring.`,
+    );
+    return undefined;
+  }
+
+  if (
+    minLat < -90 ||
+    minLat > 90 ||
+    maxLat < -90 ||
+    maxLat > 90 ||
+    minLng < -180 ||
+    minLng > 180 ||
+    maxLng < -180 ||
+    maxLng > 180
+  ) {
+    console.warn(
+      `[travelTimeFactory] Invalid OSRM_COVERAGE_BBOX "${trimmed}" (coordinate out of range); ignoring.`,
+    );
+    return undefined;
+  }
+
+  if (minLat >= maxLat || minLng >= maxLng) {
+    console.warn(
+      `[travelTimeFactory] Invalid OSRM_COVERAGE_BBOX "${trimmed}" (min must be strictly less than max); ignoring.`,
+    );
+    return undefined;
+  }
+
+  return { minLat, minLng, maxLat, maxLng };
+}
+
+function isValidHttpUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parses OSRM_REGIONS JSON array into validated OsrmRegionConfig entries.
+ * Invalid entries and duplicate region IDs are logged and skipped cleanly without throwing.
+ */
+export function parseOsrmRegions(
+  raw: string | undefined,
+  defaultProfile = 'driving',
+): OsrmRegionConfig[] {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    console.warn('[travelTimeFactory] Invalid OSRM_REGIONS JSON; ignoring.');
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
+    console.warn('[travelTimeFactory] OSRM_REGIONS must be a JSON array; ignoring.');
+    return [];
+  }
+
+  const seenIds = new Set<string>();
+  const validRegions: OsrmRegionConfig[] = [];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const entry = parsed[i];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      console.warn(`[travelTimeFactory] Invalid OSRM_REGIONS entry at index ${i}; skipping.`);
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const rawId = typeof record.id === 'string' ? record.id.trim() : '';
+    if (!rawId) {
+      console.warn(
+        `[travelTimeFactory] OSRM_REGIONS entry at index ${i} is missing a non-empty "id"; skipping.`,
+      );
+      continue;
+    }
+
+    if (seenIds.has(rawId)) {
+      console.warn(
+        `[travelTimeFactory] Duplicate OSRM_REGIONS id "${rawId}" at index ${i}; skipping.`,
+      );
+      continue;
+    }
+
+    const rawBaseUrl = typeof record.baseUrl === 'string' ? record.baseUrl.trim() : '';
+    if (!rawBaseUrl || !isValidHttpUrl(rawBaseUrl)) {
+      console.warn(
+        `[travelTimeFactory] OSRM_REGIONS entry "${rawId}" has invalid "baseUrl"; skipping.`,
+      );
+      continue;
+    }
+
+    const rawBbox = typeof record.bbox === 'string' ? record.bbox : undefined;
+    const bbox = parseCoverageBbox(rawBbox);
+    if (!bbox) {
+      console.warn(
+        `[travelTimeFactory] OSRM_REGIONS entry "${rawId}" has missing or invalid "bbox"; skipping.`,
+      );
+      continue;
+    }
+
+    let profile = defaultProfile;
+    if (record.profile !== undefined) {
+      if (typeof record.profile !== 'string' || !record.profile.trim()) {
+        console.warn(
+          `[travelTimeFactory] OSRM_REGIONS entry "${rawId}" has invalid "profile"; skipping.`,
+        );
+        continue;
+      }
+      profile = record.profile.trim();
+    }
+
+    seenIds.add(rawId);
+    validRegions.push({
+      id: rawId,
+      baseUrl: rawBaseUrl.replace(/\/+$/, ''),
+      bbox,
+      profile,
+    });
+  }
+
+  return validRegions;
+}
+
+/**
  * Parses OSRM environment variables safely without throwing.
- * Returns null if OSRM_BASE_URL is blank or missing.
+ * Supports multi-region OSRM_REGIONS JSON or single-region OSRM_BASE_URL (+ optional OSRM_COVERAGE_BBOX).
+ * Returns null if neither OSRM_REGIONS nor OSRM_BASE_URL produces a valid configuration.
  */
 export function osrmConfigFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): OsrmProviderOptions | null {
-  const rawUrl = env.OSRM_BASE_URL?.trim();
-  if (!rawUrl) {
-    return null;
-  }
-
   const profile = env.OSRM_PROFILE?.trim() || 'driving';
 
   let timeoutMs: number | undefined;
@@ -75,11 +244,36 @@ export function osrmConfigFromEnv(
     }
   }
 
+  const rawRegions = env.OSRM_REGIONS?.trim();
+  if (rawRegions) {
+    const regions = parseOsrmRegions(rawRegions, profile);
+    if (regions.length === 0) {
+      console.warn(
+        '[travelTimeFactory] OSRM_REGIONS produced no valid region entries; disabling OSRM routing.',
+      );
+      return null;
+    }
+    return {
+      profile,
+      timeoutMs,
+      maxTableCoordinates,
+      regions,
+    };
+  }
+
+  const rawUrl = env.OSRM_BASE_URL?.trim();
+  if (!rawUrl) {
+    return null;
+  }
+
+  const coverageBbox = parseCoverageBbox(env.OSRM_COVERAGE_BBOX);
+
   return {
     baseUrl: rawUrl,
     profile,
     timeoutMs,
     maxTableCoordinates,
+    ...(coverageBbox ? { coverageBbox } : {}),
   };
 }
 
