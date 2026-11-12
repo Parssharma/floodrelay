@@ -680,7 +680,9 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                         </div>
                         <div className="text-[10px] text-slate-400">
                           Dist: {formatDistanceKm(totalKm)} | Travel: ~
-                          {Math.round(plan.metrics?.totalTravelTimeMinutes ?? summary.totalDurationMinutes)}
+                          {Math.round(
+                            plan.metrics?.totalTravelTimeMinutes ?? summary.totalDurationMinutes,
+                          )}
                           m | Wait: ~{Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
                         </div>
                       </>

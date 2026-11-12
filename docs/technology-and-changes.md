@@ -120,3 +120,28 @@ Solving routes via OSRM `/table/v1/` alone left map polylines connecting stop co
 - `BOAT` and `HELICOPTER` remain straight-line (`0` OSRM requests).
 - Solver optimization metrics and `scenarios/evaluate.ts` benchmark outputs remain identical when OSRM is unset.
 - Zero new npm dependencies added; UI route rendering (`apps/web`) deferred to Task C.
+
+---
+
+## Task C — Google-Like Light Basemap & UI Route Rendering (feat/map-routes-ui)
+
+### 1. Problem Addressed
+
+The Operator Tactical Map previously defaulted to an inverted dark tile filter, did not fetch full assignment details (`routes[]` + `geometry`) when selecting an assignment, drew only straight lines connecting stop coordinates, and omitted per-route distance and source indicators on the map and assignment review pages.
+
+### 2. What Changed
+
+- **Basemap Theme Default (`apps/web/components/operator/map/tileConfig.ts`, `apps/web/app/operator/map/page.tsx`)**: Switched the default basemap theme to light Standard OpenStreetMap (`standard`) with clean Google-like floating controls while keeping the `DARK TACTICAL` toggle option intact.
+- **Route Geometry Display & Leaflet Polylines (`apps/web/components/operator/map/routeDisplay.ts`, `LeafletMapCanvas.tsx`, `LeafletMapWrapper.tsx`)**:
+  - Prefers Task B road-following `geometry.coordinates` (`[lat, lng]`) when available and splits `MIXED` routes per leg so OSRM road segments render in solid blue (`#1a73e8`) while `BOAT`/`HELICOPTER`/outside-coverage legs render as dashed teal straight-line segments.
+  - Added interactive route `<Popup>` telemetry and assignment summary HUD badges (`N Route(s) • X.XX km • ~Y min • OSRM Road / Mixed / Straight-Line`).
+- **Assignment Hydration & Review Page (`apps/web/app/operator/map/page.tsx`, `apps/web/app/operator/assignments/[id]/page.tsx`, `apps/web/lib/api/types.ts`)**:
+  - Hydrates `apiClient.getAssignment(selectedAssignmentId)` on the map page with `AbortController` cleanup so persisted/proposed `RouteGeometry` renders immediately.
+  - Displays per-route distance (`km`), duration (`min`), and routing source badge (`OSRM Road`, `Mixed (Road + SL)`, `Straight-Line`) on `/operator/assignments/[id]`.
+- **Tests (`apps/web/__tests__/routeDisplay.test.ts`, `tileConfig.test.ts`, `operator-map.test.ts`)**: Added coverage for geometry preference, solid vs dashed styling, mixed per-leg splitting, default light theme, and metrics formatting.
+
+### 3. Preserved Defaults & Non-Goals
+
+- OpenStreetMap raster tiles remain in use (no proprietary Google Maps API dependency added); dark theme remains selectable.
+- `BOAT`, `HELICOPTER`, and out-of-coverage legs stay visually dashed straight-line by design.
+- Zero new npm dependencies added.
