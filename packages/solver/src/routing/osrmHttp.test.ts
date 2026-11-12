@@ -325,6 +325,15 @@ describe('OSRM HTTP Server Integration Tests', () => {
     expect(rep.lookupsOsrm).toBeGreaterThan(0);
     expect(rep.lookupsStraightLinePolicy).toBe(0);
     expect(rep.lookupsFallback).toBe(0);
+    expect(rep.lookupsOutsideCoverage).toBe(0);
+    expect(rep.regions).toEqual([
+      {
+        id: 'default',
+        requests: rep.osrmRequests,
+        failedRequests: 0,
+        lookupsOsrm: rep.lookupsOsrm,
+      },
+    ]);
     expect(rep.roadCoveragePercent).toBe(100);
     expect(rep.warnings).toHaveLength(0);
   });

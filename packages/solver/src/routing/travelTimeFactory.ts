@@ -10,6 +10,13 @@ import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
 
 const DECIMAL_NUMBER_REGEX = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
 
+export interface TravelTimeRegionReport {
+  id: string;
+  requests: number;
+  failedRequests: number;
+  lookupsOsrm: number;
+}
+
 export interface TravelTimeReport {
   effectiveSource: 'OSRM' | 'STRAIGHT_LINE' | 'MIXED';
   osrmConfigured: boolean;
@@ -18,8 +25,10 @@ export interface TravelTimeReport {
   lookupsOsrm: number;
   lookupsStraightLinePolicy: number;
   lookupsFallback: number;
+  lookupsOutsideCoverage: number;
   roadCoveragePercent: number | null;
   hazardZoneCount: number;
+  regions: TravelTimeRegionReport[];
   warnings: string[];
 }
 
@@ -361,6 +370,23 @@ export async function prepareTravelTimeProvider(
     }
 
     if (activeRegions.length > 0) {
+      const hasAnyUnboundedRegion = activeRegions.some((r) => r.bbox === undefined);
+      if (!hasAnyUnboundedRegion) {
+        const allScenarioPoints = dedupePoints([
+          ...resources.map((r) => ({ lat: r.lat, lng: r.lng })),
+          ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
+          ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
+        ]);
+        const outsideScenarioPoints = allScenarioPoints.filter(
+          (p) => !activeRegions.some((r) => isPointInBbox(p, r.bbox!)),
+        );
+        if (outsideScenarioPoints.length > 0) {
+          const msg = `${outsideScenarioPoints.length} of ${allScenarioPoints.length} scenario points are outside every configured OSRM region; straight-line estimates used`;
+          console.warn(`[travelTimeFactory] ${msg}`);
+          warnings.push(msg);
+        }
+      }
+
       // Check per-scenario point limit (not per region) before dispatching any OSRM requests.
       if (hasRoadVehicles) {
         const rawOrigins: GeoPoint[] = [
@@ -440,13 +466,16 @@ export async function prepareTravelTimeProvider(
         lookupsOsrm: 0,
         lookupsStraightLinePolicy: 0,
         lookupsFallback: 0,
+        lookupsOutsideCoverage: 0,
         roadCoveragePercent: null,
         hazardZoneCount,
+        regions: [],
         warnings: [...warnings],
       };
     }
 
     const regionalStats = regionalProvider!.getStats();
+    const lookupsOutsideCoverage = regionalStats.lookupsOutsideCoverage;
     let requestsTotal = 0;
     let failedRequestsTotal = 0;
     let lookupsOsrmTotal = 0;
@@ -454,6 +483,7 @@ export async function prepareTravelTimeProvider(
     let lookupsPolicyTotal = regionalStats.lookupsStraightLinePolicy;
     let osrmCellsTotal = 0;
     let fallbackCellsTotal = 0;
+    const regionsReport: TravelTimeRegionReport[] = [];
 
     for (const region of activeRegions) {
       const s = region.provider.getStats();
@@ -464,9 +494,15 @@ export async function prepareTravelTimeProvider(
       lookupsPolicyTotal += s.lookupsStraightLinePolicy;
       osrmCellsTotal += s.osrmCells;
       fallbackCellsTotal += s.fallbackCells;
+      regionsReport.push({
+        id: region.id,
+        requests: s.requests,
+        failedRequests: s.failedRequests,
+        lookupsOsrm: s.lookupsOsrm,
+      });
     }
 
-    const totalRoadLookups = lookupsOsrmTotal + lookupsFallbackTotal;
+    const totalRoadLookups = lookupsOsrmTotal + lookupsFallbackTotal + lookupsOutsideCoverage;
 
     const roadCoveragePercent =
       totalRoadLookups > 0
@@ -474,9 +510,17 @@ export async function prepareTravelTimeProvider(
         : null;
 
     let effectiveSource: 'OSRM' | 'STRAIGHT_LINE' | 'MIXED';
-    if (lookupsOsrmTotal > 0 && lookupsPolicyTotal === 0 && lookupsFallbackTotal === 0) {
+    if (
+      lookupsOsrmTotal > 0 &&
+      lookupsPolicyTotal === 0 &&
+      lookupsFallbackTotal === 0 &&
+      lookupsOutsideCoverage === 0
+    ) {
       effectiveSource = 'OSRM';
-    } else if (lookupsOsrmTotal > 0 && (lookupsPolicyTotal > 0 || lookupsFallbackTotal > 0)) {
+    } else if (
+      lookupsOsrmTotal > 0 &&
+      (lookupsPolicyTotal > 0 || lookupsFallbackTotal > 0 || lookupsOutsideCoverage > 0)
+    ) {
       effectiveSource = 'MIXED';
     } else {
       effectiveSource = 'STRAIGHT_LINE';
@@ -502,8 +546,10 @@ export async function prepareTravelTimeProvider(
       lookupsOsrm: lookupsOsrmTotal,
       lookupsStraightLinePolicy: lookupsPolicyTotal,
       lookupsFallback: lookupsFallbackTotal,
+      lookupsOutsideCoverage,
       roadCoveragePercent,
       hazardZoneCount,
+      regions: regionsReport,
       warnings: reportWarnings,
     };
   };

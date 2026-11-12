@@ -125,6 +125,8 @@ describe('travelTimeFactory', () => {
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
       expect(rep.roadCoveragePercent).toBeNull();
       expect(rep.osrmRequests).toBe(0);
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([]);
       expect(rep.hazardZoneCount).toBe(0);
       expect(rep.warnings).toHaveLength(0);
     });
@@ -144,6 +146,10 @@ describe('travelTimeFactory', () => {
       const rep = report();
       expect(rep.osrmConfigured).toBe(true);
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([
+        { id: 'default', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+      ]);
       expect(rep.roadCoveragePercent).toBe(0);
       expect(rep.warnings.some((w) => w.includes('exceed OSRM limit'))).toBe(true);
 
@@ -272,6 +278,10 @@ describe('travelTimeFactory', () => {
       expect(rep.lookupsOsrm).toBe(0);
       expect(rep.lookupsStraightLinePolicy).toBe(2);
       expect(rep.lookupsFallback).toBe(0);
+      expect(rep.lookupsOutsideCoverage).toBe(0);
+      expect(rep.regions).toEqual([
+        { id: 'default', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+      ]);
       expect(rep.roadCoveragePercent).toBeNull();
       expect(rep.effectiveSource).toBe('STRAIGHT_LINE');
     });
@@ -413,6 +423,9 @@ describe('travelTimeFactory', () => {
       expect(repRoad.lookupsOsrm).toBe(1);
       expect(repRoad.lookupsStraightLinePolicy).toBe(0);
       expect(repRoad.lookupsFallback).toBe(0);
+      expect(repRoad.lookupsOutsideCoverage).toBe(0);
+      expect(repRoad.regions).toHaveLength(1);
+      expect(repRoad.regions[0]!.lookupsOsrm).toBe(1);
       expect(repRoad.roadCoveragePercent).toBe(100);
 
       // 2. Mixed case
@@ -472,6 +485,8 @@ describe('travelTimeFactory', () => {
       expect(repMixed.lookupsOsrm).toBe(1);
       expect(repMixed.lookupsStraightLinePolicy).toBe(1);
       expect(repMixed.lookupsFallback).toBe(0);
+      expect(repMixed.lookupsOutsideCoverage).toBe(0);
+      expect(repMixed.regions).toHaveLength(1);
       expect(repMixed.roadCoveragePercent).toBe(100);
     });
   });

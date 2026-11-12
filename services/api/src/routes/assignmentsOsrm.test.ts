@@ -249,6 +249,15 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
       expect(travelTime.lookupsOsrm).toBeGreaterThan(0);
       expect(travelTime.lookupsStraightLinePolicy).toBe(0);
       expect(travelTime.lookupsFallback).toBe(0);
+      expect(travelTime.lookupsOutsideCoverage).toBe(0);
+      expect(travelTime.regions).toEqual([
+        {
+          id: 'default',
+          requests: travelTime.osrmRequests,
+          failedRequests: 0,
+          lookupsOsrm: travelTime.lookupsOsrm,
+        },
+      ]);
       expect(travelTime.roadCoveragePercent).toBe(100);
 
       // Verify audit event payload includes travelTime
@@ -279,6 +288,8 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     expect(travelTime.osrmFailedRequests).toBeGreaterThan(0);
     expect(travelTime.lookupsFallback).toBeGreaterThan(0);
     expect(travelTime.lookupsStraightLinePolicy).toBe(0);
+    expect(travelTime.lookupsOutsideCoverage).toBe(0);
+    expect(travelTime.regions).toHaveLength(1);
     expect(travelTime.roadCoveragePercent).toBe(0);
     expect(travelTime.warnings.length).toBeGreaterThan(0);
   });
@@ -368,6 +379,10 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     expect(travelTime.lookupsOsrm).toBe(0);
     expect(travelTime.lookupsStraightLinePolicy).toBeGreaterThan(0);
     expect(travelTime.lookupsFallback).toBe(0);
+    expect(travelTime.lookupsOutsideCoverage).toBe(0);
+    expect(travelTime.regions).toEqual([
+      { id: 'default', requests: 0, failedRequests: 0, lookupsOsrm: 0 },
+    ]);
     expect(travelTime.roadCoveragePercent).toBeNull();
   });
 
