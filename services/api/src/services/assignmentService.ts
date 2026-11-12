@@ -6,6 +6,7 @@ import {
   type RescueRequest,
   type RescueResource,
   type ResourceRoute,
+  type RouteGeometry,
   type RouteStop,
   type Scenario,
   type ScenarioProvenance,
@@ -20,12 +21,14 @@ import {
   solveNearestFirst,
   solveClarkeWrightBaseline,
   prepareTravelTimeProvider,
+  enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   type OsrmProviderOptions,
   type TravelTimeReport,
 } from '@floodrelay/solver';
 import { PostgisRepository } from '../db/repository.js';
 import {
+  dbToBlockedZone,
   dbToRouteStop,
   routeStopToDb,
   type AssignmentStatus,
@@ -55,6 +58,50 @@ export interface AssignmentDetailResponse {
 
 export interface AssignmentServiceOptions {
   osrm?: OsrmProviderOptions | null;
+}
+
+export interface StoredRouteGeometryEntry {
+  geometry: RouteGeometry;
+  totalTravelDistanceKm: number;
+}
+
+export function serializeRouteGeometries(
+  routes: ResourceRoute[],
+): Record<string, StoredRouteGeometryEntry> {
+  const map: Record<string, StoredRouteGeometryEntry> = {};
+  for (const route of routes) {
+    if (route.geometry) {
+      map[route.resourceId] = {
+        geometry: route.geometry,
+        totalTravelDistanceKm: route.totalTravelDistanceKm,
+      };
+    }
+  }
+  return map;
+}
+
+function isStoredGeometryValidForRoute(
+  route: ResourceRoute,
+  entry: StoredRouteGeometryEntry | undefined,
+): entry is StoredRouteGeometryEntry {
+  if (!entry?.geometry || !Array.isArray(entry.geometry.coordinates)) {
+    return false;
+  }
+  const orderedStops = [...route.stops].sort((a, b) => a.stopNumber - b.stopNumber);
+  if (orderedStops.length === 0) {
+    return entry.geometry.coordinates.length <= 1;
+  }
+  const legs = entry.geometry.legs;
+  if (!Array.isArray(legs) || legs.length === 0) {
+    return orderedStops.length === 1 && orderedStops[0]!.type === 'DEPOT';
+  }
+  const firstFromDepot = orderedStops[0]!.type === 'DEPOT';
+  const expectedLegs = firstFromDepot ? orderedStops.length - 1 : orderedStops.length;
+  if (legs.length !== expectedLegs) {
+    return false;
+  }
+  const expectedTargets = firstFromDepot ? orderedStops.slice(1) : orderedStops;
+  return legs.every((leg, idx) => leg.toStopNumber === expectedTargets[idx]!.stopNumber);
 }
 
 export interface ProvenanceClassification {
@@ -321,11 +368,21 @@ export class AssignmentService {
       }
     }
 
+    // 6.5. Enrich routes with OSRM / straight-line route geometries
+    const geometryResult = await enrichRoutesWithGeometry(plan.routes, {
+      resources: availableResources,
+      osrm: osrmOptions,
+      blockedZones: input.blockedZones,
+      travelTimeProvider,
+    });
+    const enrichedRoutes = geometryResult.routes;
+    const routeGeometries = serializeRouteGeometries(enrichedRoutes);
+
     // 7. Store proposed assignment and stops in the database
     const assignmentId = `assign_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const dbStops: DbAssignmentStop[] = [];
 
-    for (const route of plan.routes) {
+    for (const route of enrichedRoutes) {
       for (const stop of route.stops) {
         const mapped = routeStopToDb(stop, assignmentId, route.resourceId);
         dbStops.push({
@@ -365,9 +422,10 @@ export class AssignmentService {
         scenarioId: input.scenarioId,
         algorithm: input.algorithm,
         metrics: plan.metrics,
-        routesCount: plan.routes.length,
+        routesCount: enrichedRoutes.length,
         unservedCount: plan.unserved.length,
         travelTime: travelTimeReport,
+        routeGeometries,
         hazardZones,
         hazardZonesHash,
         blockedZones: hazardZones,
@@ -382,7 +440,7 @@ export class AssignmentService {
       committedBy: null,
       metrics: plan.metrics,
       unserved: plan.unserved,
-      routes: plan.routes,
+      routes: enrichedRoutes,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       travelTime: travelTimeReport,
@@ -390,13 +448,105 @@ export class AssignmentService {
   }
 
   /**
-   * Retrieves an assignment by ID along with its routes and stops.
+   * Retrieves an assignment by ID along with its routes, stops, and route geometries.
    */
   async getAssignment(id: string): Promise<AssignmentDetailResponse | null> {
     const record = await this.repository.getAssignmentWithStops(id);
     if (!record) return null;
 
     const routes = this.reconstructRoutesFromStops(record.stops);
+    const osrmOptions =
+      this.options?.osrm === null ? null : (this.options?.osrm ?? osrmConfigFromEnv(process.env));
+
+    let savedGeometries: Record<string, StoredRouteGeometryEntry> | null = null;
+    let savedTravelTime: TravelTimeReport | undefined;
+
+    if (typeof this.repository.listAuditEvents === 'function') {
+      try {
+        const events = await this.repository.listAuditEvents({
+          entityType: 'ASSIGNMENT',
+          entityId: id,
+          limit: 20,
+        });
+        for (const ev of events) {
+          if (
+            (ev.event_type === 'ASSIGNMENT_PROPOSED' ||
+              ev.event_type === 'REPAIR_PROPOSAL_GENERATED') &&
+            ev.payload
+          ) {
+            if (!savedTravelTime && ev.payload.travelTime) {
+              savedTravelTime = ev.payload.travelTime as TravelTimeReport;
+            }
+            if (!savedGeometries && ev.payload.routeGeometries) {
+              savedGeometries = ev.payload.routeGeometries as Record<
+                string,
+                StoredRouteGeometryEntry
+              >;
+            }
+            break;
+          }
+        }
+      } catch {
+        // Minimal test stubs may not implement SELECT FROM audit_events
+      }
+    }
+
+    const hydratedRoutes: ResourceRoute[] = [];
+    const routesNeedingEnrichment: ResourceRoute[] = [];
+
+    for (const route of routes) {
+      const saved = savedGeometries?.[route.resourceId];
+      if (isStoredGeometryValidForRoute(route, saved)) {
+        const dist =
+          saved.totalTravelDistanceKm > 0 ? saved.totalTravelDistanceKm : saved.geometry.distanceKm;
+        hydratedRoutes.push({
+          ...route,
+          totalTravelDistanceKm: dist,
+          geometry: saved.geometry,
+        });
+      } else {
+        routesNeedingEnrichment.push(route);
+      }
+    }
+
+    let finalRoutes = hydratedRoutes;
+
+    if (routesNeedingEnrichment.length > 0) {
+      let resources: RescueResource[];
+      let blockedZones: BlockedZone[] = [];
+      try {
+        resources = await this.repository.listResources();
+      } catch {
+        resources = [];
+      }
+      if (typeof this.repository.listBlockedZones === 'function') {
+        try {
+          const dbZones = await this.repository.listBlockedZones(true);
+          blockedZones = dbZones.map(dbToBlockedZone);
+        } catch {
+          blockedZones = [];
+        }
+      }
+
+      const enrichedMissing = await enrichRoutesWithGeometry(routesNeedingEnrichment, {
+        resources,
+        osrm: osrmOptions,
+        blockedZones,
+      });
+
+      const byResource = new Map<string, ResourceRoute>();
+      for (const r of hydratedRoutes) {
+        byResource.set(r.resourceId, r);
+      }
+      for (const r of enrichedMissing.routes) {
+        byResource.set(r.resourceId, {
+          ...r,
+          totalTravelDistanceKm: r.geometry ? r.geometry.distanceKm : r.totalTravelDistanceKm,
+        });
+      }
+
+      finalRoutes = routes.map((r) => byResource.get(r.resourceId) ?? r);
+    }
 
     return {
       id: record.assignment.id,
@@ -416,9 +566,10 @@ export class AssignmentService {
         unservedRequestsCount: record.assignment.unserved?.length ?? 0,
       },
       unserved: record.assignment.unserved ?? [],
-      routes,
+      routes: finalRoutes,
       createdAt: record.assignment.created_at.toISOString(),
       updatedAt: record.assignment.updated_at.toISOString(),
+      ...(savedTravelTime ? { travelTime: savedTravelTime } : {}),
     };
   }
 
