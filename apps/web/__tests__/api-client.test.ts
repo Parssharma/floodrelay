@@ -543,6 +543,40 @@ describe('FloodRelayApiClient', () => {
     expect(res.affectedScope?.eventId).toBe('evt-res-1');
   });
 
+  it('lists rescue resources matching OpenAPI contract', async () => {
+    const mockResource = {
+      id: 'res-1',
+      name: 'Boat 1',
+      type: 'BOAT',
+      capacity: 6,
+      speedKmH: 25,
+      lat: 28.6139,
+      lng: 77.209,
+      status: 'AVAILABLE',
+      source: 'REAL',
+    };
+    validateMockAgainstOpenApiSchema('RescueResourceResponse', mockResource);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        count: 1,
+        data: [mockResource],
+      }),
+    });
+
+    const res = await client.listResources({ status: 'AVAILABLE', type: 'BOAT' });
+    expect(res).toHaveLength(1);
+    expect(res[0].id).toBe('res-1');
+    expect(res[0].source).toBe('REAL');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:3000/api/v1/operations/resources?status=AVAILABLE&type=BOAT',
+      expect.anything(),
+    );
+  });
+
   it('creates road zone matching OpenAPI contract', async () => {
     const mockZone = {
       id: 'bz-1',

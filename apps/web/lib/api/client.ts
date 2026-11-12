@@ -19,7 +19,9 @@ import type {
   RepairResult,
   ListOperationalEventsFilter,
   ListAuditEventsFilter,
+  ListResourcesFilter,
   AuditEventRecord,
+  RescueResource,
   UpdateResourceStatusInput,
   UpdateResourceStatusResult,
   CreateRoadZoneInput,
@@ -385,6 +387,25 @@ export class FloodRelayApiClient {
     }
 
     return scope;
+  }
+
+  async listResources(
+    filter?: ListResourcesFilter,
+    signal?: AbortSignal,
+  ): Promise<RescueResource[]> {
+    const params = new URLSearchParams();
+    if (filter?.status) {
+      params.set('status', filter.status);
+    }
+    if (filter?.type) {
+      params.set('type', filter.type);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.request<RescueResource[]>(`/operations/resources${query}`, {
+      method: 'GET',
+      signal,
+    });
+    return res.data;
   }
 
   async updateResourceStatus(
