@@ -2,6 +2,7 @@ import type { BoundingBox, GeoPoint, Scenario } from '@floodrelay/shared';
 import { StraightLineTravelTimeProvider, type TravelTimeProvider } from './travelTime.js';
 import {
   OsrmTravelTimeProvider,
+  resolveOsrmRegionConfigs,
   type OsrmProviderOptions,
   type OsrmRegionConfig,
 } from './osrmTravelTime.js';
@@ -336,21 +337,17 @@ export async function prepareTravelTimeProvider(
   const activeRegions: ActiveRegionEntry[] = [];
   let regionalProvider: RegionalTravelTimeProvider | null = null;
 
-  if (osrmOptions) {
-    const regionConfigs: OsrmRegionConfig[] = [];
-    const configuredRegions = options.regions ?? osrmOptions.regions;
-
-    if (configuredRegions && configuredRegions.length > 0) {
-      for (const rc of configuredRegions) {
-        regionConfigs.push(rc);
-      }
-    } else if (osrmOptions.baseUrl?.trim()) {
-      regionConfigs.push({
-        id: 'default',
-        baseUrl: osrmOptions.baseUrl,
-        bbox: osrmOptions.coverageBbox ?? options.coverageBbox,
-        profile: osrmOptions.profile,
-      });
+  if (osrmOptions || (options.regions && options.regions.length > 0)) {
+    const regionConfigs = resolveOsrmRegionConfigs(osrmOptions, options.regions);
+    if (
+      regionConfigs.length === 1 &&
+      regionConfigs[0]?.id === 'default' &&
+      regionConfigs[0].bbox === undefined
+    ) {
+      regionConfigs[0] = {
+        ...regionConfigs[0],
+        bbox: options.coverageBbox,
+      };
     }
 
     for (const rc of regionConfigs) {
@@ -359,12 +356,12 @@ export async function prepareTravelTimeProvider(
         bbox: rc.bbox,
         provider: new OsrmTravelTimeProvider({
           baseUrl: rc.baseUrl,
-          profile: rc.profile ?? osrmOptions.profile,
-          timeoutMs: osrmOptions.timeoutMs,
-          maxTableCoordinates: osrmOptions.maxTableCoordinates,
-          fallbackProvider: osrmOptions.fallbackProvider,
-          fetchImpl: osrmOptions.fetchImpl,
-          useResourceSpeed: osrmOptions.useResourceSpeed,
+          profile: rc.profile ?? osrmOptions?.profile,
+          timeoutMs: osrmOptions?.timeoutMs,
+          maxTableCoordinates: osrmOptions?.maxTableCoordinates,
+          fallbackProvider: osrmOptions?.fallbackProvider,
+          fetchImpl: osrmOptions?.fetchImpl,
+          useResourceSpeed: osrmOptions?.useResourceSpeed,
         }),
       });
     }
