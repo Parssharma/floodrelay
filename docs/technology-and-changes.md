@@ -66,6 +66,7 @@
   - `services/api/src/routes/assignmentsOsrm.test.ts`
   - `infra/docker-compose.yml`
   - `docs/osrm.md`
+  - `scenarios/osrm-check.ts`
 
 ### 7. Known Limitations and What Is Not Covered
 
