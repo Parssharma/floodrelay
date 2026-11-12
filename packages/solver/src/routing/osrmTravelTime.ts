@@ -1,4 +1,4 @@
-import type { GeoPoint, ResourceType } from '@floodrelay/shared';
+import type { BoundingBox, GeoPoint, ResourceType } from '@floodrelay/shared';
 import {
   StraightLineTravelTimeProvider,
   type TravelEstimate,
@@ -21,6 +21,13 @@ export interface OsrmStats {
   lookupsFallback: number;
 }
 
+export interface OsrmRegionConfig {
+  id: string;
+  baseUrl: string;
+  bbox?: BoundingBox;
+  profile?: string;
+}
+
 export interface OsrmProviderOptions {
   baseUrl?: string;
   profile?: string;
@@ -29,6 +36,8 @@ export interface OsrmProviderOptions {
   fallbackProvider?: TravelTimeProvider;
   fetchImpl?: typeof fetch;
   useResourceSpeed?: boolean;
+  coverageBbox?: BoundingBox;
+  regions?: OsrmRegionConfig[];
 }
 
 interface OsrmTableResponse {

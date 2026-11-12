@@ -2169,6 +2169,27 @@
           }
         }
       },
+      "TravelTimeRegionReport": {
+        "type": "object",
+        "required": ["id", "requests", "failedRequests", "lookupsOsrm"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lookupsOsrm": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "TravelTimeReport": {
         "type": "object",
         "required": [
@@ -2179,7 +2200,9 @@
           "lookupsOsrm",
           "lookupsStraightLinePolicy",
           "lookupsFallback",
+          "lookupsOutsideCoverage",
           "hazardZoneCount",
+          "regions",
           "warnings"
         ],
         "properties": {
@@ -2210,6 +2233,11 @@
             "type": "integer",
             "minimum": 0
           },
+          "lookupsOutsideCoverage": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of pairwise road-vehicle distance queries served via straight-line because at least one endpoint lies outside every configured OSRM region or the leg crosses between regions"
+          },
           "roadCoveragePercent": {
             "type": "number",
             "nullable": true,
@@ -2219,6 +2247,12 @@
           "hazardZoneCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TravelTimeRegionReport"
+            }
           },
           "warnings": {
             "type": "array",
