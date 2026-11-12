@@ -94,3 +94,29 @@ docker compose -f infra/docker-compose.yml --profile osrm-north config --service
 # Default-behavior regression check
 npx tsx scenarios/evaluate.ts
 ```
+
+---
+
+## Task B — Road-Following Route Geometry & Distance/Duration Hydration (feat/route-geometry)
+
+### 1. Problem Addressed
+
+Solving routes via OSRM `/table/v1/` alone left map polylines connecting stop coordinates with straight segments and left `GET /assignments/:id` reporting `totalTravelDistanceKm: 0` when reconstructing routes from persisted stops.
+
+### 2. What Changed
+
+- **Shared Contract (`packages/shared/src/index.ts`)**: Added `RouteGeometrySource`, `RouteLegGeometry`, `RouteGeometry`, and optional `geometry?: RouteGeometry` on `ResourceRoute`.
+- **Solver Route Geometry Engine (`packages/solver/src/routing/osrmTravelTime.ts`, `routeGeometry.ts`, `travelTimeFactory.ts`)**:
+  - Added `OsrmTravelTimeProvider.fetchRouteLegGeometry` querying `/route/v1/{profile}/...?overview=full&geometries=geojson&steps=false` and converting GeoJSON `[lng, lat]` coordinates to `[lat, lng]` with per-leg caching.
+  - Added `enrichRoutesWithGeometry` and `mergeRouteCoordinates` enforcing `BOAT`/`HELICOPTER` straight-line policy, dual-endpoint regional bbox isolation, `useResourceSpeed` & `HazardAwareTravelTimeProvider` scaling, and fallback straight-line segments on OSRM errors.
+- **API & Repair Pipeline (`services/api/src/services/assignmentService.ts`, `incrementalRepairSolverAdapter.ts`, `repairOrchestrationService.ts`)**:
+  - Enriched `POST /assignments/propose` and `POST /operations/repair` plans with `RouteGeometry` and stored compact `routeGeometries` payloads in `ASSIGNMENT_PROPOSED` / `REPAIR_PROPOSAL_GENERATED` audit events.
+  - Updated `GET /assignments/:id` to hydrate `route.geometry` and accurate `totalTravelDistanceKm` (from valid cached payloads or fresh recomputation after stop edits).
+- **OpenAPI Spec (`services/api/src/openapi.json`, `docs/openapi.json`)**: Added `RouteGeometrySource`, `RouteLegGeometry`, `RouteGeometry`, and `ResourceRoute.geometry` (kept byte-identical).
+- **CLI (`scenarios/osrm-check.ts`)**: Added `Route Geometry Report (Cluster-Allocation)` showing live `/route/v1/` vertex counts, sources, and distances.
+
+### 3. Preserved Defaults & Non-Goals
+
+- `BOAT` and `HELICOPTER` remain straight-line (`0` OSRM requests).
+- Solver optimization metrics and `scenarios/evaluate.ts` benchmark outputs remain identical when OSRM is unset.
+- Zero new npm dependencies added; UI route rendering (`apps/web`) deferred to Task C.

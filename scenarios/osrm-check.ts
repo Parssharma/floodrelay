@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Scenario, SolverPlan } from '@floodrelay/shared';
 import {
+  enrichRoutesWithGeometry,
   osrmConfigFromEnv,
   prepareTravelTimeProvider,
   solveNearestFirst,
@@ -85,9 +86,13 @@ export async function runOsrmCheck(): Promise<void> {
     osrmServed: number;
   }> = [];
 
+  let clusterOsrmPlan: SolverPlan | null = null;
   for (const alg of algorithms) {
     const slPlan = alg.run(straightLineProvider);
     const osrmPlan = alg.run(osrmProvider);
+    if (alg.name.startsWith('Cluster-Allocation')) {
+      clusterOsrmPlan = osrmPlan;
+    }
 
     const slDist = slPlan.metrics.totalTravelDistanceKm;
     const osrmDist = osrmPlan.metrics.totalTravelDistanceKm;
@@ -160,6 +165,31 @@ export async function runOsrmCheck(): Promise<void> {
     }
   }
   console.log('='.repeat(70));
+
+  if (clusterOsrmPlan) {
+    const geomResult = await enrichRoutesWithGeometry(clusterOsrmPlan.routes, {
+      resources: scenario.resources,
+      osrm: osrmOptions,
+      blockedZones: scenario.blockedZones,
+      travelTimeProvider: osrmProvider,
+    });
+    console.log('Route Geometry Report (Cluster-Allocation):');
+    console.log(
+      `  Route Requests: ${geomResult.stats.osrmRouteRequests} (failed=${geomResult.stats.osrmRouteFailedRequests}), ` +
+        `Legs OSRM=${geomResult.stats.legsOsrm}, SL-Policy=${geomResult.stats.legsStraightLinePolicy}, ` +
+        `Outside=${geomResult.stats.legsOutsideCoverage}, Fallback=${geomResult.stats.legsFallback}`,
+    );
+    for (const route of geomResult.routes) {
+      const g = route.geometry;
+      if (g) {
+        console.log(
+          `  Route [${route.resourceId}]: source=${g.source}, vertices=${g.coordinates.length}, ` +
+            `distance=${g.distanceKm.toFixed(2)} km, duration=${g.durationMinutes.toFixed(1)} min`,
+        );
+      }
+    }
+    console.log('='.repeat(70));
+  }
 }
 
 // Self-executing CLI
