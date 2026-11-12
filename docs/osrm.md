@@ -217,6 +217,20 @@ _(Snapshot `Last-Modified` observed from headers: `Wed, 11 Nov 2026 23:54–23:5
 
 ---
 
+## Road-Following Route Geometry (`RouteGeometry`)
+
+While OSRM `/table/v1/` supplies fast travel-time and distance matrices during optimization, road-following polylines (`RouteGeometry` on `ResourceRoute.geometry`) are fetched separately after route construction via `enrichRoutesWithGeometry` ([packages/solver/src/routing/routeGeometry.ts](file:///d:/INT227_project/packages/solver/src/routing/routeGeometry.ts)):
+
+1. **Endpoint Query & Format**: For each covered road leg (`from -> to`), `OsrmTravelTimeProvider.fetchRouteLegGeometry` queries `GET /route/v1/{profile}/{lng1},{lat1};{lng2},{lat2}?overview=full&geometries=geojson&steps=false` and converts GeoJSON `[lng, lat]` vertices to `[lat, lng]` pairs.
+2. **Waypoint Ordering & Vertex Deduplication**: Routes whose first stop is not a `DEPOT` begin at the assigned resource's starting `(lat, lng)` (`fromStopNumber: 0`). Consecutive leg polylines are concatenated with duplicate boundary vertices removed.
+3. **Policy & Coverage Isolation**:
+   - `BOAT` and `HELICOPTER` routes remain straight-line (`source: 'STRAIGHT_LINE'`) with zero `/route/v1/` HTTP calls.
+   - Road legs with either endpoint outside every configured region's bounding box (or spanning two different regions) fall back to two-point straight-line segments (`source: 'STRAIGHT_LINE'`) without contacting OSRM; mixed routes report `source: 'MIXED'`.
+4. **Distance, Duration & Hazard Scaling**: Road legs honor `useResourceSpeed` (`(distanceKm / speedKmH) * 60` when enabled) and apply active `blockedZones` impedance multipliers via `HazardAwareTravelTimeProvider`.
+5. **Proposal, Repair & Retrieval Hydration**: `AssignmentService.proposeAssignment`, `IncrementalRepairSolverAdapter`, and `AssignmentService.getAssignment` attach `RouteGeometry` (storing snapshots in `ASSIGNMENT_PROPOSED` / `REPAIR_PROPOSAL_GENERATED` audit payloads and recomputing whenever stops are modified or uncached) while populating accurate per-route `totalTravelDistanceKm`.
+
+---
+
 ## 5. Technical Limitations & Operational Assumptions
 
 1. **Per-Resource Routing Policy**: OSRM routes exclusively over road networks (`driving` profile with car.lua). Only road vehicles (`HIGH_WATER_VEHICLE`, `AMBULANCE`) query OSRM road distance. Marine craft (`BOAT`) and aerial craft (`HELICOPTER`) use straight-line geodesic calculations by design and do not follow road topology. OSRM does not compute navigable river channels or air corridors.
