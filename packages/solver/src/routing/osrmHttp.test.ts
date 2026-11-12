@@ -5,6 +5,7 @@ import type { BoundingBox, GeoPoint, Scenario } from '@floodrelay/shared';
 import { haversineKm } from '../index.js';
 import { OsrmTravelTimeProvider } from './osrmTravelTime.js';
 import { isPointInBbox } from './regionalTravelTime.js';
+import { enrichRoutesWithGeometry } from './routeGeometry.js';
 import { prepareTravelTimeProvider } from './travelTimeFactory.js';
 import { solveNearestFirst } from '../baselines/nearestFirst.js';
 import { solveClarkeWrightBaseline } from '../baselines/clarkeWrightBaseline.js';
@@ -543,6 +544,155 @@ describe('OSRM HTTP Server Integration Tests', () => {
       await new Promise<void>((r) => fakeA.server.close(() => r()));
       await new Promise<void>((r) => fakeB.server.close(() => r()));
       warnSpy.mockRestore();
+    }
+  });
+
+  it('enriches solved road routes via local HTTP /route/v1/ GeoJSON endpoint while keeping BOAT straight-line', async () => {
+    const routeRequests: string[] = [];
+    const routeServer = http.createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname.startsWith('/route/v1/')) {
+        routeRequests.push(url.pathname + url.search);
+        const coordsSeg = url.pathname.split('/')[4] ?? '';
+        const [fromRaw = '77.21,28.66', toRaw = '77.23,28.68'] = coordsSeg.split(';');
+        const [fLng = 77.21, fLat = 28.66] = fromRaw.split(',').map(Number);
+        const [tLng = 77.23, tLat = 28.68] = toRaw.split(',').map(Number);
+        const midLng = Number(((fLng + tLng) / 2 + 0.004).toFixed(6));
+        const midLat = Number(((fLat + tLat) / 2 + 0.002).toFixed(6));
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            code: 'Ok',
+            routes: [
+              {
+                distance: 3600,
+                duration: 240,
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    [fLng, fLat],
+                    [midLng, midLat],
+                    [tLng, tLat],
+                  ],
+                },
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404);
+      res.end();
+    });
+
+    const routeUrl = await new Promise<string>((resolve) => {
+      routeServer.listen(0, '127.0.0.1', () => {
+        const addr = routeServer.address() as AddressInfo;
+        resolve(`http://127.0.0.1:${addr.port}`);
+      });
+    });
+
+    try {
+      const resources = [
+        {
+          id: 'road-1',
+          name: 'Road Truck',
+          type: 'HIGH_WATER_VEHICLE' as const,
+          capacity: 6,
+          speedKmH: 36,
+          lat: 28.66,
+          lng: 77.21,
+          status: 'AVAILABLE' as const,
+          source: 'SIMULATED' as const,
+        },
+        {
+          id: 'boat-policy-1',
+          name: 'Policy Boat',
+          type: 'BOAT' as const,
+          capacity: 4,
+          speedKmH: 20,
+          lat: 28.66,
+          lng: 77.21,
+          status: 'AVAILABLE' as const,
+          source: 'SIMULATED' as const,
+        },
+      ];
+
+      const routes = [
+        {
+          resourceId: 'road-1',
+          stops: [
+            {
+              stopNumber: 1,
+              type: 'PICKUP' as const,
+              targetId: 'req-1',
+              lat: 28.68,
+              lng: 77.23,
+              passengersPickedUp: 2,
+              passengersDroppedOff: 0,
+              estimatedArrivalMinutes: 5,
+            },
+            {
+              stopNumber: 2,
+              type: 'DROPOFF' as const,
+              targetId: 'sh-1',
+              lat: 28.7,
+              lng: 77.25,
+              passengersPickedUp: 0,
+              passengersDroppedOff: 2,
+              estimatedArrivalMinutes: 11,
+            },
+          ],
+          totalTravelDistanceKm: 7.2,
+          totalDurationMinutes: 11,
+          servedRequestIds: ['req-1'],
+        },
+        {
+          resourceId: 'boat-policy-1',
+          stops: [
+            {
+              stopNumber: 1,
+              type: 'PICKUP' as const,
+              targetId: 'req-1',
+              lat: 28.68,
+              lng: 77.23,
+              passengersPickedUp: 2,
+              passengersDroppedOff: 0,
+              estimatedArrivalMinutes: 9,
+            },
+          ],
+          totalTravelDistanceKm: 2.9,
+          totalDurationMinutes: 9,
+          servedRequestIds: ['req-1'],
+        },
+      ];
+
+      const { routes: enriched, stats } = await enrichRoutesWithGeometry(routes, {
+        resources,
+        osrm: { baseUrl: routeUrl },
+      });
+
+      expect(routeRequests).toHaveLength(2);
+      expect(routeRequests[0]).toContain('overview=full&geometries=geojson');
+      expect(stats.legsOsrm).toBe(2);
+      expect(stats.legsStraightLinePolicy).toBe(1);
+
+      const roadGeom = enriched[0]!.geometry!;
+      expect(roadGeom.source).toBe('OSRM');
+      // 3 coordinates per leg -> 5 deduplicated vertices
+      expect(roadGeom.coordinates.length).toBe(5);
+      expect(roadGeom.distanceKm).toBe(7.2);
+
+      const boatGeom = enriched[1]!.geometry!;
+      expect(boatGeom.source).toBe('STRAIGHT_LINE');
+      expect(boatGeom.coordinates).toEqual([
+        [28.66, 77.21],
+        [28.68, 77.23],
+      ]);
+    } finally {
+      await new Promise<void>((r) => routeServer.close(() => r()));
     }
   });
 });
