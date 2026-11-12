@@ -13,16 +13,18 @@ import { ResourceStatusPanel } from '@/components/operator/ResourceStatusPanel';
 import { RoadBlockageModal } from '@/components/operator/RoadBlockageModal';
 import { UrgencyBadge } from '@/components/ui/UrgencyBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { SIMULATED_RESOURCES } from '@/lib/fixtures/resources';
 
 interface DashboardData {
   requests: RescueRequest[];
   assignments: AssignmentRecord[] | null;
   recentEvents: OperationalEvent[] | null;
+  resources: RescueResource[] | null;
   assignmentsError: string | null;
   assignmentsStale: boolean;
   eventsError: string | null;
   eventsStale: boolean;
+  resourcesError: string | null;
+  resourcesStale: boolean;
   hasPartialFailure: boolean;
 }
 
@@ -31,23 +33,26 @@ export default function OperatorOverviewPage() {
   const canManageRoadZones = hasPermission(operator, 'MANAGE_BLOCKED_ZONES');
 
   const [isRoadBlockageOpen, setIsRoadBlockageOpen] = useState<boolean>(false);
-  const [resources] = useState<RescueResource[]>(() => [...SIMULATED_RESOURCES]);
 
   const previousDataRef = React.useRef<{
     assignments: AssignmentRecord[] | null;
     recentEvents: OperationalEvent[] | null;
+    resources: RescueResource[] | null;
   }>({
     assignments: null,
     recentEvents: null,
+    resources: null,
   });
 
   // Combined Live Polling for Dashboard with Domain Error Preservation
   const fetchDashboardData = useCallback(async (signal: AbortSignal): Promise<DashboardData> => {
-    const [requestsResult, assignmentsResult, eventsResult] = await Promise.allSettled([
-      apiClient.listRequests(undefined, signal),
-      apiClient.listAssignments(undefined, signal),
-      apiClient.listOperationalEvents({ limit: 5 }, signal),
-    ]);
+    const [requestsResult, assignmentsResult, eventsResult, resourcesResult] =
+      await Promise.allSettled([
+        apiClient.listRequests(undefined, signal),
+        apiClient.listAssignments(undefined, signal),
+        apiClient.listOperationalEvents({ limit: 5 }, signal),
+        apiClient.listResources(undefined, signal),
+      ]);
 
     // Check for intentional aborts/cancellations before logging or reporting failures
     if (signal.aborted) {
@@ -111,15 +116,40 @@ export default function OperatorOverviewPage() {
       }
     }
 
+    // Resources domain error preservation (Authoritative Inventory)
+    let resources: RescueResource[] | null = null;
+    let resourcesError: string | null = null;
+    let resourcesStale = false;
+
+    if (resourcesResult.status === 'fulfilled') {
+      resources = resourcesResult.value || [];
+      previousDataRef.current.resources = resources;
+    } else {
+      const err = resourcesResult.reason as Error;
+      if (!isAbortError(err)) {
+        resourcesError = err?.message || 'Failed to fetch rescue resources';
+        console.warn('Rescue resources fetch failed in dashboard polling:', err);
+        if (previousDataRef.current.resources !== null) {
+          resources = previousDataRef.current.resources;
+          resourcesStale = true;
+        }
+      } else {
+        resources = previousDataRef.current.resources;
+      }
+    }
+
     return {
       requests,
       assignments,
       recentEvents,
+      resources,
       assignmentsError,
       assignmentsStale,
       eventsError,
       eventsStale,
-      hasPartialFailure: Boolean(assignmentsError || eventsError),
+      resourcesError,
+      resourcesStale,
+      hasPartialFailure: Boolean(assignmentsError || eventsError || resourcesError),
     };
   }, []);
 
@@ -138,6 +168,9 @@ export default function OperatorOverviewPage() {
   const requests = useMemo(() => dashboardData?.requests || [], [dashboardData]);
   const assignments = useMemo(() => dashboardData?.assignments || [], [dashboardData]);
   const recentEvents = useMemo(() => dashboardData?.recentEvents || [], [dashboardData]);
+  const resources = useMemo(() => dashboardData?.resources || [], [dashboardData]);
+  const resourcesError = dashboardData?.resourcesError || null;
+  const resourcesStale = Boolean(dashboardData?.resourcesStale);
 
   // Compute live real-time metrics
   const metrics = useMemo(() => {
@@ -159,8 +192,11 @@ export default function OperatorOverviewPage() {
     const latestProposed = proposedAssignments[0];
     const unservedCount = latestProposed?.unserved?.length || 0;
 
-    const availableResources = resources.filter((res) => res.status === 'AVAILABLE').length;
-    const offlineResources = resources.filter(
+    // Authoritative rescue resource metrics
+    const realResources = resources.filter((res) => res.source !== 'SIMULATED');
+    const simulatedResources = resources.filter((res) => res.source === 'SIMULATED');
+    const availableResources = realResources.filter((res) => res.status === 'AVAILABLE').length;
+    const offlineResources = realResources.filter(
       (res) => res.status === 'OFFLINE' || res.status === 'MAINTENANCE',
     ).length;
 
@@ -180,6 +216,8 @@ export default function OperatorOverviewPage() {
       unservedCount,
       availableResources,
       offlineResources,
+      realResourcesCount: realResources.length,
+      simulatedResourcesCount: simulatedResources.length,
     };
   }, [requests, assignments, resources]);
 
@@ -307,6 +345,12 @@ export default function OperatorOverviewPage() {
                     {dashboardData.eventsStale ? 'Cached data retained' : 'No prior cache'})
                   </span>
                 )}
+                {dashboardData.resourcesError && (
+                  <span>
+                    • Resources: <strong>{dashboardData.resourcesError}</strong> (
+                    {dashboardData.resourcesStale ? 'Cached data retained' : 'No prior cache'})
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -322,29 +366,46 @@ export default function OperatorOverviewPage() {
 
       {/* 4 PRIMARY METRIC CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Reference Rescue Fleet */}
+        {/* Metric 1: Authoritative Rescue Fleet */}
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between text-on-surface-variant mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider font-mono">
               Fleet Roster
             </span>
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950/60 text-amber-400 border border-amber-500/40">
-              SIMULATED / REFERENCE
+            <span
+              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+                resourcesError
+                  ? 'bg-rose-950/60 text-rose-400 border border-rose-500/40'
+                  : resourcesStale
+                    ? 'bg-amber-950/60 text-amber-400 border border-amber-500/40'
+                    : 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/40'
+              }`}
+            >
+              {resourcesError ? 'FEED ERROR' : resourcesStale ? 'STALE' : 'AUTHORITATIVE'}
             </span>
           </div>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-inter text-2xl lg:text-3xl font-extrabold text-on-surface">
-              {resources.length}
+              {isLoading && dashboardData?.resources === null ? '—' : resources.length}
             </span>
-            <span className="text-xs text-on-surface-variant font-medium">Reference Assets</span>
+            <span className="text-xs text-on-surface-variant font-medium">Active Assets</span>
           </div>
-          <div className="text-[10px] text-amber-500/90 font-mono leading-tight mb-2">
-            Authoritative resource read endpoint (GET /operations/resources) pending backend
-            integration
+          <div className="text-[10px] text-on-surface-variant font-mono leading-tight mb-2">
+            {resourcesError ? (
+              <span className="text-rose-400">Failed to poll resource roster</span>
+            ) : resourcesStale ? (
+              <span className="text-amber-400">Cached resource roster (reconnecting)</span>
+            ) : (
+              <span>Authoritative roster (GET /operations/resources)</span>
+            )}
           </div>
           <div className="mt-2 pt-2 border-t border-outline-variant/40 flex items-center justify-between text-[11px] text-on-surface-variant font-mono">
-            <span>Standby: {resources.length} craft</span>
-            <span className="text-on-surface-variant/70 italic">Unpolled</span>
+            <span>Standby: {metrics.availableResources} craft</span>
+            <span className="text-on-surface-variant/70">
+              {metrics.simulatedResourcesCount > 0
+                ? `${metrics.simulatedResourcesCount} simulated`
+                : 'All Real'}
+            </span>
           </div>
         </div>
 
@@ -698,7 +759,13 @@ export default function OperatorOverviewPage() {
       </div>
 
       {/* LOWER SECTION: Resource Roster & Live Status Mutation Panel */}
-      <ResourceStatusPanel onResourceUpdated={() => void refresh()} resources={resources} />
+      <ResourceStatusPanel
+        error={resourcesError}
+        isLoading={isLoading && dashboardData?.resources === null}
+        isStale={resourcesStale}
+        onResourceUpdated={() => void refresh()}
+        resources={resources}
+      />
 
       {/* Road Hazard Registration Modal */}
       <RoadBlockageModal

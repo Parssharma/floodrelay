@@ -6,6 +6,7 @@ import type { RepairOrchestrationService } from '../services/repairOrchestration
 import { requirePermission } from '../middleware/rbacMiddleware.js';
 import {
   ListOperationalEventsFilterSchema,
+  ListResourcesFilterSchema,
   UpdateResourceStatusSchema,
   CreateRoadZoneSchema,
   RequestRepairSchema,
@@ -128,6 +129,37 @@ export function createOperationsRouter(
           });
           return;
         }
+        next(err);
+      }
+    },
+  );
+
+  // GET /operations/resources - List operational resources (RBAC: VIEW_EVENTS)
+  router.get(
+    '/resources',
+    requirePermission('VIEW_EVENTS'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const parsed = ListResourcesFilterSchema.safeParse(req.query);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid resource filter parameters',
+              details: parsed.error.format(),
+              timestamp: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+
+        const resources = await repo.listResources(parsed.data);
+        res.status(200).json({
+          success: true,
+          count: resources.length,
+          data: resources,
+        });
+      } catch (err) {
         next(err);
       }
     },

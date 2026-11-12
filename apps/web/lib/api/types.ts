@@ -4,6 +4,7 @@ import type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceType,
   ResourceStatus,
   Shelter,
   RouteStop,
@@ -31,6 +32,7 @@ export type {
   RequestStatus,
   VerificationStatus,
   RescueResource,
+  ResourceType,
   ResourceStatus,
   Shelter,
   RouteStop,
@@ -166,6 +168,11 @@ export interface ListAuditEventsFilter {
   actor?: string;
   limit?: number;
   offset?: number;
+}
+
+export interface ListResourcesFilter {
+  status?: ResourceStatus;
+  type?: ResourceType;
 }
 
 export interface AuditEventRecord {
