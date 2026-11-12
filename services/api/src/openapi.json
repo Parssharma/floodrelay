@@ -1931,6 +1931,91 @@
             "items": {
               "type": "string"
             }
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/RouteGeometry"
+          }
+        }
+      },
+      "RouteGeometrySource": {
+        "type": "string",
+        "enum": ["OSRM", "STRAIGHT_LINE", "MIXED"]
+      },
+      "RouteLegGeometry": {
+        "type": "object",
+        "required": [
+          "fromStopNumber",
+          "toStopNumber",
+          "distanceKm",
+          "durationMinutes",
+          "source",
+          "coordinates"
+        ],
+        "properties": {
+          "fromStopNumber": {
+            "type": "integer",
+            "example": 0
+          },
+          "toStopNumber": {
+            "type": "integer",
+            "example": 1
+          },
+          "distanceKm": {
+            "type": "number",
+            "example": 3.46
+          },
+          "durationMinutes": {
+            "type": "number",
+            "example": 5.19
+          },
+          "source": {
+            "type": "string",
+            "enum": ["OSRM", "STRAIGHT_LINE"]
+          },
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "RouteGeometry": {
+        "type": "object",
+        "required": ["coordinates", "distanceKm", "durationMinutes", "source"],
+        "properties": {
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "distanceKm": {
+            "type": "number",
+            "example": 8.4
+          },
+          "durationMinutes": {
+            "type": "number",
+            "example": 45.2
+          },
+          "source": {
+            "$ref": "#/components/schemas/RouteGeometrySource"
+          },
+          "legs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteLegGeometry"
+            }
           }
         }
       },
