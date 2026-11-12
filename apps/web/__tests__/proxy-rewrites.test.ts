@@ -114,4 +114,19 @@ describe('Next.js API Reverse-Proxy Rewrites Configuration', () => {
     expect(operationsRoot).toBeDefined();
     expect(operationsRoot?.destination).toBe('http://localhost:3001/operations');
   });
+
+  it('includes exact and wildcard routes for /auth to proxy operator login and session endpoints', async () => {
+    delete process.env.BACKEND_API_URL;
+    delete process.env.NEXT_PUBLIC_API_URL;
+
+    const rewrites = await getRewrites();
+
+    const authWildcard = rewrites.find((r) => r.source === '/auth/:path*');
+    const authRoot = rewrites.find((r) => r.source === '/auth');
+
+    expect(authWildcard).toBeDefined();
+    expect(authWildcard?.destination).toBe('http://localhost:3001/auth/:path*');
+    expect(authRoot).toBeDefined();
+    expect(authRoot?.destination).toBe('http://localhost:3001/auth');
+  });
 });
