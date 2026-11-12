@@ -9,6 +9,13 @@ import { useOperatorAuth } from '@/lib/auth/OperatorAuthContext';
 import { hasPermission } from '@/lib/auth/permissions';
 import type { AssignmentRecord } from '@/lib/api/types';
 import RepairComparison from '@/components/operator/repair/RepairComparison';
+import {
+  formatDistanceKm,
+  formatDurationMinutes,
+  getRouteDisplayMetrics,
+  getRouteSourceLabel,
+  summarizeAssignmentRoutes,
+} from '@/components/operator/map/routeDisplay';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -386,8 +393,13 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             </div>
           ) : (
             routes.map((route, routeIdx) => {
-              const pickupsCount = route.stops.filter((s) => s.type === 'PICKUP').length;
-              const dropoffsCount = route.stops.filter((s) => s.type === 'DROPOFF').length;
+              const routeMetrics = getRouteDisplayMetrics(route);
+              const sourceBadgeClass =
+                routeMetrics.source === 'OSRM'
+                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                  : routeMetrics.source === 'MIXED'
+                    ? 'bg-sky-50 text-sky-800 border-sky-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200';
 
               return (
                 <article
@@ -395,34 +407,49 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                   className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden"
                 >
                   {/* Header Bar */}
-                  <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between">
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2.5">
                       <span className="p-1 rounded bg-teal-700 text-white">
                         <span className="material-symbols-outlined text-lg">sailing</span>
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h2 className="text-sm font-bold text-slate-900">
                             Craft: {route.resourceId}
                           </h2>
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-teal-100 text-teal-800 font-bold border border-teal-200">
                             Route #{routeIdx + 1}
                           </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border ${sourceBadgeClass}`}
+                          >
+                            {getRouteSourceLabel(routeMetrics.source)}
+                          </span>
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono">
-                          {pickupsCount} Pickups • {dropoffsCount} Drop-offs • {route.stops.length}{' '}
-                          Total Stops
+                          {routeMetrics.pickupsCount} Pickups • {routeMetrics.dropoffsCount}{' '}
+                          Drop-offs • {routeMetrics.stopsCount} Total Stops
                         </div>
                       </div>
                     </div>
 
-                    {/* Duration / Route Metric */}
-                    <div className="text-right">
-                      <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
-                        Est. Duration
+                    {/* Distance / Duration Route Metrics */}
+                    <div className="flex items-center gap-4 text-right">
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                          Distance
+                        </div>
+                        <div className="text-xs font-bold text-slate-900 font-mono">
+                          {formatDistanceKm(routeMetrics.distanceKm)}
+                        </div>
                       </div>
-                      <div className="text-xs font-bold text-slate-900 font-mono">
-                        ~{Math.round(route.totalDurationMinutes)} min
+                      <div>
+                        <div className="text-[10px] text-slate-500 uppercase font-mono tracking-wider">
+                          Est. Duration
+                        </div>
+                        <div className="text-xs font-bold text-slate-900 font-mono">
+                          {formatDurationMinutes(routeMetrics.durationMinutes)}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -638,15 +665,29 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                     Status: {plan.status}
                   </span>
                 </div>
-                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[280px]">
-                  <div className="font-bold text-teal-300">
-                    {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0} Requests
-                    Allocated
-                  </div>
-                  <div className="text-[10px] text-slate-400">
-                    Est. Travel: ~{Math.round(plan.metrics?.totalTravelTimeMinutes ?? 0)}m | Wait: ~
-                    {Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
-                  </div>
+                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[320px]">
+                  {(() => {
+                    const summary = summarizeAssignmentRoutes(routes);
+                    const totalKm =
+                      summary.totalDistanceKm > 0
+                        ? summary.totalDistanceKm
+                        : (plan.metrics?.totalTravelDistanceKm ?? 0);
+                    return (
+                      <>
+                        <div className="font-bold text-teal-300">
+                          {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0}{' '}
+                          Requests Allocated ({getRouteSourceLabel(summary.overallSource)})
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Dist: {formatDistanceKm(totalKm)} | Travel: ~
+                          {Math.round(
+                            plan.metrics?.totalTravelTimeMinutes ?? summary.totalDurationMinutes,
+                          )}
+                          m | Wait: ~{Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
