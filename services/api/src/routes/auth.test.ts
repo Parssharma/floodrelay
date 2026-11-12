@@ -175,6 +175,26 @@ describe('Operator Authentication & API Protection Suite', () => {
       expect(cookieStr).toContain('HttpOnly');
     });
 
+    it('rejects login when operator is inactive with HTTP 401', async () => {
+      await inMemoryAuthRepo.insertOperator({
+        id: 'op-inactive-01',
+        username: 'inactive_operator',
+        password_hash: authService.hashPassword('Password123!').hash,
+        salt: authService.hashPassword('Password123!').salt,
+        name: 'Inactive Responder',
+        role: 'OPERATOR',
+        is_active: false,
+      });
+
+      const res = await request(app).post('/auth/login').send({
+        username: 'inactive_operator',
+        password: 'Password123!',
+      });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+    });
+
     it('enforces rate limiting after 5 consecutive failed attempts', async () => {
       for (let i = 0; i < 5; i++) {
         const failRes = await request(app).post('/auth/login').send({
@@ -191,6 +211,63 @@ describe('Operator Authentication & API Protection Suite', () => {
       });
       expect(lockedRes.status).toBe(429);
       expect(lockedRes.body.error.code).toBe('RATE_LIMITED');
+    });
+
+    it('handles database unavailability safely with HTTP 503 DATABASE_UNAVAILABLE', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        const connErr = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), {
+          code: 'ECONNREFUSED',
+        });
+        throw connErr;
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('DATABASE_UNAVAILABLE');
+      expect(res.body.error.message).toContain('Database is currently unavailable');
+      expect(res.body.error.message).not.toContain('ECONNREFUSED');
+      expect(res.body.error.message).not.toContain('127.0.0.1');
+    });
+
+    it('handles missing database schema with HTTP 503 SCHEMA_ERROR and actionable diagnostic', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        const schemaErr = Object.assign(new Error('relation "operators" does not exist'), {
+          code: '42P01',
+        });
+        throw schemaErr;
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('SCHEMA_ERROR');
+      expect(res.body.error.message).toContain('Authentication schema is not initialized');
+      expect(res.body.error.message).not.toContain('relation "operators"');
     });
   });
 
@@ -239,6 +316,35 @@ describe('Operator Authentication & API Protection Suite', () => {
       expect(meRes.status).toBe(200);
       expect(meRes.body.success).toBe(true);
       expect(meRes.body.data.operator.username).toBe('eoc_test_operator');
+    });
+
+    it('handles database connection failure during session validation with HTTP 503 DATABASE_UNAVAILABLE', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getSessionWithOperator = async () => {
+        const connErr = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), {
+          code: 'ECONNREFUSED',
+        });
+        throw connErr;
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp)
+        .get('/auth/me')
+        .set(
+          'Authorization',
+          'Bearer 1111111111111111111111111111111111111111111111111111111111111111',
+        );
+
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('DATABASE_UNAVAILABLE');
+      expect(res.body.error.message).toContain('database connectivity issues');
     });
   });
 

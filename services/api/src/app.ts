@@ -148,10 +148,25 @@ export function createApp(deps?: AppDependencies): Express {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error('API Error:', err);
+
+    // Sanitize database, SQL, and internal connection details from leaking to clients
+    const errCode = (err as { code?: string })?.code || '';
+    const errMsg = err?.message || '';
+    const isSensitive =
+      errCode.startsWith('42') ||
+      errCode === 'ECONNREFUSED' ||
+      /relation|syntax error|connect ECONNREFUSED|password_hash|salt|session_token|SELECT|INSERT|UPDATE|DELETE/i.test(
+        errMsg,
+      );
+
+    const safeMessage = isSensitive
+      ? 'An unexpected internal server error occurred'
+      : errMsg || 'An unexpected internal server error occurred';
+
     res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
-        message: err.message || 'An unexpected internal server error occurred',
+        message: safeMessage,
         timestamp: new Date().toISOString(),
       },
     });
