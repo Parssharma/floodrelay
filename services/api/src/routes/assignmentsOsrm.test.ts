@@ -386,6 +386,59 @@ describe('Assignment API OSRM & BlockedZones Integration Tests', () => {
     expect(travelTime.roadCoveragePercent).toBeNull();
   });
 
+  it('respects OSRM_REGIONS from process.env and reports regions[] and outside-coverage warnings', async () => {
+    const oldRegions = process.env.OSRM_REGIONS;
+    const oldUrl = process.env.OSRM_BASE_URL;
+    try {
+      delete process.env.OSRM_BASE_URL;
+      process.env.OSRM_REGIONS = JSON.stringify([
+        {
+          id: 'delhi-core',
+          baseUrl: fakeOsrmUrl,
+          // Includes req_01 (28.69, 77.23) & sh_01 (28.70, 77.25); excludes res_01 (28.68, 77.22)
+          bbox: '28.685,77.225,28.71,77.26',
+        },
+      ]);
+
+      const assignmentService = new AssignmentService(repository);
+      const app = createApp({ repository, assignmentService, authService });
+
+      const res = await request(app)
+        .post('/assignments/propose')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ algorithm: 'nearest-first' });
+
+      expect(res.status).toBe(201);
+      const travelTime = res.body.data.travelTime;
+      expect(travelTime.osrmConfigured).toBe(true);
+      expect(travelTime.effectiveSource).toBe('MIXED');
+      expect(travelTime.lookupsOsrm).toBeGreaterThan(0);
+      expect(travelTime.lookupsOutsideCoverage).toBeGreaterThan(0);
+      expect(travelTime.regions).toEqual([
+        {
+          id: 'delhi-core',
+          requests: 1,
+          failedRequests: 0,
+          lookupsOsrm: travelTime.lookupsOsrm,
+        },
+      ]);
+      expect(travelTime.warnings).toContain(
+        '1 of 3 scenario points are outside every configured OSRM region; straight-line estimates used',
+      );
+    } finally {
+      if (oldRegions !== undefined) {
+        process.env.OSRM_REGIONS = oldRegions;
+      } else {
+        delete process.env.OSRM_REGIONS;
+      }
+      if (oldUrl !== undefined) {
+        process.env.OSRM_BASE_URL = oldUrl;
+      } else {
+        delete process.env.OSRM_BASE_URL;
+      }
+    }
+  });
+
   describe('blockedZones request validation', () => {
     let app: ReturnType<typeof createApp>;
 
