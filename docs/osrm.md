@@ -155,6 +155,25 @@ Every proposal generated via `POST /assignments/propose` includes a `travelTime`
 
 ---
 
+## India zones
+
+All six India sub-region extracts listed on `https://download.geofabrik.de/asia/india.html` were verified via `curl.exe -IL` on **2026-11-12** (`307 Temporary Redirect` → dated extract file returning `HTTP/1.1 200 OK`):
+
+| Compose Profile  | Zone               | Verified Download URL (`-latest.osm.pbf`)                                    | HTTP Status (`curl.exe -IL`) | `Content-Length` (bytes / page MB) | `.poly` Coordinate Extent (`minLat..maxLat`, `minLng..maxLng`) |
+| :--------------- | :----------------- | :--------------------------------------------------------------------------- | :--------------------------- | :--------------------------------- | :------------------------------------------------------------- |
+| `osrm-north`     | Northern Zone      | `https://download.geofabrik.de/asia/india/northern-zone-latest.osm.pbf`      | `307` → `200 OK`             | `224,864,535` (`214 MB`)           | lat `23.0469..35.7309`, lng `69.4391..79.4888`                 |
+| `osrm-south`     | Southern Zone      | `https://download.geofabrik.de/asia/india/southern-zone-latest.osm.pbf`      | `307` → `200 OK`             | `559,594,968` (`533 MB`)           | lat `5.9439..19.9227`, lng `70.2079..95.5138`                  |
+| `osrm-central`   | Central Zone       | `https://download.geofabrik.de/asia/india/central-zone-latest.osm.pbf`       | `307` → `200 OK`             | `352,234,209` (`335 MB`)           | lat `17.7709..31.4908`, lng `74.0149..84.6466`                 |
+| `osrm-east`      | Eastern Zone       | `https://download.geofabrik.de/asia/india/eastern-zone-latest.osm.pbf`       | `307` → `200 OK`             | `247,694,659` (`236 MB`)           | lat `17.7806..27.5284`, lng `81.3675..89.9183`                 |
+| `osrm-west`      | Western Zone       | `https://download.geofabrik.de/asia/india/western-zone-latest.osm.pbf`       | `307` → `200 OK`             | `222,190,887` (`211 MB`)           | lat `14.3893..24.7176`, lng `67.6746..80.9136`                 |
+| `osrm-northeast` | North-Eastern Zone | `https://download.geofabrik.de/asia/india/north-eastern-zone-latest.osm.pbf` | `307` → `200 OK`             | `109,984,098` (`104 MB`)           | lat `21.9271..29.4288`, lng `88.0085..97.4199`                 |
+
+_(Snapshot `Last-Modified` observed from headers: `Wed, 11 Nov 2026 23:54–23:55 GMT`.)_
+
+> **Coverage note:** Geofabrik's India HTML pages display zone boundaries interactively via `.kml`/`.poly` files and do not publish a prose state-by-state list on the web pages. Because `.poly` polygons are non-rectangular, their outer axis-aligned extents overlap across neighboring zones; inspect the corresponding Geofabrik zone KML map and re-verify URLs with `curl.exe -IL <url>` before choosing `OSRM_REGIONS` bounding boxes for production scenarios.
+
+---
+
 ## 5. Technical Limitations & Operational Assumptions
 
 1. **Per-Resource Routing Policy**: OSRM routes exclusively over road networks (`driving` profile with car.lua). Only road vehicles (`HIGH_WATER_VEHICLE`, `AMBULANCE`) query OSRM road distance. Marine craft (`BOAT`) and aerial craft (`HELICOPTER`) use straight-line geodesic calculations by design and do not follow road topology. OSRM does not compute navigable river channels or air corridors.
