@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createApp } from '../app.js';
 import { AuthService, InMemoryAuthRepository } from '../services/authService.js';
 import { PostgisRepository, type Queryable } from '../db/repository.js';
@@ -499,6 +499,170 @@ describe('Operator Authentication & API Protection Suite', () => {
       // Operator can authenticate with custom credentials
       const session = await freshAuth.authenticate('secure_admin', 'CustomProdPassword2026!#');
       expect(session.operator.username).toBe('secure_admin');
+    });
+  });
+
+  describe('HTTP 500 Global Error Sanitization & Diagnostics', () => {
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('Test A: sanitizes arbitrary internal hostname from unexpected HTTP 500 responses', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        throw new Error('Internal upstream failure at private-db.internal.example:5432');
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+      expect(res.body.error.message).toBe('An unexpected internal server error occurred');
+      expect(JSON.stringify(res.body)).not.toContain('private-db.internal.example');
+      expect(JSON.stringify(res.body)).not.toContain('5432');
+      expect(res.body.error.stack).toBeUndefined();
+    });
+
+    it('Test B: sanitizes unknown exception messages that do not match sensitive regex patterns', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        throw new Error('Worker cluster queue failed during dispatch processing');
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+      expect(res.body.error.message).toBe('An unexpected internal server error occurred');
+      expect(JSON.stringify(res.body)).not.toContain('Worker cluster queue');
+    });
+
+    it('Test C: sanitizes sensitive diagnostic content (SQL details, credentials, connection string)', async () => {
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        throw new Error(
+          'FATAL: connection to postgres://app_user:secret_pass_123@10.0.0.5:5432/floodrelay failed in SELECT * FROM sensitive_table',
+        );
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+      expect(res.body.error.message).toBe('An unexpected internal server error occurred');
+      const responseString = JSON.stringify(res.body);
+      expect(responseString).not.toContain('secret_pass_123');
+      expect(responseString).not.toContain('app_user');
+      expect(responseString).not.toContain('10.0.0.5');
+      expect(responseString).not.toContain('sensitive_table');
+      expect(responseString).not.toContain('postgres://');
+    });
+
+    it('Test D: ensures global Express error handler unconditionally sanitizes unhandled route errors', async () => {
+      const mockFailingRequestService = {
+        submitRequest: vi.fn(),
+        getRequestById: vi.fn(),
+        listRequests: vi.fn().mockImplementation(() => {
+          throw new Error('Uncaught pipeline error with internal path /var/run/secrets/token');
+        }),
+      } as unknown as RequestService;
+
+      const testApp = createApp({
+        repository: repo,
+        authService,
+        requestService: mockFailingRequestService,
+        assignmentService,
+      });
+
+      // Login to get token for GET /requests
+      const loginRes = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+      const token = loginRes.body.data.token;
+
+      const res = await request(testApp).get('/requests').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+      expect(res.body.error.message).toBe('An unexpected internal server error occurred');
+      expect(JSON.stringify(res.body)).not.toContain('/var/run/secrets/token');
+    });
+
+    it('Test E: preserves original exception details in protected server-side diagnostics', async () => {
+      const targetError = new Error('Diagnostic exception at internal-cluster.node:9000');
+      const failingRepo = new InMemoryAuthRepository();
+      failingRepo.getOperatorByUsername = async () => {
+        throw targetError;
+      };
+
+      const failingAuth = new AuthService(failingRepo);
+      const testApp = createApp({
+        repository: repo,
+        authService: failingAuth,
+        requestService,
+        assignmentService,
+      });
+
+      const res = await request(testApp).post('/auth/login').send({
+        username: 'eoc_test_operator',
+        password: 'SecureOperatorPassword123!',
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.message).toBe('An unexpected internal server error occurred');
+
+      // Verify that server diagnostics logged the actual error
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const loggedCalls = consoleErrorSpy.mock.calls;
+      const foundCall = loggedCalls.some((callArgs: unknown[]) =>
+        callArgs.some(
+          (arg: unknown) =>
+            arg === targetError ||
+            (arg instanceof Error && arg.message.includes('Diagnostic exception')) ||
+            (typeof arg === 'string' && arg.includes('Diagnostic exception')),
+        ),
+      );
+      expect(foundCall).toBe(true);
     });
   });
 });

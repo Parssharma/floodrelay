@@ -145,28 +145,19 @@ export function createApp(deps?: AppDependencies): Express {
   });
 
   // Global error handler
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    // Keep the original exception in server-side diagnostics.
     console.error('API Error:', err);
 
-    // Sanitize database, SQL, and internal connection details from leaking to clients
-    const errCode = (err as { code?: string })?.code || '';
-    const errMsg = err?.message || '';
-    const isSensitive =
-      errCode.startsWith('42') ||
-      errCode === 'ECONNREFUSED' ||
-      /relation|syntax error|connect ECONNREFUSED|password_hash|salt|session_token|SELECT|INSERT|UPDATE|DELETE/i.test(
-        errMsg,
-      );
-
-    const safeMessage = isSensitive
-      ? 'An unexpected internal server error occurred'
-      : errMsg || 'An unexpected internal server error occurred';
-
+    // Never expose unexpected exception details to API clients.
     res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
-        message: safeMessage,
+        message: 'An unexpected internal server error occurred',
         timestamp: new Date().toISOString(),
       },
     });
