@@ -5,6 +5,7 @@ import {
   type OsrmProviderOptions,
   type OsrmRegionConfig,
 } from './osrmTravelTime.js';
+import { RegionalTravelTimeProvider, isPointInBbox } from './regionalTravelTime.js';
 import { HazardAwareTravelTimeProvider } from './hazardAwareTravelTime.js';
 
 const DECIMAL_NUMBER_REGEX = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
@@ -295,9 +296,15 @@ function dedupePoints(points: GeoPoint[]): GeoPoint[] {
   return unique;
 }
 
+interface ActiveRegionEntry {
+  id: string;
+  bbox?: BoundingBox;
+  provider: OsrmTravelTimeProvider;
+}
+
 /**
  * Prepares a synchronous TravelTimeProvider for a scenario, optionally prefetching
- * road network durations from OSRM and decorating with hazard zones if present.
+ * road network durations from one or more regional OSRM endpoints and decorating with hazard zones.
  */
 export async function prepareTravelTimeProvider(
   scenario: Scenario,
@@ -317,44 +324,97 @@ export async function prepareTravelTimeProvider(
   const shelters = scenario.shelters ?? [];
 
   let baseProvider: TravelTimeProvider;
-  let osrmProvider: OsrmTravelTimeProvider | null = null;
+  const activeRegions: ActiveRegionEntry[] = [];
+  let regionalProvider: RegionalTravelTimeProvider | null = null;
 
   if (osrmOptions) {
-    osrmProvider = new OsrmTravelTimeProvider(osrmOptions);
-    baseProvider = osrmProvider;
+    const regionConfigs: OsrmRegionConfig[] = [];
+    const configuredRegions = options.regions ?? osrmOptions.regions;
 
-    // Per-resource routing policy: If the scenario has no road vehicles, prefetch must make zero OSRM requests.
-    if (hasRoadVehicles) {
-      const rawOrigins: GeoPoint[] = [
-        ...roadResources.map((r) => ({ lat: r.lat, lng: r.lng })),
-        ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
-        ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
-      ];
+    if (configuredRegions && configuredRegions.length > 0) {
+      for (const rc of configuredRegions) {
+        regionConfigs.push(rc);
+      }
+    } else if (osrmOptions.baseUrl?.trim()) {
+      regionConfigs.push({
+        id: 'default',
+        baseUrl: osrmOptions.baseUrl,
+        bbox: osrmOptions.coverageBbox ?? options.coverageBbox,
+        profile: osrmOptions.profile,
+      });
+    }
 
-      const rawDestinations: GeoPoint[] = [
-        ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
-        ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
-      ];
+    for (const rc of regionConfigs) {
+      activeRegions.push({
+        id: rc.id,
+        bbox: rc.bbox,
+        provider: new OsrmTravelTimeProvider({
+          baseUrl: rc.baseUrl,
+          profile: rc.profile ?? osrmOptions.profile,
+          timeoutMs: osrmOptions.timeoutMs,
+          maxTableCoordinates: osrmOptions.maxTableCoordinates,
+          fallbackProvider: osrmOptions.fallbackProvider,
+          fetchImpl: osrmOptions.fetchImpl,
+          useResourceSpeed: osrmOptions.useResourceSpeed,
+        }),
+      });
+    }
 
-      const uniqueOrigins = dedupePoints(rawOrigins);
-      const uniqueDestinations = dedupePoints(rawDestinations);
-      const allUniqueRoadPoints = dedupePoints([...uniqueOrigins, ...uniqueDestinations]);
-      const totalPointCount = allUniqueRoadPoints.length;
+    if (activeRegions.length > 0) {
+      // Check per-scenario point limit (not per region) before dispatching any OSRM requests.
+      if (hasRoadVehicles) {
+        const rawOrigins: GeoPoint[] = [
+          ...roadResources.map((r) => ({ lat: r.lat, lng: r.lng })),
+          ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
+          ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
+        ];
 
-      if (totalPointCount > pointLimit) {
-        const msg = `Total unique points (${totalPointCount}) exceed OSRM limit (${pointLimit}); falling back to straight-line provider.`;
-        console.warn(`[travelTimeFactory] ${msg}`);
-        warnings.push(msg);
-      } else {
-        try {
-          await osrmProvider.prefetch(uniqueOrigins, uniqueDestinations);
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          const msg = `OSRM prefetch failed with error: ${errorMsg}; falling back to straight-line provider.`;
+        const rawDestinations: GeoPoint[] = [
+          ...requests.map((r) => ({ lat: r.lat, lng: r.lng })),
+          ...shelters.map((s) => ({ lat: s.lat, lng: s.lng })),
+        ];
+
+        const uniqueScenarioOrigins = dedupePoints(rawOrigins);
+        const uniqueScenarioDestinations = dedupePoints(rawDestinations);
+        const allUniqueRoadPoints = dedupePoints([
+          ...uniqueScenarioOrigins,
+          ...uniqueScenarioDestinations,
+        ]);
+        const totalPointCount = allUniqueRoadPoints.length;
+
+        if (totalPointCount > pointLimit) {
+          const msg = `Total unique points (${totalPointCount}) exceed OSRM limit (${pointLimit}); falling back to straight-line provider.`;
           console.warn(`[travelTimeFactory] ${msg}`);
           warnings.push(msg);
+        } else {
+          for (const region of activeRegions) {
+            const regionOrigins = region.bbox
+              ? uniqueScenarioOrigins.filter((p) => isPointInBbox(p, region.bbox!))
+              : uniqueScenarioOrigins;
+            const regionDestinations = region.bbox
+              ? uniqueScenarioDestinations.filter((p) => isPointInBbox(p, region.bbox!))
+              : uniqueScenarioDestinations;
+
+            if (regionOrigins.length === 0 || regionDestinations.length === 0) {
+              continue;
+            }
+
+            try {
+              await region.provider.prefetch(regionOrigins, regionDestinations);
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              const msg = `OSRM prefetch failed for region "${region.id}": ${errorMsg}; falling back to straight-line provider.`;
+              console.warn(`[travelTimeFactory] ${msg}`);
+              warnings.push(msg);
+            }
+          }
         }
       }
+
+      regionalProvider = new RegionalTravelTimeProvider(activeRegions);
+      baseProvider = regionalProvider;
+    } else {
+      baseProvider = new StraightLineTravelTimeProvider();
     }
   } else {
     baseProvider = new StraightLineTravelTimeProvider();
@@ -371,7 +431,7 @@ export async function prepareTravelTimeProvider(
   const report = (): TravelTimeReport => {
     const hazardZoneCount = blockedZones.length;
 
-    if (!osrmOptions) {
+    if (!osrmOptions || activeRegions.length === 0) {
       return {
         effectiveSource: 'STRAIGHT_LINE',
         osrmConfigured: false,
@@ -386,50 +446,62 @@ export async function prepareTravelTimeProvider(
       };
     }
 
-    const stats = osrmProvider!.getStats();
-    const totalRoadLookups = stats.lookupsOsrm + stats.lookupsFallback;
+    const regionalStats = regionalProvider!.getStats();
+    let requestsTotal = 0;
+    let failedRequestsTotal = 0;
+    let lookupsOsrmTotal = 0;
+    let lookupsFallbackTotal = 0;
+    let lookupsPolicyTotal = regionalStats.lookupsStraightLinePolicy;
+    let osrmCellsTotal = 0;
+    let fallbackCellsTotal = 0;
+
+    for (const region of activeRegions) {
+      const s = region.provider.getStats();
+      requestsTotal += s.requests;
+      failedRequestsTotal += s.failedRequests;
+      lookupsOsrmTotal += s.lookupsOsrm;
+      lookupsFallbackTotal += s.lookupsFallback;
+      lookupsPolicyTotal += s.lookupsStraightLinePolicy;
+      osrmCellsTotal += s.osrmCells;
+      fallbackCellsTotal += s.fallbackCells;
+    }
+
+    const totalRoadLookups = lookupsOsrmTotal + lookupsFallbackTotal;
 
     const roadCoveragePercent =
       totalRoadLookups > 0
-        ? Number(((stats.lookupsOsrm / totalRoadLookups) * 100).toFixed(1))
+        ? Number(((lookupsOsrmTotal / totalRoadLookups) * 100).toFixed(1))
         : null;
 
     let effectiveSource: 'OSRM' | 'STRAIGHT_LINE' | 'MIXED';
-    if (
-      stats.lookupsOsrm > 0 &&
-      stats.lookupsStraightLinePolicy === 0 &&
-      stats.lookupsFallback === 0
-    ) {
+    if (lookupsOsrmTotal > 0 && lookupsPolicyTotal === 0 && lookupsFallbackTotal === 0) {
       effectiveSource = 'OSRM';
-    } else if (
-      stats.lookupsOsrm > 0 &&
-      (stats.lookupsStraightLinePolicy > 0 || stats.lookupsFallback > 0)
-    ) {
+    } else if (lookupsOsrmTotal > 0 && (lookupsPolicyTotal > 0 || lookupsFallbackTotal > 0)) {
       effectiveSource = 'MIXED';
     } else {
       effectiveSource = 'STRAIGHT_LINE';
     }
 
     const reportWarnings = [...warnings];
-    if (stats.failedRequests > 0) {
+    if (failedRequestsTotal > 0) {
       reportWarnings.push(
-        `OSRM had ${stats.failedRequests} failed HTTP request(s) during prefetch; straight-line fallback was used.`,
+        `OSRM had ${failedRequestsTotal} failed HTTP request(s) during prefetch; straight-line fallback was used.`,
       );
     }
-    if (stats.fallbackCells > 0 && stats.osrmCells > 0) {
+    if (fallbackCellsTotal > 0 && osrmCellsTotal > 0) {
       reportWarnings.push(
-        `OSRM had ${stats.fallbackCells} fallback cell(s) due to unroutable coordinates or partial chunk failure.`,
+        `OSRM had ${fallbackCellsTotal} fallback cell(s) due to unroutable coordinates or partial chunk failure.`,
       );
     }
 
     return {
       effectiveSource,
       osrmConfigured: true,
-      osrmRequests: stats.requests,
-      osrmFailedRequests: stats.failedRequests,
-      lookupsOsrm: stats.lookupsOsrm,
-      lookupsStraightLinePolicy: stats.lookupsStraightLinePolicy,
-      lookupsFallback: stats.lookupsFallback,
+      osrmRequests: requestsTotal,
+      osrmFailedRequests: failedRequestsTotal,
+      lookupsOsrm: lookupsOsrmTotal,
+      lookupsStraightLinePolicy: lookupsPolicyTotal,
+      lookupsFallback: lookupsFallbackTotal,
       roadCoveragePercent,
       hazardZoneCount,
       warnings: reportWarnings,
