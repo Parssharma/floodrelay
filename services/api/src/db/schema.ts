@@ -312,6 +312,7 @@ export function dbToRescueResource(row: DbResource): RescueResource {
     lng: geo.lng,
     status: row.status,
     depotId: row.depot_id ?? undefined,
+    source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
   };
 }
 

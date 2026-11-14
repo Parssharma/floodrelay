@@ -102,6 +102,18 @@ export default function AssignmentReviewPage({ params }: PageProps) {
           setCommitError(
             'One or more requests in this plan have already been assigned to another plan. Please generate a fresh proposal.',
           );
+        } else if (err.code === 'SIMULATED_RESOURCE_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated resources in operational dispatch mode. Ensure all plan assets are authentic registered operational vehicles.',
+          );
+        } else if (err.code === 'SIMULATED_REQUEST_FORBIDDEN') {
+          setCommitError(
+            'Operational Commitment Forbidden (409): Cannot commit an assignment plan containing simulated requests in operational dispatch mode. Operational plans must serve authentic reported requests.',
+          );
+        } else if (err.code === 'RESOURCE_UNAVAILABLE') {
+          setCommitError(`Resource Unavailable (409): ${err.message}`);
+        } else if (err.code === 'RESOURCE_NOT_FOUND') {
+          setCommitError(`Resource Not Found (409): ${err.message}`);
         } else {
           setCommitError(err.message);
         }
@@ -149,8 +161,15 @@ export default function AssignmentReviewPage({ params }: PageProps) {
   }
 
   const isProposed = plan.status === 'PROPOSED';
+  const isSimulatedPlan =
+    plan.provenance === 'SIMULATED' ||
+    plan.provenance === 'MIXED' ||
+    Boolean(plan.hasSimulatedResources) ||
+    Boolean(plan.hasSimulatedRequests);
+
   const allChecked =
     checklist.draftClearance && checklist.shelterCapacity && checklist.medicalProtocol;
+  const canCommitPlan = isProposed && allChecked && canCommit && !isSimulatedPlan;
   const routes = plan.routes || [];
   const unserved = plan.unserved || [];
 
@@ -245,6 +264,17 @@ export default function AssignmentReviewPage({ params }: PageProps) {
               <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                 Scenario: {plan.scenario_id ?? plan.scenarioId ?? 'scenario-delhi-yamuna-demo'}
               </span>
+              {isSimulatedPlan ? (
+                <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">science</span>
+                  <span>{plan.provenance === 'MIXED' ? 'MIXED PROVENANCE' : 'SIMULATED PLAN'}</span>
+                </span>
+              ) : (
+                <span className="text-xs font-mono font-bold text-teal-900 bg-teal-100 px-2 py-0.5 rounded border border-teal-300 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">verified</span>
+                  <span>REAL FLEET PLAN</span>
+                </span>
+              )}
               {plan.committed_by && (
                 <span className="text-xs font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
                   Committed by: {plan.committed_by} ({formattedCommitted})
@@ -278,7 +308,7 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             {isProposed ? (
               <button
                 type="button"
-                disabled={!allChecked || !canCommit}
+                disabled={!canCommitPlan}
                 onClick={() => {
                   setCommitError(null);
                   setShowCommitModal(true);
@@ -286,12 +316,14 @@ export default function AssignmentReviewPage({ params }: PageProps) {
                 title={
                   !canCommit
                     ? 'Dispatcher or Admin authorization required to commit assignment plans'
-                    : !allChecked
-                      ? 'Complete all safety checklist items before committing'
-                      : 'Commit assignment plan'
+                    : isSimulatedPlan
+                      ? 'Operational commitment is disabled for plans incorporating simulated assets or test requests'
+                      : !allChecked
+                        ? 'Complete all safety checklist items before committing'
+                        : 'Commit assignment plan'
                 }
                 className={`h-9 px-4 rounded text-xs font-bold transition-all flex items-center gap-2 shadow-sm ${
-                  allChecked && canCommit
+                  canCommitPlan
                     ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/30'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
@@ -309,6 +341,29 @@ export default function AssignmentReviewPage({ params }: PageProps) {
             )}
           </div>
         </div>
+
+        {/* Simulation / Reference Plan Warning */}
+        {isSimulatedPlan && (
+          <div className="bg-amber-50 border-l-4 border-amber-600 rounded-r-lg p-3 sm:p-4 flex items-start gap-3">
+            <span className="material-symbols-outlined text-amber-700 text-2xl shrink-0 mt-0.5">
+              warning
+            </span>
+            <div className="flex-1 text-xs">
+              <div className="font-bold text-amber-900 flex items-center gap-2">
+                <span>Simulation / Reference Plan</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                  {plan.provenance ?? 'SIMULATED'}
+                </span>
+              </div>
+              <p className="text-amber-800 mt-1 leading-relaxed">
+                This plan incorporates simulated rescue resources or synthetic requests. Operational
+                commitment is disabled to prevent simulated assets from contaminating live mission
+                dispatch state. To execute an operational commitment, ensure all participating
+                assets are authentic registered database vehicles.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Human-in-the-Loop Safeguard Notice */}
         <div className="bg-slate-50 border-l-4 border-teal-700 rounded-r-lg p-3 sm:p-4 flex items-start gap-3">

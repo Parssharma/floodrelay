@@ -95,7 +95,7 @@ class InMemoryAssignmentDbMock implements Queryable {
       const rows = ids
         .map((id) => this.requests.get(id))
         .filter((r): r is DbRequest => Boolean(r))
-        .map((r) => ({ id: r.id, status: r.status }));
+        .map((r) => ({ id: r.id, status: r.status, source: r.source }));
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',
@@ -177,7 +177,7 @@ class InMemoryAssignmentDbMock implements Queryable {
       const rows = ids
         .map((id) => this.resources.get(id))
         .filter((r): r is DbResource => Boolean(r))
-        .map((r) => ({ id: r.id, status: r.status }));
+        .map((r) => ({ id: r.id, status: r.status, source: r.source }));
       return {
         rows: rows as unknown as R[],
         command: 'SELECT',
@@ -531,7 +531,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       capacity: 50,
       current_occupancy: 0,
       is_active: true,
-      source: 'SIMULATED',
+      source: 'REAL',
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -548,7 +548,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       status: 'AVAILABLE',
       depot_id: 'depot_01',
       shift_max_duration_min: 480,
-      source: 'SIMULATED',
+      source: 'REAL',
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -560,7 +560,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       location: 'POINT(77.230 28.695)',
       people_count: 3,
       urgency: 'CRITICAL',
-      source: 'SIMULATED',
+      source: 'REPORTED',
       status: 'PENDING',
       verification_status: 'VERIFIED',
       medical_needs: false,
@@ -577,7 +577,7 @@ describe('Assignment Endpoints Integration Tests', () => {
       location: 'POINT(77.232 28.696)',
       people_count: 2,
       urgency: 'HIGH',
-      source: 'SIMULATED',
+      source: 'REPORTED',
       status: 'PENDING',
       verification_status: 'VERIFIED',
       medical_needs: false,
@@ -748,6 +748,78 @@ describe('Assignment Endpoints Integration Tests', () => {
   });
 
   describe('POST /assignments/:id/commit', () => {
+    it('rejects committing an assignment plan containing a simulated resource with 409 SIMULATED_RESOURCE_FORBIDDEN', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Mark the resource as SIMULATED after proposal
+      const res = dbMock.resources.get('boat_01');
+      if (res) res.source = 'SIMULATED';
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SIMULATED_RESOURCE_FORBIDDEN');
+      expect(commitRes.body.error.message).toContain('simulated resource');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan containing a simulated request with 409 SIMULATED_REQUEST_FORBIDDEN', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Mark request as SIMULATED after proposal
+      const req = dbMock.requests.get('req_01');
+      if (req) req.source = 'SIMULATED';
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('SIMULATED_REQUEST_FORBIDDEN');
+      expect(commitRes.body.error.message).toContain('simulated request');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when resource transitions to OFFLINE with 409 RESOURCE_UNAVAILABLE', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Resource transitions to OFFLINE after proposal
+      const res = dbMock.resources.get('boat_01');
+      if (res) res.status = 'OFFLINE';
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('RESOURCE_UNAVAILABLE');
+      expect(commitRes.body.error.message).toContain('unavailable for commitment');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
+    it('rejects committing an assignment plan when resource transitions to MAINTENANCE with 409 RESOURCE_UNAVAILABLE', async () => {
+      const proposeRes = await agent.post('/assignments/propose').send({});
+      const assignId = proposeRes.body.data.id;
+
+      // Resource transitions to MAINTENANCE after proposal
+      const res = dbMock.resources.get('boat_01');
+      if (res) res.status = 'MAINTENANCE';
+
+      const commitRes = await agent
+        .post(`/assignments/${assignId}/commit`)
+        .send({ operatorId: 'test_operator' });
+
+      expect(commitRes.status).toBe(409);
+      expect(commitRes.body.error.code).toBe('RESOURCE_UNAVAILABLE');
+      expect(commitRes.body.error.message).toContain('unavailable for commitment');
+      expect(dbMock.assignments.get(assignId)?.status).toBe('PROPOSED');
+    });
+
     it('operator commits a proposed assignment and freezes all stops', async () => {
       const proposeRes = await agent.post('/assignments/propose').send({});
       const assignId = proposeRes.body.data.id;

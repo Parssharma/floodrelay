@@ -54,6 +54,9 @@ export interface AssignmentDetailResponse {
   createdAt: string;
   updatedAt: string;
   travelTime?: TravelTimeReport;
+  provenance?: ScenarioProvenance;
+  hasSimulatedResources?: boolean;
+  hasSimulatedRequests?: boolean;
 }
 
 export interface AssignmentServiceOptions {
@@ -432,6 +435,9 @@ export class AssignmentService {
       },
     });
 
+    const hasSimulatedResources = availableResources.some((r) => r.source === 'SIMULATED');
+    const hasSimulatedRequests = requests.some((r) => r.source === 'SIMULATED');
+
     return {
       id: assignmentId,
       scenarioId: input.scenarioId,
@@ -444,6 +450,9 @@ export class AssignmentService {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       travelTime: travelTimeReport,
+      provenance: scenario.provenance,
+      hasSimulatedResources,
+      hasSimulatedRequests,
     };
   }
 
@@ -548,6 +557,64 @@ export class AssignmentService {
       finalRoutes = routes.map((r) => byResource.get(r.resourceId) ?? r);
     }
 
+    let hasSimulatedResources = false;
+    let hasSimulatedRequests = false;
+    let realCount = 0;
+    let simulatedCount = 0;
+
+    const resourceIds = Array.from(new Set(record.stops.map((s) => s.resource_id)));
+    const pickupTargetIds = Array.from(
+      new Set(
+        record.stops.filter((s) => s.type === 'PICKUP' && s.target_id).map((s) => s.target_id),
+      ),
+    );
+
+    if (resourceIds.length > 0) {
+      try {
+        const allRes = await this.repository.listResources();
+        const resMap = new Map(allRes.map((r) => [r.id, r]));
+        for (const resId of resourceIds) {
+          const res = resMap.get(resId);
+          if (res?.source === 'SIMULATED') {
+            hasSimulatedResources = true;
+            simulatedCount++;
+          } else if (res?.source === 'REAL') {
+            realCount++;
+          }
+        }
+      } catch {
+        // ignore if listing fails
+      }
+    }
+
+    if (pickupTargetIds.length > 0) {
+      try {
+        const allReq = await this.repository.listRequests();
+        const reqMap = new Map(allReq.map((r) => [r.id, r]));
+        for (const reqId of pickupTargetIds) {
+          const req = reqMap.get(reqId);
+          if (req?.source === 'SIMULATED') {
+            hasSimulatedRequests = true;
+            simulatedCount++;
+          } else if (
+            req?.source === 'REPORTED' ||
+            (req as unknown as { source?: string })?.source === 'REAL'
+          ) {
+            realCount++;
+          }
+        }
+      } catch {
+        // ignore if listing fails
+      }
+    }
+
+    const planProvenance: ScenarioProvenance =
+      simulatedCount > 0 && realCount === 0
+        ? 'SIMULATED'
+        : simulatedCount > 0 && realCount > 0
+          ? 'MIXED'
+          : 'REAL';
+
     return {
       id: record.assignment.id,
       scenarioId: record.assignment.scenario_id,
@@ -569,6 +636,9 @@ export class AssignmentService {
       routes: finalRoutes,
       createdAt: record.assignment.created_at.toISOString(),
       updatedAt: record.assignment.updated_at.toISOString(),
+      provenance: planProvenance,
+      hasSimulatedResources,
+      hasSimulatedRequests,
       ...(savedTravelTime ? { travelTime: savedTravelTime } : {}),
     };
   }

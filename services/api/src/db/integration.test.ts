@@ -3094,4 +3094,350 @@ describe.runIf(shouldRun)('PostGIS Live Database Integration Tests', () => {
       expect(foreignScenario.metadata.bounds.maxLat).toBeGreaterThan(51.51);
     });
   });
+
+  describe('7. Assignment Commitment Safety & Simulation Isolation Hardening', () => {
+    it('authoritative getResourceById returns source field for real and simulated resources', async () => {
+      const realRes: RescueResource = {
+        id: 'res_auth_real_1',
+        name: 'Authentic Boat 1',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const simRes: RescueResource = {
+        id: 'res_auth_sim_1',
+        name: 'Simulated Boat 1',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.71,
+        lng: 77.21,
+        status: 'AVAILABLE',
+      };
+
+      await repo.insertResource(realRes, 'REAL');
+      await repo.insertResource(simRes, 'SIMULATED');
+
+      const fetchedReal = await repo.getResourceById(realRes.id);
+      expect(fetchedReal).not.toBeNull();
+      expect(fetchedReal?.source).toBe('REAL');
+
+      const fetchedSim = await repo.getResourceById(simRes.id);
+      expect(fetchedSim).not.toBeNull();
+      expect(fetchedSim?.source).toBe('SIMULATED');
+    });
+
+    it('rejects operational commitment of a plan containing a simulated resource with 409 SIMULATED_RESOURCE_FORBIDDEN', async () => {
+      const simResource: RescueResource = {
+        id: 'res_sim_reject',
+        name: 'Simulated Vessel',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_sim_reject',
+        name: 'Test Relief Camp',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_sim_reject',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 3,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(simResource, 'SIMULATED');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Attempt to commit operational plan with simulated craft
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SIMULATED_RESOURCE_FORBIDDEN',
+        statusCode: 409,
+      });
+
+      // Verify complete rollback in database
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+      expect(planAfter?.stops.every((s) => !s.is_frozen)).toBe(true);
+
+      const reqAfter = await repo.getRequestById(req.id);
+      expect(reqAfter?.status).toBe('PENDING');
+
+      const client = await pool.connect();
+      try {
+        const auditEvents = await client.query(
+          "SELECT id FROM audit_events WHERE entity_type = 'ASSIGNMENT' AND entity_id = $1 AND event_type = 'ASSIGNMENT_COMMITTED';",
+          [plan.id],
+        );
+        expect(auditEvents.rows.length).toBe(0);
+      } finally {
+        client.release();
+      }
+    });
+
+    it('rejects operational commitment of a mixed plan containing a simulated request with 409 SIMULATED_REQUEST_FORBIDDEN', async () => {
+      const realResource: RescueResource = {
+        id: 'res_real_mix_req',
+        name: 'Real Vessel',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_real_mix_req',
+        name: 'Test Relief Camp',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const simReq: RescueRequest = {
+        id: 'req_sim_mix_req',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'SIMULATED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realResource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(simReq);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'SIMULATED_REQUEST_FORBIDDEN',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+    });
+
+    it('rejects commitment if resource transitions to OFFLINE after proposal with 409 RESOURCE_UNAVAILABLE', async () => {
+      const realResource: RescueResource = {
+        id: 'res_trans_offline',
+        name: 'Real Vessel Offline Trans',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_trans_offline',
+        name: 'Camp Offline Trans',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_trans_offline',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realResource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Resource transitions to OFFLINE
+      const client = await pool.connect();
+      try {
+        await client.query("UPDATE resources SET status = 'OFFLINE' WHERE id = $1;", [
+          realResource.id,
+        ]);
+      } finally {
+        client.release();
+      }
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'RESOURCE_UNAVAILABLE',
+        statusCode: 409,
+      });
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('PROPOSED');
+    });
+
+    it('rejects commitment if resource transitions to MAINTENANCE after proposal with 409 RESOURCE_UNAVAILABLE', async () => {
+      const realResource: RescueResource = {
+        id: 'res_trans_maint',
+        name: 'Real Vessel Maint Trans',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_trans_maint',
+        name: 'Camp Maint Trans',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_trans_maint',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 2,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realResource, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      // Resource transitions to MAINTENANCE
+      const client = await pool.connect();
+      try {
+        await client.query("UPDATE resources SET status = 'MAINTENANCE' WHERE id = $1;", [
+          realResource.id,
+        ]);
+      } finally {
+        client.release();
+      }
+
+      await expect(
+        assignmentService.commitAssignment(plan.id, { operatorId: 'op_verifier' }),
+      ).rejects.toMatchObject({
+        code: 'RESOURCE_UNAVAILABLE',
+        statusCode: 409,
+      });
+    });
+
+    it('allows commitment of an operational plan containing only eligible real assets and authentic boat_ prefix', async () => {
+      const realBoat: RescueResource = {
+        id: 'boat_authentic_99',
+        name: 'Authentic River Patrol 99',
+        type: 'BOAT',
+        capacity: 8,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const shelter: Shelter = {
+        id: 'sh_authentic_99',
+        name: 'East Shelter 99',
+        lat: 28.71,
+        lng: 77.21,
+        capacity: 100,
+      };
+      const req: RescueRequest = {
+        id: 'req_authentic_99',
+        lat: 28.705,
+        lng: 77.205,
+        peopleCount: 4,
+        urgency: 'HIGH',
+        source: 'REPORTED',
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+
+      await repo.insertResource(realBoat, 'REAL');
+      await repo.insertShelter(shelter, 'REAL');
+      await repo.insertRequest(req);
+
+      const plan = await assignmentService.proposeAssignment(ProposeAssignmentSchema.parse({}));
+      expect(plan.status).toBe('PROPOSED');
+
+      const commitRes = await assignmentService.commitAssignment(plan.id, {
+        operatorId: 'dispatcher_john',
+      });
+      expect(commitRes).toBe(true);
+
+      const planAfter = await repo.getAssignmentWithStops(plan.id);
+      expect(planAfter?.assignment.status).toBe('COMMITTED');
+      expect(planAfter?.assignment.committed_by).toBe('dispatcher_john');
+      expect(planAfter?.stops.every((s) => s.is_frozen)).toBe(true);
+    });
+
+    it('updateResourceStatus at DB repository level blocks mutation of simulated assets and allows authentic real assets', async () => {
+      const simVessel: RescueResource = {
+        id: 'res_db_sim_mut',
+        name: 'Simulated Asset',
+        type: 'BOAT',
+        capacity: 4,
+        speedKmH: 20,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+      const realVessel: RescueResource = {
+        id: 'boat_db_real_mut',
+        name: 'Authentic Asset',
+        type: 'BOAT',
+        capacity: 6,
+        speedKmH: 25,
+        lat: 28.7,
+        lng: 77.2,
+        status: 'AVAILABLE',
+      };
+
+      await repo.insertResource(simVessel, 'SIMULATED');
+      await repo.insertResource(realVessel, 'REAL');
+
+      // Attempt to update simulated resource directly
+      const simUpdateRes = await repo.updateResourceStatus(simVessel.id, 'MAINTENANCE');
+      expect(simUpdateRes).toBeNull();
+
+      const simAfter = await repo.getResourceById(simVessel.id);
+      expect(simAfter?.status).toBe('AVAILABLE');
+
+      // Update real resource directly
+      const realUpdateRes = await repo.updateResourceStatus(realVessel.id, 'OFFLINE');
+      expect(realUpdateRes).not.toBeNull();
+      expect(realUpdateRes?.status).toBe('OFFLINE');
+
+      const realAfter = await repo.getResourceById(realVessel.id);
+      expect(realAfter?.status).toBe('OFFLINE');
+    });
+  });
 });
