@@ -220,6 +220,7 @@ describe('Model Mappings Aligned with @floodrelay/shared', () => {
     expect(restored.lat).toBeCloseTo(resource.lat);
     expect(restored.lng).toBeCloseTo(resource.lng);
     expect(restored.depotId).toBe(resource.depotId);
+    expect(restored.source).toBe('REAL');
   });
 
   it('maps Shelter to DbShelter and back', () => {

@@ -106,6 +106,9 @@ export interface AssignmentRecord {
   created_at?: string;
   updatedAt: string;
   updated_at?: string;
+  provenance?: 'REAL' | 'SIMULATED' | 'MIXED';
+  hasSimulatedResources?: boolean;
+  hasSimulatedRequests?: boolean;
 }
 
 export interface ProposeAssignmentInput {

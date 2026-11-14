@@ -579,6 +579,7 @@ export class PostgisRepository {
       lng: Number(row.lng),
       status: row.status,
       depotId: row.depotId ?? undefined,
+      source: (row.source as 'SIMULATED' | 'REAL') ?? undefined,
     };
   }
 
@@ -631,7 +632,7 @@ export class PostgisRepository {
     const sql = `
       UPDATE resources
       SET status = $2, updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND source = 'REAL'
       RETURNING
         id, name, type, capacity, speed_km_h as "speedKmH",
         ST_Y(location::geometry) as lat,
@@ -969,27 +970,37 @@ export class PostgisRepository {
       const pickupTargetIds = Array.from(seenPickupTargets).sort();
 
       if (pickupTargetIds.length > 0) {
-        const reqResult = await client.query<{ id: string; status: string }>(
-          'SELECT id, status FROM requests WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+        const reqResult = await client.query<{ id: string; status: string; source: string }>(
+          'SELECT id, status, source FROM requests WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [pickupTargetIds],
         );
-        const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r.status]));
+        const lockedRequests = new Map(reqResult.rows.map((r) => [r.id, r]));
 
         for (const stop of planStops) {
           if (stop.type === 'PICKUP' && stop.target_id) {
             const reqId = stop.target_id;
-            const reqStatus = lockedRequests.get(reqId);
-            if (!reqStatus) {
+            const reqRow = lockedRequests.get(reqId);
+            if (!reqRow) {
               const err = new Error(`Request "${reqId}" referenced in pickup stop does not exist`);
               (err as unknown as { code: string; statusCode: number }).code = 'REQUEST_NOT_FOUND';
               (err as unknown as { code: string; statusCode: number }).statusCode = 409;
               throw err;
             }
 
+            if (reqRow.source === 'SIMULATED') {
+              const err = new Error(
+                `Cannot commit assignment plan containing simulated request "${reqId}" in operational dispatch mode`,
+              );
+              (err as unknown as { code: string; statusCode: number }).code =
+                'SIMULATED_REQUEST_FORBIDDEN';
+              (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+              throw err;
+            }
+
             if (stop.is_frozen) {
-              if (reqStatus !== 'ASSIGNED') {
+              if (reqRow.status !== 'ASSIGNED') {
                 const err = new Error(
-                  `Request "${reqId}" in frozen stop is in invalid status: ${reqStatus} (must be ASSIGNED)`,
+                  `Request "${reqId}" in frozen stop is in invalid status: ${reqRow.status} (must be ASSIGNED)`,
                 );
                 (err as unknown as { code: string; statusCode: number }).code =
                   'REQUEST_ALREADY_ASSIGNED';
@@ -997,9 +1008,9 @@ export class PostgisRepository {
                 throw err;
               }
             } else {
-              if (reqStatus !== 'PENDING') {
+              if (reqRow.status !== 'PENDING') {
                 const err = new Error(
-                  `Request "${reqId}" is no longer in PENDING status (current status: ${reqStatus})`,
+                  `Request "${reqId}" is no longer in PENDING status (current status: ${reqRow.status})`,
                 );
                 (err as unknown as { code: string; statusCode: number }).code =
                   'REQUEST_ALREADY_ASSIGNED';
@@ -1014,16 +1025,36 @@ export class PostgisRepository {
       // 4. Lock all referenced resource rows using PostgreSQL SELECT ... FOR UPDATE in deterministic order
       const resourceIds = Array.from(new Set(planStops.map((s) => s.resource_id))).sort();
       if (resourceIds.length > 0) {
-        const resResult = await client.query<{ id: string; status: string }>(
-          'SELECT id, status FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
+        const resResult = await client.query<{ id: string; status: string; source: string }>(
+          'SELECT id, status, source FROM resources WHERE id = ANY($1::text[]) ORDER BY id COLLATE "C" ASC FOR UPDATE;',
           [resourceIds],
         );
-        const lockedResources = new Map(resResult.rows.map((r) => [r.id, r.status]));
+        const lockedResources = new Map(resResult.rows.map((r) => [r.id, r]));
 
         for (const resId of resourceIds) {
-          if (!lockedResources.has(resId)) {
+          const resRow = lockedResources.get(resId);
+          if (!resRow) {
             const err = new Error(`Resource "${resId}" referenced in assignment does not exist`);
             (err as unknown as { code: string; statusCode: number }).code = 'RESOURCE_NOT_FOUND';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          if (resRow.source === 'SIMULATED') {
+            const err = new Error(
+              `Cannot commit assignment plan containing simulated resource "${resId}" in operational dispatch mode`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code =
+              'SIMULATED_RESOURCE_FORBIDDEN';
+            (err as unknown as { code: string; statusCode: number }).statusCode = 409;
+            throw err;
+          }
+
+          if (resRow.status === 'OFFLINE' || resRow.status === 'MAINTENANCE') {
+            const err = new Error(
+              `Resource "${resId}" is unavailable for commitment (current status: ${resRow.status})`,
+            );
+            (err as unknown as { code: string; statusCode: number }).code = 'RESOURCE_UNAVAILABLE';
             (err as unknown as { code: string; statusCode: number }).statusCode = 409;
             throw err;
           }

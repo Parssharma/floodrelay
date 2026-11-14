@@ -322,6 +322,77 @@ describe('Phase 3 Milestone 5 — Solver Proposal & Human-Supervised Assignment 
   });
 
   describe('4. Critical Safety & Human-in-the-Loop Constraints', () => {
+    it('enforces plan commitment eligibility: simulated or mixed plans cannot be committed', () => {
+      function isPlanCommitEligible(plan: AssignmentRecord): boolean {
+        return !(
+          plan.provenance === 'SIMULATED' ||
+          plan.provenance === 'MIXED' ||
+          Boolean(plan.hasSimulatedResources) ||
+          Boolean(plan.hasSimulatedRequests)
+        );
+      }
+
+      const realPlan: AssignmentRecord = {
+        id: 'assign_real',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'REAL',
+        hasSimulatedResources: false,
+        hasSimulatedRequests: false,
+      };
+
+      const simPlan: AssignmentRecord = {
+        id: 'assign_sim',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'SIMULATED',
+        hasSimulatedResources: true,
+        hasSimulatedRequests: false,
+      };
+
+      const mixedPlan: AssignmentRecord = {
+        id: 'assign_mixed',
+        status: 'PROPOSED',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        provenance: 'MIXED',
+        hasSimulatedResources: true,
+        hasSimulatedRequests: true,
+      };
+
+      expect(isPlanCommitEligible(realPlan)).toBe(true);
+      expect(isPlanCommitEligible(simPlan)).toBe(false);
+      expect(isPlanCommitEligible(mixedPlan)).toBe(false);
+    });
+
+    it('handles SIMULATED_RESOURCE_FORBIDDEN and SIMULATED_REQUEST_FORBIDDEN error responses from API client', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: {
+            code: 'SIMULATED_RESOURCE_FORBIDDEN',
+            message:
+              'Cannot commit assignment plan containing simulated resource "res_sim_01" in operational dispatch mode',
+          },
+        }),
+      });
+
+      try {
+        await client.commitAssignment('assign_sim_test', {
+          operatorId: 'OPERATOR_1',
+        });
+        expect.unreachable('Should have thrown ApiClientError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiClientError);
+        const apiErr = err as ApiClientError;
+        expect(apiErr.statusCode).toBe(409);
+        expect(apiErr.code).toBe('SIMULATED_RESOURCE_FORBIDDEN');
+      }
+    });
+
     it('enforces safety checklist invariant: all 3 items required before plan commit', () => {
       function canCommit(checklist: {
         draftClearance: boolean;
