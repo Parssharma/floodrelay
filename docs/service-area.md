@@ -328,21 +328,85 @@ The Citizen Portal rescue request form (`apps/web/app/citizen/request/page.tsx`)
 
 ---
 
-## 10. Mandatory Deployment Sequence & Configuration Requirements
+## 10. Migration Immutability, Forward-Only Repair & Deployment Sequence
+
+### Migration Immutability & Incident Analysis
+
+In earlier revisions, migration `005_service_areas.sql` was modified in-place after its initial deployment to update the recorded `dataset_sha256` from the raw unformatted export hash (`357d77cd...`) to the canonical repository GeoJSON hash (`a48e65c6...`).
+
+**Failure Mechanism:**
+FloodRelay's migration runner (`services/api/src/db/migrator.ts`) tracks applied migrations by version string in the `schema_migrations` table (`version VARCHAR(64) PRIMARY KEY`). If `applied.has(version)` evaluates to true, the migration runner skips the file without inspecting its contents. Consequently:
+1. In any database where migration `005` ran prior to the in-place edit, `005_service_areas` remained marked as applied with the stale checksum `357d77cd...`.
+2. Running `npm run migrate` in existing environments skipped migration 005.
+3. At API startup and on every rescue request submission, `ServiceAreaService.attestActiveBoundaryIntegrity()` and `checkCoordinates()` enforced strict fail-closed boundary attestation against `DELHI_NCR_EXPECTED_DATASET_SHA256` (`a48e65c6...`).
+4. Because the database row still retained the stale checksum, the API server rejected valid citizen intake submissions (such as *Guru Virjanand Marg, Pitampura, Delhi, 110034*) with HTTP 503 `SERVICE_AREA_UNAVAILABLE`.
+
+**Architectural Policy — Never Edit Historical Migrations:**
+Historical migration scripts (`001` through `005`) are strictly immutable once executed in any environment. Existing databases must **never** be repaired via manual `migrate:down`, table drops, schema resets, or in-place migration edits.
+
+All repairs must be applied via **forward-only, idempotent migrations**.
+
+### Forward-Only Migration 006 (`006_correct_service_area_boundary_attestation.sql`)
+
+Migration `006` permanently resolves this attestation defect by:
+1. Performing an idempotent upsert (`ON CONFLICT (region_id) DO UPDATE SET ...`) using the canonical repository GeoJSON geometry from `delhi-ncr-boundary.geojson`.
+2. Persisting the authoritative `dataset_sha256 = 'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae'`.
+3. Verifying PostGIS geometry validity (`ST_IsValid = TRUE`), SRID 4326, and physical area constraints (`[54000, 57000]` sq. km).
+4. Ensuring exactly one active boundary row in `service_areas`.
+5. Preserving 100% of existing rescue requests, operational events, and audit logs.
+
+### Operator Troubleshooting Runbook: Attestation Failures
+
+If an API service instance fails startup or logs `[Startup Error] Active PostGIS boundary attestation failed`:
+
+1. **Check Applied Migrations:**
+   ```bash
+   npm --workspace=@floodrelay/api run migrate
+   ```
+   Verify migration `006_correct_service_area_boundary_attestation` applies.
+
+2. **Inspect Database Boundary Row:**
+   ```sql
+   SELECT region_id, boundary_version, dataset_sha256, is_active,
+          ST_IsValid(geometry) AS is_valid, ST_SRID(geometry) AS srid,
+          ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
+   FROM service_areas WHERE region_id = 'IN-NCR';
+   ```
+   Verify:
+   - `dataset_sha256` = `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`
+   - `is_valid` = `true`
+   - `srid` = `4326`
+   - `is_active` = `true`
+
+3. **Verify Repository GeoJSON Checksum:**
+   ```bash
+   node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync('services/api/src/geo/delhi-ncr-boundary.geojson')).digest('hex'))"
+   ```
+   Must equal `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`.
+
+4. **Verify Health Endpoint:**
+   ```bash
+   curl -s http://localhost:3001/requests/service-area-check -H "Content-Type: application/json" -d '{"lat": 28.6315, "lng": 77.2167}'
+   ```
+   Expect: `{"success": true, "data": {"eligible": true, "status": "INSIDE", ...}}`.
+
+---
+
+## 11. Mandatory Deployment Sequence & Configuration Requirements
 
 There is **no feature flag** to bypass service-area enforcement (`ENABLE_SERVICE_AREA_CHECK` was an imaginary feature flag; service area enforcement is mandatory and unconditional).
 
-Production deployments must execute the following 9-step sequence:
+Production deployments must execute the following 10-step sequence:
 
 1. **PostGIS Provisioning:** Provision a PostgreSQL 15+ database instance with the PostGIS extension enabled (`CREATE EXTENSION IF NOT EXISTS postgis;`).
-2. **Core Migrations:** Apply base schema migrations `001_initial_schema.sql` through `004_route_indexes.sql`.
-3. **Service-Area Migration:** Execute `infra/migrations/005_service_areas.sql` to establish the `service_areas` table, insert the authoritative Delhi NCR dissolved boundary geometry, and verify polygon topology and area constraints.
+2. **Core Migrations:** Apply base schema migrations `001_initial_schema.sql` through `004_operational_events.sql`.
+3. **Service-Area Migrations:** Execute `npm --workspace=@floodrelay/api run migrate` to apply `005_service_areas.sql` and `006_correct_service_area_boundary_attestation.sql`.
 4. **Migration Verification:** Query PostgreSQL to confirm boundary validity:
    ```sql
-   SELECT region_id, region_name, boundary_version, ST_IsValid(geometry) AS is_valid, ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
+   SELECT region_id, region_name, boundary_version, dataset_sha256, ST_IsValid(geometry) AS is_valid, ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
    FROM service_areas WHERE is_active = TRUE;
    ```
-   Assert `is_valid = true` and `area_sq_km` between 54,000 and 57,000.
+   Assert `is_valid = true`, `dataset_sha256 = 'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae'`, and `area_sq_km` between 54,000 and 57,000.
 5. **Backend Deployment:** Deploy the `@floodrelay/api` container with `DATABASE_URL` configured. On startup, the service:
    - Verifies the SHA-256 integrity of `services/api/src/geo/delhi-ncr-boundary.geojson` against `DELHI_NCR_EXPECTED_DATASET_SHA256`.
    - Performs active PostGIS boundary attestation via `attestActiveBoundaryIntegrity()`, including topological `ST_Equals` comparison against canonical GeoJSON and WKB hash capture.
@@ -351,3 +415,4 @@ Production deployments must execute the following 9-step sequence:
 7. **Frontend Deployment:** Deploy the `@floodrelay/web` Next.js frontend with `NEXT_PUBLIC_API_URL` pointing to the API service.
 8. **Traffic Enablement:** Direct ingress load balancers / reverse proxies to route public citizen and operator traffic to the updated deployment.
 9. **Post-Deployment Monitoring:** Monitor application logs for `[Startup]` attestation success messages and periodic `[ServiceAreaService]` geometry hash consistency.
+10. **Replay & Smoke Verification:** Verify citizen submission flow on live intake endpoints with both new submissions (HTTP 201) and idempotent replays (HTTP 200).
