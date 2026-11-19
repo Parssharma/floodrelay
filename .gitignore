@@ -64,6 +64,8 @@ change*.md
 pr_description.md
 commit*.md
 Report/
+.demo-credentials.local.json
+*.local.json
 
 # === Local binaries / tools ===
 tools/bin/
