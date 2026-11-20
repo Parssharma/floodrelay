@@ -336,10 +336,11 @@ In earlier revisions, migration `005_service_areas.sql` was modified in-place af
 
 **Failure Mechanism:**
 FloodRelay's migration runner (`services/api/src/db/migrator.ts`) tracks applied migrations by version string in the `schema_migrations` table (`version VARCHAR(64) PRIMARY KEY`). If `applied.has(version)` evaluates to true, the migration runner skips the file without inspecting its contents. Consequently:
+
 1. In any database where migration `005` ran prior to the in-place edit, `005_service_areas` remained marked as applied with the stale checksum `357d77cd...`.
 2. Running `npm run migrate` in existing environments skipped migration 005.
 3. At API startup and on every rescue request submission, `ServiceAreaService.attestActiveBoundaryIntegrity()` and `checkCoordinates()` enforced strict fail-closed boundary attestation against `DELHI_NCR_EXPECTED_DATASET_SHA256` (`a48e65c6...`).
-4. Because the database row still retained the stale checksum, the API server rejected valid citizen intake submissions (such as *Guru Virjanand Marg, Pitampura, Delhi, 110034*) with HTTP 503 `SERVICE_AREA_UNAVAILABLE`.
+4. Because the database row still retained the stale checksum, the API server rejected valid citizen intake submissions (such as _Guru Virjanand Marg, Pitampura, Delhi, 110034_) with HTTP 503 `SERVICE_AREA_UNAVAILABLE`.
 
 **Architectural Policy — Never Edit Historical Migrations:**
 Historical migration scripts (`001` through `005`) are strictly immutable once executed in any environment. Existing databases must **never** be repaired via manual `migrate:down`, table drops, schema resets, or in-place migration edits.
@@ -349,6 +350,7 @@ All repairs must be applied via **forward-only, idempotent migrations**.
 ### Forward-Only Migration 006 (`006_correct_service_area_boundary_attestation.sql`)
 
 Migration `006` permanently resolves this attestation defect by:
+
 1. Performing an idempotent upsert (`ON CONFLICT (region_id) DO UPDATE SET ...`) using the canonical repository GeoJSON geometry from `delhi-ncr-boundary.geojson`.
 2. Persisting the authoritative `dataset_sha256 = 'a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae'`.
 3. Verifying PostGIS geometry validity (`ST_IsValid = TRUE`), SRID 4326, and physical area constraints (`[54000, 57000]` sq. km).
@@ -360,18 +362,22 @@ Migration `006` permanently resolves this attestation defect by:
 If an API service instance fails startup or logs `[Startup Error] Active PostGIS boundary attestation failed`:
 
 1. **Check Applied Migrations:**
+
    ```bash
    npm --workspace=@floodrelay/api run migrate
    ```
+
    Verify migration `006_correct_service_area_boundary_attestation` applies.
 
 2. **Inspect Database Boundary Row:**
+
    ```sql
    SELECT region_id, boundary_version, dataset_sha256, is_active,
           ST_IsValid(geometry) AS is_valid, ST_SRID(geometry) AS srid,
           ST_Area(geometry::geography) / 1000000.0 AS area_sq_km
    FROM service_areas WHERE region_id = 'IN-NCR';
    ```
+
    Verify:
    - `dataset_sha256` = `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`
    - `is_valid` = `true`
@@ -379,9 +385,11 @@ If an API service instance fails startup or logs `[Startup Error] Active PostGIS
    - `is_active` = `true`
 
 3. **Verify Repository GeoJSON Checksum:**
+
    ```bash
    node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync('services/api/src/geo/delhi-ncr-boundary.geojson')).digest('hex'))"
    ```
+
    Must equal `a48e65c666c374c07364e03c79d090a8c0888971f463f804d40baf052104e8ae`.
 
 4. **Verify Health Endpoint:**

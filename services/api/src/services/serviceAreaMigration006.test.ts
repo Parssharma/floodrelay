@@ -34,7 +34,10 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
 
   afterAll(async () => {
     // Restore boundary to valid canonical state
-    const migrationSqlPath = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql');
+    const migrationSqlPath = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql',
+    );
     if (fs.existsSync(migrationSqlPath)) {
       const sql = fs.readFileSync(migrationSqlPath, 'utf-8');
       await pool.query(sql);
@@ -47,7 +50,11 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
     const { sha256 } = loadDelhiNcrBoundaryDataset();
     expect(sha256).toBe(DELHI_NCR_EXPECTED_DATASET_SHA256);
 
-    const res = await pool.query<{ dataset_sha256: string; boundary_version: string; region_id: string }>(
+    const res = await pool.query<{
+      dataset_sha256: string;
+      boundary_version: string;
+      region_id: string;
+    }>(
       'SELECT dataset_sha256, boundary_version, region_id FROM service_areas WHERE region_id = $1 AND is_active = TRUE',
       [DELHI_NCR_REGION_ID],
     );
@@ -75,7 +82,10 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
     );
 
     // Apply migration 006 forward migration script
-    const migration006Path = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql');
+    const migration006Path = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql',
+    );
     const sql = fs.readFileSync(migration006Path, 'utf-8');
     await pool.query(sql);
 
@@ -89,7 +99,10 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
 
   // Req 3: Idempotent repeated execution of migration 006
   it('Req 3: supports idempotent repeated execution without errors, duplicates, or state drift', async () => {
-    const migration006Path = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql');
+    const migration006Path = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql',
+    );
     const sql = fs.readFileSync(migration006Path, 'utf-8');
 
     // Run migration twice
@@ -150,8 +163,8 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
       { name: 'Pitampura (Incident Location)', lat: 28.7032, lng: 77.1325 },
       { name: 'Connaught Place (Central Delhi)', lat: 28.6315, lng: 77.2167 },
       { name: 'Gurugram (Haryana)', lat: 28.4595, lng: 77.0266 },
-      { name: 'Noida (Uttar Pradesh)', lat: 28.5355, lng: 77.3910 },
-      { name: 'Alwar (Peripheral Rajasthan NCR)', lat: 27.5530, lng: 76.6346 },
+      { name: 'Noida (Uttar Pradesh)', lat: 28.5355, lng: 77.391 },
+      { name: 'Alwar (Peripheral Rajasthan NCR)', lat: 27.553, lng: 76.6346 },
     ];
 
     for (const pt of ncrPoints) {
@@ -165,7 +178,7 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
   // Req 9: Conclusive rejection of coordinates outside Delhi NCR
   it('Req 9: conclusively rejects coordinates outside Delhi NCR (e.g. Mumbai 19.0760, 72.8777)', async () => {
     const outsidePoints = [
-      { name: 'Mumbai', lat: 19.0760, lng: 72.8777 },
+      { name: 'Mumbai', lat: 19.076, lng: 72.8777 },
       { name: 'Bengaluru', lat: 12.9716, lng: 77.5946 },
       { name: 'Kolkata', lat: 22.5726, lng: 88.3639 },
       { name: 'Jaipur (Outside NCR)', lat: 26.9124, lng: 75.7873 },
@@ -183,7 +196,7 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
   it('Req 10: distinguishes OUTSIDE_SERVICE_AREA (422) from SERVICE_AREA_UNAVAILABLE (503)', async () => {
     // Outside NCR returns 422
     const resOutside = await request(app).post('/requests').send({
-      lat: 19.0760,
+      lat: 19.076,
       lng: 72.8777,
       peopleCount: 1,
       urgency: 'LOW',
@@ -229,7 +242,10 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
     const requestId = createRes.body.data.id;
 
     // Execute migration 006
-    const migration006Path = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql');
+    const migration006Path = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql',
+    );
     const sql = fs.readFileSync(migration006Path, 'utf-8');
     await pool.query(sql);
 
@@ -261,14 +277,18 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
     expect(validResult.isValid).toBe(true);
 
     // 2. Inactivated record fails closed
-    await pool.query('UPDATE service_areas SET is_active = FALSE WHERE region_id = $1', [DELHI_NCR_REGION_ID]);
+    await pool.query('UPDATE service_areas SET is_active = FALSE WHERE region_id = $1', [
+      DELHI_NCR_REGION_ID,
+    ]);
     ServiceAreaService.resetAttestationForTest();
     await expect(serviceAreaService.attestActiveBoundaryIntegrity()).rejects.toThrow(
       /No active service-area boundary found/i,
     );
 
     // 3. Re-activate
-    await pool.query('UPDATE service_areas SET is_active = TRUE WHERE region_id = $1', [DELHI_NCR_REGION_ID]);
+    await pool.query('UPDATE service_areas SET is_active = TRUE WHERE region_id = $1', [
+      DELHI_NCR_REGION_ID,
+    ]);
     ServiceAreaService.resetAttestationForTest();
     const restoredResult = await serviceAreaService.attestActiveBoundaryIntegrity();
     expect(restoredResult.regionId).toBe(DELHI_NCR_REGION_ID);
@@ -282,7 +302,7 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
     expect(inside.uncertaintyAssessment.isNearBoundary).toBe(false);
 
     // Far outside (Mumbai)
-    const farOutside = await serviceAreaService.checkCoordinates(19.0760, 72.8777);
+    const farOutside = await serviceAreaService.checkCoordinates(19.076, 72.8777);
     expect(farOutside.status).toBe('OUTSIDE');
     expect(farOutside.uncertaintyAssessment.isNearBoundary).toBe(false);
     expect(farOutside.distanceToBoundaryMeters).toBeGreaterThan(100000);
@@ -290,7 +310,10 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
 
   // Req 15: Verification that down migrations leave database in a consistent state without orphan data
   it('Req 15: down migration executes safely without deleting service_areas or creating orphan data', async () => {
-    const downSqlPath = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.down.sql');
+    const downSqlPath = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.down.sql',
+    );
     const downSql = fs.readFileSync(downSqlPath, 'utf-8');
 
     // Run down migration
@@ -301,10 +324,15 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
       [DELHI_NCR_REGION_ID],
     );
     expect(res.rows).toHaveLength(1);
-    expect(res.rows[0]?.dataset_sha256.trim()).toBe('357d77cdf69c8f5f4016c0c656e70cfcb8b1d585dcba5849e95a15299478fd1d');
+    expect(res.rows[0]?.dataset_sha256.trim()).toBe(
+      '357d77cdf69c8f5f4016c0c656e70cfcb8b1d585dcba5849e95a15299478fd1d',
+    );
 
     // Reapply forward migration 006
-    const upSqlPath = path.resolve(__dirname, '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql');
+    const upSqlPath = path.resolve(
+      __dirname,
+      '../../../../infra/migrations/006_correct_service_area_boundary_attestation.sql',
+    );
     const upSql = fs.readFileSync(upSqlPath, 'utf-8');
     await pool.query(upSql);
 
@@ -319,7 +347,7 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
   it('Req 16: prevents SQL injection vectors through parameterized PostGIS queries and schema validation', async () => {
     // Non-numeric latitude/longitude rejected by schema validation before reaching SQL
     const resSqlInj = await request(app).post('/requests/service-area-check').send({
-      lat: "28.7032; DROP TABLE service_areas; --",
+      lat: '28.7032; DROP TABLE service_areas; --',
       lng: 77.1325,
     });
     expect(resSqlInj.status).toBe(400);
@@ -352,7 +380,8 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
       peopleCount: 4,
       urgency: 'HIGH',
       medicalNeeds: true,
-      notes: 'Guru Virjanand Marg, Pitampura, Delhi, 110034 - Elderly resident requires evacuation assistance',
+      notes:
+        'Guru Virjanand Marg, Pitampura, Delhi, 110034 - Elderly resident requires evacuation assistance',
       source: 'REPORTED',
       idempotencyKey,
     });
@@ -370,7 +399,8 @@ describe('Migration 006 — Delhi NCR Service-Area Boundary Attestation Hardenin
       peopleCount: 4,
       urgency: 'HIGH',
       medicalNeeds: true,
-      notes: 'Guru Virjanand Marg, Pitampura, Delhi, 110034 - Elderly resident requires evacuation assistance',
+      notes:
+        'Guru Virjanand Marg, Pitampura, Delhi, 110034 - Elderly resident requires evacuation assistance',
       source: 'REPORTED',
       idempotencyKey,
     });
