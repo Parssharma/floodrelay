@@ -58,11 +58,12 @@ Desktop.ini
 *.swo
 *~
 
-# === Local change tracking logs (keep local only) ===
+# === Local change tracking logs & reports (keep local only) ===
 changes*.md
 change*.md
 pr_description.md
 commit*.md
+Report/
 .demo-credentials.local.json
 *.local.json
 

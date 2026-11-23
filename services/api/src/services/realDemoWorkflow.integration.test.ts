@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
+import { type Scenario, type SolverPlan } from '@floodrelay/shared';
+import { solveNearestFirst, validateSolverPlan } from '@floodrelay/solver';
 import { createApp } from '../app.js';
 import { getPool } from '../db/connection.js';
 import { PostgisRepository } from '../db/repository.js';
@@ -217,15 +219,54 @@ describe.runIf(shouldRun)(
       expect(proposedPlan.status).toBe('PROPOSED');
       expect(proposedPlan.routes.length).toBeGreaterThan(0);
       for (const route of proposedPlan.routes) {
-        let seenDropoff = false;
+        let currentLoad = 0;
+        let prevArrival = 0;
+        const pickedUpRequests = new Set<string>();
+        const onboardRequests = new Set<string>();
+
+        expect(route.stops.length).toBeGreaterThan(0);
+
         for (const stop of route.stops) {
-          if (stop.type === 'DROPOFF') seenDropoff = true;
-          if (stop.type === 'PICKUP' && seenDropoff) {
-            throw new Error(
-              `Invalid route: PICKUP occurred after DROPOFF for resource ${route.resourceId}`,
-            );
+          // Invariant 1: Monotonic arrival times along route
+          expect(stop.estimatedArrivalMinutes).toBeGreaterThanOrEqual(prevArrival);
+          prevArrival = stop.estimatedArrivalMinutes;
+
+          if (stop.type === 'PICKUP') {
+            // Invariant 2: Pickups must be non-empty and unique per request
+            expect(stop.passengersPickedUp).toBeGreaterThan(0);
+            expect(pickedUpRequests.has(stop.targetId)).toBe(false);
+            pickedUpRequests.add(stop.targetId);
+            onboardRequests.add(stop.targetId);
+
+            currentLoad += stop.passengersPickedUp;
+            // Invariant 3: Capacity upper bound along route
+            expect(currentLoad).toBeLessThanOrEqual(10);
+          } else if (stop.type === 'DROPOFF') {
+            // Invariant 4: Delivery precedence — delivery occurs after its corresponding pickup;
+            // cannot deliver more passengers than currently onboard
+            expect(stop.passengersDroppedOff).toBeGreaterThan(0);
+            expect(stop.passengersDroppedOff).toBeLessThanOrEqual(currentLoad);
+
+            currentLoad -= stop.passengersDroppedOff;
+            // Invariant 5: Non-negative load
+            expect(currentLoad).toBeGreaterThanOrEqual(0);
+
+            // When currentLoad reaches 0, all onboard requests have been safely delivered to shelter
+            if (currentLoad === 0) {
+              onboardRequests.clear();
+            }
           }
         }
+
+        // Invariant 6: Must drop off all onboard passengers before route end
+        expect(currentLoad).toBe(0);
+        expect(onboardRequests.size).toBe(0);
+
+        // Invariant 7: Route must end with a DROPOFF at a valid shelter
+        const lastStop = route.stops[route.stops.length - 1]!;
+        expect(lastStop.type).toBe('DROPOFF');
+        expect(typeof lastStop.targetId).toBe('string');
+        expect(lastStop.targetId.length).toBeGreaterThan(0);
       }
 
       // =========================================================================
@@ -370,6 +411,127 @@ describe.runIf(shouldRun)(
         [[req1Id, req2Id, req3Id]],
       );
       expect(Number(verifyReqs.rows[0]?.c)).toBe(0);
+    });
+
+    it('verifies that multi-trip routes with interleaved independent pickup-delivery pairs satisfy all route invariants (Rule B regression)', () => {
+      // Scenario: Vehicle with capacity 6 serves two distinct requests:
+      // Request A (4 people) and Request B (5 people).
+      // Combined load (4 + 5 = 9) exceeds vehicle capacity (6), requiring two separate sorties:
+      // Sortie 1: PICKUP(reqA, 4) -> DROPOFF(shelter, 4)
+      // Sortie 2: PICKUP(reqB, 5) -> DROPOFF(shelter, 5)
+      // This test proves that PICKUP occurring after DROPOFF across independent sorties
+      // is completely valid and correctly satisfies delivery precedence, capacity, and route completion.
+      const interleavedScenario: Scenario = {
+        id: 'scenario-multi-trip-regression',
+        metadata: {
+          id: 'scenario-multi-trip-regression',
+          name: 'Multi-Trip Regression Scenario',
+          region: 'Delhi NCR',
+          createdAt: '2026-11-20T00:00:00.000Z',
+          bounds: { minLat: 28.6, maxLat: 28.7, minLng: 77.2, maxLng: 77.3 },
+        },
+        resources: [
+          {
+            id: 'craft_multi_trip',
+            name: 'Rescue Craft Multi',
+            type: 'BOAT',
+            capacity: 6,
+            speedKmH: 25.0,
+            lat: 28.66,
+            lng: 77.23,
+            status: 'AVAILABLE',
+            source: 'REAL',
+          },
+        ],
+        shelters: [
+          {
+            id: 'shelter_regression',
+            name: 'Safe Haven Regression',
+            lat: 28.68,
+            lng: 77.22,
+            capacity: 150,
+            source: 'REAL',
+          },
+        ],
+        requests: [
+          {
+            id: 'req_group_a',
+            lat: 28.665,
+            lng: 77.235,
+            peopleCount: 4,
+            urgency: 'HIGH',
+            status: 'PENDING',
+            source: 'REPORTED',
+            createdAt: '2026-11-20T00:00:00.000Z',
+          },
+          {
+            id: 'req_group_b',
+            lat: 28.668,
+            lng: 77.238,
+            peopleCount: 5,
+            urgency: 'HIGH',
+            status: 'PENDING',
+            source: 'REPORTED',
+            createdAt: '2026-11-20T00:00:00.000Z',
+          },
+        ],
+      };
+
+      // Solve with nearest-first which generates multi-trip sorties when capacity is reached
+      const plan = solveNearestFirst(interleavedScenario);
+
+      expect(plan.routes).toHaveLength(1);
+      const multiRoute = plan.routes[0]!;
+      expect(multiRoute.stops.length).toBe(4);
+
+      // Verify exact stop structure:
+      // Stop 1: PICKUP req_group_a (4 passengers)
+      // Stop 2: DROPOFF shelter_regression (4 passengers dropped off)
+      // Stop 3: PICKUP req_group_b (5 passengers picked up) -- PICKUP after DROPOFF is valid under Rule B!
+      // Stop 4: DROPOFF shelter_regression (5 passengers dropped off)
+      expect(multiRoute.stops[0]?.type).toBe('PICKUP');
+      expect(multiRoute.stops[0]?.targetId).toBe('req_group_a');
+      expect(multiRoute.stops[0]?.passengersPickedUp).toBe(4);
+
+      expect(multiRoute.stops[1]?.type).toBe('DROPOFF');
+      expect(multiRoute.stops[1]?.targetId).toBe('shelter_regression');
+      expect(multiRoute.stops[1]?.passengersDroppedOff).toBe(4);
+
+      expect(multiRoute.stops[2]?.type).toBe('PICKUP');
+      expect(multiRoute.stops[2]?.targetId).toBe('req_group_b');
+      expect(multiRoute.stops[2]?.passengersPickedUp).toBe(5);
+
+      expect(multiRoute.stops[3]?.type).toBe('DROPOFF');
+      expect(multiRoute.stops[3]?.targetId).toBe('shelter_regression');
+      expect(multiRoute.stops[3]?.passengersDroppedOff).toBe(5);
+
+      // Validate against the canonical solver plan validator
+      const validationResult = validateSolverPlan(interleavedScenario, plan);
+      expect(validationResult.valid).toBe(true);
+      expect(validationResult.errors).toHaveLength(0);
+
+      // Negative check: prove that a route where delivery PRECEDES pickup is rejected
+      const invalidPrecedencePlan: SolverPlan = {
+        ...plan,
+        routes: [
+          {
+            ...multiRoute,
+            stops: [
+              {
+                ...multiRoute.stops[1]!,
+                stopNumber: 1,
+                passengersDroppedOff: 4, // Dropoff before any pickup occurred!
+              },
+              ...multiRoute.stops.slice(1),
+            ],
+          },
+        ],
+      };
+      const invalidResult = validateSolverPlan(interleavedScenario, invalidPrecedencePlan);
+      expect(invalidResult.valid).toBe(false);
+      expect(
+        invalidResult.errors.some((e) => e.includes('dropped off') || e.includes('below 0')),
+      ).toBe(true);
     });
   },
 );
