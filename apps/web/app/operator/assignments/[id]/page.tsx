@@ -15,7 +15,6 @@ import {
   formatDurationMinutes,
   getRouteDisplayMetrics,
   getRouteSourceLabel,
-  summarizeAssignmentRoutes,
 } from '@/components/operator/map/routeDisplay';
 
 interface PageProps {
@@ -432,11 +431,11 @@ export default function AssignmentReviewPage({ params }: PageProps) {
       )}
 
       {/* Two-Column Detailed Review Layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* ===================================================================== */}
-        {/* LEFT COLUMN: Vehicle Routes & Manifest (7/12 cols)                   */}
+        {/* LEFT COLUMN: Vehicle Routes & Manifest (7/12 cols on lg+)             */}
         {/* ===================================================================== */}
-        <div className="xl:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6">
           {/* Multi-vehicle routes */}
           {routes.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-2">
@@ -657,112 +656,9 @@ export default function AssignmentReviewPage({ params }: PageProps) {
         </div>
 
         {/* ===================================================================== */}
-        {/* RIGHT COLUMN: Topology Map, Checklist, Commit Trigger (5/12 cols)     */}
+        {/* RIGHT COLUMN: Checklist & Commit Controls (5/12 cols on lg+)          */}
         {/* ===================================================================== */}
-        <div className="xl:col-span-5 space-y-6">
-          {/* Geospatial Routing Topology Panel */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                <span className="material-symbols-outlined text-teal-700 text-base">hub</span>
-                <span>Tactical Topology</span>
-              </div>
-              <span className="text-[11px] font-mono text-emerald-700 font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Plan Solution
-              </span>
-            </div>
-
-            {/* Tactical Vector Map Canvas */}
-            <div className="relative w-full h-64 bg-slate-900 overflow-hidden">
-              <svg className="w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <pattern id="tacticalGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <path
-                      d="M 20 0 L 0 0 0 20"
-                      fill="none"
-                      stroke="rgba(255, 255, 255, 0.05)"
-                      strokeWidth="1"
-                    />
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#tacticalGrid)" />
-
-                {/* Simulated Yamuna floodplain curve */}
-                <path
-                  d="M -20,160 C 120,150 220,190 320,170 C 420,150 520,170 600,150"
-                  fill="none"
-                  stroke="#007a71"
-                  strokeWidth="12"
-                  opacity="0.8"
-                />
-
-                {/* Navigational Vector Path */}
-                <polyline
-                  points="60,170 140,150 220,130 360,80"
-                  fill="none"
-                  stroke="#80d5cb"
-                  strokeWidth="3"
-                  strokeDasharray="4,4"
-                />
-
-                {/* Nodes */}
-                <circle cx="60" cy="170" r="5" fill="#334155" stroke="#ffffff" strokeWidth="1.5" />
-                <circle cx="140" cy="150" r="6" fill="#dc2626" stroke="#ffffff" strokeWidth="1.5" />
-                <circle cx="220" cy="130" r="6" fill="#d97706" stroke="#ffffff" strokeWidth="1.5" />
-                <circle cx="360" cy="80" r="7" fill="#0f766e" stroke="#ffffff" strokeWidth="1.5" />
-              </svg>
-
-              {/* Overlay HUD */}
-              <div className="absolute inset-0 p-3 flex flex-col justify-between pointer-events-none text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="bg-slate-900/90 text-teal-300 font-mono text-[10px] px-2 py-0.5 rounded border border-slate-700">
-                    Plan: {plan.id}
-                  </span>
-                  <span className="bg-slate-900/90 text-slate-300 font-mono text-[10px] px-2 py-0.5 rounded border border-slate-700">
-                    Status: {plan.status}
-                  </span>
-                </div>
-                <div className="bg-slate-900/95 text-slate-200 border border-slate-700 p-2 rounded text-[11px] font-mono max-w-[320px]">
-                  {(() => {
-                    const summary = summarizeAssignmentRoutes(routes);
-                    const totalKm =
-                      summary.totalDistanceKm > 0
-                        ? summary.totalDistanceKm
-                        : (plan.metrics?.totalTravelDistanceKm ?? 0);
-                    return (
-                      <>
-                        <div className="font-bold text-teal-300">
-                          {routes.length} Route(s) • {plan.metrics?.servedRequestsCount ?? 0}{' '}
-                          Requests Allocated ({getRouteSourceLabel(summary.overallSource)})
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Dist: {formatDistanceKm(totalKm)} | Travel: ~
-                          {Math.round(
-                            plan.metrics?.totalTravelTimeMinutes ?? summary.totalDurationMinutes,
-                          )}
-                          m | Wait: ~{Math.round(plan.metrics?.highPriorityWaitTimeMinutes ?? 0)}m
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-
-            {/* Legend */}
-            <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-around text-[11px] font-mono text-slate-600">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-slate-700 inline-block" /> Depot
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-teal-600 inline-block" /> Pickups
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" /> Shelters
-              </span>
-            </div>
-          </div>
-
+        <div className="lg:col-span-5 space-y-6">
           {/* Safety & Conflict Checklist */}
           <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
