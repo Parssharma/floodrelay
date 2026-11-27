@@ -25,6 +25,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "pg": "^8.13.1",
+    "tsx": "^4.19.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -33,7 +34,6 @@
     "@types/pg": "^8.11.11",
     "@types/supertest": "^6.0.2",
     "supertest": "^7.0.0",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
 }

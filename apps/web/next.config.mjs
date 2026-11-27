@@ -4,8 +4,11 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@floodrelay/shared'],
   async rewrites() {
-    const backendUrl =
+    let backendUrl =
       process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    if (!backendUrl.startsWith('http://') && !backendUrl.startsWith('https://')) {
+      backendUrl = `https://${backendUrl}`;
+    }
     return [
       {
         source: '/api/:path*',

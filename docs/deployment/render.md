@@ -39,7 +39,8 @@ DATABASE_URL="postgresql://<user>:<password>@<direct-host>.neon.tech/<dbname>?ss
 - If already migrated: output will show `Applied 0 migrations: []`.
 - If unmigrated: migrations `001` through `006` will be applied safely without data loss.
 
-*(Optional)* Seed initial scenario:
+_(Optional)_ Seed initial scenario:
+
 ```bash
 DATABASE_URL="postgresql://<user>:<password>@<direct-host>.neon.tech/<dbname>?sslmode=require" \
   npm run seed --workspace=@floodrelay/api -- --file scenarios/demo-yamuna-scenario.json
@@ -66,11 +67,12 @@ DATABASE_URL="postgresql://<user>:<password>@<direct-host>.neon.tech/<dbname>?ss
 If you prefer to configure the services manually on Render without Blueprints:
 
 ### Service 1: Backend API (`floodrelay-api`)
+
 - **Type:** Web Service
 - **Environment:** Node
 - **Region:** Singapore
 - **Branch:** `chore/render-deployment`
-- **Root Directory:** *(leave empty)*
+- **Root Directory:** _(leave empty)_
 - **Build Command:** `npm install && npm --workspace=@floodrelay/api run build`
 - **Start Command:** `npm --workspace=@floodrelay/api run start`
 - **Health Check Path:** `/health`
@@ -85,11 +87,12 @@ If you prefer to configure the services manually on Render without Blueprints:
   - `CORS_ORIGIN`: `https://floodrelay-web.onrender.com` (update once web is created)
 
 ### Service 2: Frontend Web (`floodrelay-web`)
+
 - **Type:** Web Service
 - **Environment:** Node
 - **Region:** Singapore
 - **Branch:** `chore/render-deployment`
-- **Root Directory:** *(leave empty)*
+- **Root Directory:** _(leave empty)_
 - **Build Command:** `npm install && npm --workspace=@floodrelay/web run build`
 - **Start Command:** `npm --workspace=@floodrelay/web run start`
 - **Health Check Path:** `/citizen`
@@ -97,4 +100,4 @@ If you prefer to configure the services manually on Render without Blueprints:
   - `NODE_VERSION`: `24.13.0`
   - `NODE_ENV`: `production`
   - `BACKEND_API_URL`: `https://floodrelay-api.onrender.com`
-  - `NEXT_PUBLIC_API_URL`: *(leave unset)*
+  - `NEXT_PUBLIC_API_URL`: _(leave unset)_

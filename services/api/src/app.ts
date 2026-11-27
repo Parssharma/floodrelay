@@ -58,7 +58,15 @@ export function createApp(deps?: AppDependencies): Express {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredOrigins]);
+  const expandedConfiguredOrigins: string[] = [];
+  for (const origin of configuredOrigins) {
+    expandedConfiguredOrigins.push(origin);
+    if (!origin.startsWith('http://') && !origin.startsWith('https://')) {
+      expandedConfiguredOrigins.push(`https://${origin}`);
+      expandedConfiguredOrigins.push(`http://${origin}`);
+    }
+  }
+  const allowedOrigins = new Set([...defaultAllowedOrigins, ...expandedConfiguredOrigins]);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.header('Origin');
