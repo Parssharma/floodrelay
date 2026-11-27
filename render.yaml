@@ -1,0 +1,53 @@
+# Render Blueprint Specification for FloodRelay
+# Learn more: https://render.com/docs/blueprint-spec
+
+services:
+  # 1. Express Backend API Service
+  - type: web
+    name: floodrelay-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm --workspace=@floodrelay/api run build
+    startCommand: npm --workspace=@floodrelay/api run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.13.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Set manually in Render Dashboard to your Neon pooled connection string
+      - key: REQUIRE_DB
+        value: "1"
+      - key: INITIAL_OPERATOR_USERNAME
+        value: eoc_admin
+      - key: INITIAL_OPERATOR_PASSWORD
+        generateValue: true # Render automatically generates a secure unique password
+      - key: INITIAL_OPERATOR_NAME
+        value: "EOC Duty Commander"
+      - key: CORS_ORIGIN
+        fromService:
+          name: floodrelay-web
+          type: web
+          property: host
+
+  # 2. Next.js Frontend Web Service
+  - type: web
+    name: floodrelay-web
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm --workspace=@floodrelay/web run build
+    startCommand: npm --workspace=@floodrelay/web run start
+    healthCheckPath: /citizen
+    envVars:
+      - key: NODE_VERSION
+        value: 24.13.0
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_API_URL
+        fromService:
+          name: floodrelay-api
+          type: web
+          property: host
